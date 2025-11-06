@@ -1,0 +1,16 @@
+{
+  "name": "ai",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+    "build": "echo 'No build required for FastAPI'",
+    "type-check": "mypy .",
+    "lint": "flake8 app --max-line-length=100",
+    "format": "black app && isort app",
+    "test": "pytest",
+    "test:unit": "pytest tests/unit -v --cov=app --cov-report=html -m unit",
+    "test:integration": "pytest tests/integration -v -m integration",
+    "test:watch": "pytest-watch"
+  }
+}

@@ -1,0 +1,17 @@
+# Ignore Python cache and environment
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+venv/
+# Ignore node modules and lock files
+node_modules/
+package-lock.json
+# Ignore OS files
+.DS_Store
+# Ignore build and dist folders
+dist/
+build/
+# Ignore logs
+*.log

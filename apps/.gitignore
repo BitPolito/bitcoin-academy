@@ -1,0 +1,11 @@
+# Ignore node modules and lock files
+node_modules/
+package-lock.json
+# Ignore build and dist folders
+dist/
+build/
+.next/
+# Ignore OS files
+.DS_Store
+# Ignore logs
+*.log

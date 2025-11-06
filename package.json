@@ -1,0 +1,31 @@
+{
+  "name": "bitcoin-academy",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev:web": "cd apps/web && npm run dev",
+    "dev:api": "cd services/ai && npm run dev",
+    "build:web": "cd apps/web && npm run build",
+    "build:api": "cd services/ai && npm run build",
+    "type-check": "cd apps/web && npm run type-check && cd ../../services/ai && npm run type-check",
+    "test": "npm run test:web && npm run test:api",
+    "test:web": "cd apps/web && npm run test",
+    "test:api": "cd services/ai && pytest",
+    "test:watch": "cd apps/web && npm run test:watch",
+    "lint": "eslint apps/web/src services/ai/app --ext .ts,.tsx,.py --max-warnings 0",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.1.0",
+    "eslint": "^8.55.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint-plugin-react": "^7.33.0",
+    "eslint-plugin-prettier": "^5.0.0"
+  }
+}

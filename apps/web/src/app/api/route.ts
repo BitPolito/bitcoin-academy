@@ -1,0 +1,3 @@
+/**
+ * Route handlers (App Router)
+ */
