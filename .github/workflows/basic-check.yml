@@ -18,7 +18,7 @@ jobs:
               working-directory: apps/web
               run: |
                   if [ -f package.json ]; then
-                    npm ci
+                    npm install
                     npm audit --audit-level=moderate || exit 1
                   else
                     echo "No package.json found, skipping npm audit."
