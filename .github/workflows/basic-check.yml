@@ -1,0 +1,35 @@
+name: Basic Check
+
+on:
+    push:
+        branches: [master]
+    pull_request:
+        branches: [master]
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+            - name: Show files
+              run: ls -la
+            - name: Audit JS dependencies (npm audit)
+              working-directory: apps/web
+              run: |
+                  if [ -f package.json ]; then
+                    npm ci
+                    npm audit --audit-level=moderate || exit 1
+                  else
+                    echo "No package.json found, skipping npm audit."
+                  fi
+            - name: Audit Python dependencies (pip-audit)
+              working-directory: services/ai
+              run: |
+                  pip install --upgrade pip
+                  pip install pip-audit
+                  if [ -f requirements.txt ]; then
+                    pip-audit --requirement requirements.txt || exit 1
+                  else
+                    echo "No requirements.txt found, skipping pip-audit."
+                  fi
