@@ -77,7 +77,7 @@ out/
 .env.production.local
 
 # Lock files (optional - uncomment if you want to exclude)
-# package-lock.json
+package-lock.json
 # yarn.lock
 # pnpm-lock.yaml
 
