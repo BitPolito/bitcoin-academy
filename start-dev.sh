@@ -7,7 +7,7 @@ set -e
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "🚀 BitPolito Academy - Development Server"
+echo "BitPolito Academy - Development Server"
 echo "=========================================="
 echo ""
 
@@ -61,35 +61,46 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-echo "✅ Node.js: $(node --version)"
-echo "✅ npm: $(npm --version)"
-echo "✅ Python: $(python3 --version)"
+echo "Node.js: $(node --version)"
+echo "npm: $(npm --version)"
+echo "Python: $(python3 --version)"
 
 # Setup Backend
 print_section "Setting up Backend"
 
 cd "$PROJECT_DIR/services/ai"
 
+# Create virtual environment if it doesn't exist
 if [ ! -d "venv" ]; then
     echo "Creating Python virtual environment..."
     python3 -m venv venv
+    echo "✅ Virtual environment created"
 fi
 
 # Activate virtual environment
+echo "Activating virtual environment..."
 if [ -f "venv/bin/activate" ]; then
     source venv/bin/activate
 elif [ -f "venv/Scripts/activate" ]; then
     source venv/Scripts/activate
+else
+    print_error "Could not find virtual environment activation script"
+    exit 1
 fi
 
-# Install dependencies
+# Check if requirements.txt exists
 if [ ! -f "requirements.txt" ]; then
     print_error "requirements.txt not found"
     exit 1
 fi
 
+# Upgrade pip first
+echo "Upgrading pip..."
+pip install -q --upgrade pip
+
+# Install dependencies
 echo "Installing Python dependencies..."
-pip install -q -r requirements.txt
+pip install -r requirements.txt
 
 if [ ! -f ".env" ]; then
     print_warning ".env file not found. Copying from .env.example..."
@@ -117,7 +128,7 @@ if [ ! -f ".env.local" ]; then
     fi
 fi
 
-echo "✅ Frontend setup complete"
+echo "Frontend setup complete"
 
 # Start servers
 print_section "Starting Development Servers"
