@@ -131,13 +131,3 @@ import { apiClient } from '@/lib/api';
 const courses = await apiClient.get<Course[]>('/courses');
 await apiClient.post('/courses', courseData);
 ```
-
-## Contributing
-
-Follow the project's code style and structure when contributing. Make sure to:
-
-1. Write TypeScript
-2. Use Tailwind CSS for styling
-3. Keep components small and focused
-4. Add proper type annotations
-5. Write meaningful commit messages
