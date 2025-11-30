@@ -24,6 +24,27 @@ API_PORT=8000
 
 ## Development
 
+### Initial Setup
+
+Run the setup script to initialize the database with test users:
+
+```bash
+./setup-dev.sh
+```
+
+This will:
+
+- Install dependencies
+- Create the SQLite database with schema
+- Seed test users for development (no registration needed)
+
+**Test Users:**
+
+- **Admin**: `admin@bitpolito.it` / `admin123`
+- **Student**: `student@bitpolito.it` / `student123`
+
+### Start the Server
+
 ```bash
 python -m uvicorn app.main:app --reload
 ```

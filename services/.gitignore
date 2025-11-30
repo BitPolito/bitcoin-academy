@@ -3,15 +3,111 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.Python
+*.so
 .env
+.env.*
+.env.local
+!.env.example
 venv/
+.venv/
+env/
+ENV/
+.python-version
+pip-log.txt
+pip-delete-this-directory.txt
+
 # Ignore node modules and lock files
 node_modules/
 package-lock.json
+yarn.lock
+
 # Ignore OS files
 .DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
 # Ignore build and dist folders
 dist/
 build/
+*.egg-info/
+*.egg
+.eggs/
+*.whl
+*.manifest
+*.spec
+MANIFEST
+
 # Ignore logs
 *.log
+backend.log
+logs/
+*.out
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.project
+.pydevproject
+.spyderproject
+.spyproject
+.ropeproject
+
+# Testing and coverage
+.coverage
+.coverage.*
+.pytest_cache/
+.mypy_cache/
+htmlcov/
+.tox/
+.nox/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+
+# Secrets and credentials
+*.pem
+*.key
+*.crt
+*.cer
+secrets/
+.secrets
+credentials.json
+service-account*.json
+
+# Docker
+docker-compose.override.yml
+.docker/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Misc
+*.bak
+*.tmp
+*.temp
+.cache/
+.ruff_cache/
+.pdm.toml
+pdm.lock

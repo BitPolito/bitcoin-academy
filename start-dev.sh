@@ -35,12 +35,12 @@ print_section() {
 
 # Function to print warning
 print_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
+    echo -e "${YELLOW} $1${NC}"
 }
 
 # Function to print error
 print_error() {
-    echo -e "${RED}❌ $1${NC}"
+    echo -e "${RED} $1${NC}"
 }
 
 # Check prerequisites
@@ -74,7 +74,7 @@ cd "$PROJECT_DIR/services/ai"
 if [ ! -d "venv" ]; then
     echo "Creating Python virtual environment..."
     python3 -m venv venv
-    echo "✅ Virtual environment created"
+    echo "Virtual environment created"
 fi
 
 # Activate virtual environment

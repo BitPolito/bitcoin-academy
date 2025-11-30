@@ -50,6 +50,7 @@ class User(Base):
         String, primary_key=True, default=lambda: str(uuid.uuid4())
     )
     email: Mapped[Optional[str]] = mapped_column(String, unique=True)
+    password_hash: Mapped[Optional[str]] = mapped_column(String)
     display_name: Mapped[Optional[str]] = mapped_column(String)
     role: Mapped[UserRole] = mapped_column(
         String, default=UserRole.STUDENT
