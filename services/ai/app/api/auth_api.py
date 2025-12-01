@@ -1,4 +1,5 @@
 """Authentication API controller - HTTP endpoints for auth operations."""
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Request, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -7,15 +8,19 @@ from slowapi.util import get_remote_address
 
 from app.db.session import get_db
 from app.middleware.auth import CurrentUser, get_current_user
+from app.middleware.security import lockout_manager
 from app.core.config import TokenPayload
+from app.core.token_blacklist import blacklist_token
 from app.core.errors import (
     AuthenticationError,
     NotFoundError,
     ConflictError,
+    RateLimitError,
 )
 from app.schemas.auth_schemas import (
     AuthResponse,
     LoginRequest,
+    LogoutRequest,
     RefreshTokenRequest,
     RegisterRequest,
     TokenResponse,
@@ -70,6 +75,7 @@ def register(
         200: {"description": "Login successful"},
         400: {"description": "Invalid input data"},
         401: {"description": "Invalid email or password"},
+        423: {"description": "Account temporarily locked"},
         429: {"description": "Too many login attempts"},
     },
 )
@@ -89,9 +95,37 @@ def login(
     - **password**: User's password
 
     Rate limited to 10 attempts per minute per IP address.
+    Account will be locked after 5 failed attempts for 15 minutes.
     """
+    # Check if account is locked
+    is_locked, seconds_remaining = lockout_manager.is_locked(data.email)
+    if is_locked:
+        minutes_remaining = (seconds_remaining or 0) // 60 + 1
+        raise RateLimitError(
+            message=f"Account temporarily locked. Try again in {minutes_remaining} minutes.",
+            code="ACCOUNT_LOCKED",
+            retry_after=seconds_remaining
+        )
+
     auth_service = get_auth_service(db)
-    return auth_service.login(data)
+
+    try:
+        result = auth_service.login(data)
+        # Clear failed attempts on successful login
+        lockout_manager.clear_attempts(data.email)
+        return result
+    except Exception as e:
+        # Record failed attempt on authentication failure
+        if "Invalid email or password" in str(e):
+            is_now_locked, attempts, lockout_seconds = lockout_manager.record_failed_attempt(
+                data.email)
+            if is_now_locked:
+                raise RateLimitError(
+                    message=f"Account locked after {attempts} failed attempts. Try again in 15 minutes.",
+                    code="ACCOUNT_LOCKED",
+                    retry_after=lockout_seconds
+                )
+        raise
 
 
 @router.post(
@@ -162,14 +196,27 @@ def get_current_user_info(
     status_code=status.HTTP_200_OK,
     responses={
         200: {"description": "Logout successful"},
+        401: {"description": "Not authenticated"},
     },
 )
-def logout() -> dict:
+def logout(
+    data: LogoutRequest = None,
+    current_user: TokenPayload = Depends(get_current_user),
+) -> dict:
     """
-    Logout the current user.
+    Logout the current user and invalidate tokens.
 
-    Note: Since JWTs are stateless, this endpoint serves as a signal for
-    the client to discard their tokens. For more robust logout, consider
-    implementing a token blacklist.
+    If a refresh_token is provided, it will be added to the blacklist
+    to prevent further use. The access token should be discarded by the client.
+
+    - **refresh_token**: Optional refresh token to invalidate
     """
+    if data and data.refresh_token:
+        # Blacklist the refresh token
+        # Use current user's expiration as an approximation
+        blacklist_token(
+            token_id=data.refresh_token[:32],  # Use first 32 chars as ID
+            expires_at=current_user.exp
+        )
+
     return {"message": "Successfully logged out"}

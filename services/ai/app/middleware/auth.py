@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import TokenPayload, validate_access_token
+from app.core.token_blacklist import is_token_blacklisted
 from app.db.models import UserRole
 
 
@@ -64,10 +65,15 @@ async def get_current_user(
         The validated TokenPayload containing user information.
 
     Raises:
-        AuthenticationError: If the token is missing, invalid, or expired.
+        AuthenticationError: If the token is missing, invalid, blacklisted, or expired.
     """
     if token is None:
         raise AuthenticationError("Missing authentication token")
+
+    # Check if token is blacklisted
+    token_id = token[:32]  # Use first 32 chars as ID
+    if is_token_blacklisted(token_id):
+        raise AuthenticationError("Token has been revoked")
 
     payload = validate_access_token(token)
     if payload is None:

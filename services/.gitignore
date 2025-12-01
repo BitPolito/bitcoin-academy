@@ -10,6 +10,7 @@ __pycache__/
 .env.local
 !.env.example
 venv/
+venv_new/
 .venv/
 env/
 ENV/
