@@ -203,6 +203,15 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str = Field(..., description="JWT refresh token")
 
 
+class LogoutRequest(BaseModel):
+    """Request schema for logout."""
+
+    refresh_token: Optional[str] = Field(
+        None,
+        description="Optional refresh token to invalidate"
+    )
+
+
 class ErrorResponse(BaseModel):
     """Response schema for error messages."""
 

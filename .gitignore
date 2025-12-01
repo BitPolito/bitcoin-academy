@@ -25,6 +25,7 @@ __pycache__/
 .Python
 env/
 venv/
+venv_new/
 ENV/
 build/
 develop-eggs/
@@ -91,6 +92,9 @@ package-lock.json
 # Logs
 logs/
 *.log
+backend.log
+uvicorn.log
+gunicorn.log
 
 # Temporary files
 .tmp/
@@ -118,3 +122,21 @@ docker-compose.override.yml
 *.swo
 *~
 .#*
+
+# Security - Secrets and Credentials
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+secrets/
+.secrets/
+credentials.json
+service-account*.json
+*.keystore
+*.jks
+
+# JWT and Auth
+jwt_secret*
+auth_secret*

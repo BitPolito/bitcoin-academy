@@ -4,17 +4,20 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from dotenv import load_dotenv
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
+
+# Load environment variables from .env file
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 logger = logging.getLogger(__name__)
 
 
 class Settings:
     """Application settings and configuration with security validation."""
-
-    BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
     # Database Configuration - MUST be provided via environment
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
@@ -44,6 +47,20 @@ class Settings:
             f"❌ CRITICAL: SECRET_KEY must be at least 32 characters long. "
             f"Current length: {len(SECRET_KEY)} characters"
         )
+
+    # Security: Reject obviously insecure SECRET_KEY values
+    INSECURE_KEY_PATTERNS = [
+        "change_me", "changeme", "secret", "password", "123456",
+        "your-secret", "your_secret", "example", "test", "demo",
+        "development", "placeholder", "fixme", "todo"
+    ]
+    SECRET_KEY_LOWER = SECRET_KEY.lower()
+    for pattern in INSECURE_KEY_PATTERNS:
+        if pattern in SECRET_KEY_LOWER:
+            raise ValueError(
+                f"❌ CRITICAL: SECRET_KEY contains insecure pattern '{pattern}'. "
+                'Generate a secure key with: python -c "import secrets; print(secrets.token_urlsafe(32))"'
+            )
 
     ALGORITHM = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES = int(

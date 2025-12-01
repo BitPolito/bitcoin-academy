@@ -152,6 +152,15 @@ echo "Backend PID: $BACKEND_PID"
 # Wait a bit for backend to start
 sleep 3
 
+# Initialize and seed database
+echo "Initializing database and seeding test users..."
+python -m app.db.init_db 2>/dev/null || print_warning "Database seeding skipped (may already exist)"
+echo ""
+echo "Test Users (development only):"
+echo "  Admin:   admin@bitpolito.it / DevAdmin@2024!Secure"
+echo "  Student: student@bitpolito.it / DevStudent@2024!Learn"
+echo ""
+
 # Start frontend
 echo "Starting Next.js frontend..."
 cd "$PROJECT_DIR/apps/web"
