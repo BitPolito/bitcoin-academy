@@ -11,10 +11,11 @@ export default function Home() {
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/login');
+    } else if (status === 'authenticated') {
+      router.push('/dashboard');
     }
   }, [status, router]);
 
-  // Show loading state while checking authentication
   if (status === 'loading' || status === 'unauthenticated') {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-gradient-to-b from-dark to-light">
@@ -24,13 +25,6 @@ export default function Home() {
       </main>
     );
   }
-
-  // If authenticated, redirect to dashboard
-  useEffect(() => {
-    if (status === 'authenticated') {
-      router.push('/dashboard');
-    }
-  }, [status, router]);
 
   return null;
 }
