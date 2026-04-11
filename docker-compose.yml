@@ -19,5 +19,3 @@ services:
       - ./frontend:/app
     environment:
       - ENVIRONMENT=development
-
-  # İleride buraya veritabanı (PostgreSQL veya ChromaDB) ve workers eklenecek
