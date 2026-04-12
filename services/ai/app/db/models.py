@@ -390,7 +390,42 @@ class Resource(Base):
         back_populates="created_resources")
 
 
-# 6. Certificates
+# 6. Badges
+class Badge(Base):
+    """Badge definition — one row per badge type."""
+
+    __tablename__ = "badge"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    slug: Mapped[str] = mapped_column(String, unique=True)
+    name: Mapped[str] = mapped_column(String)
+    description: Mapped[str] = mapped_column(Text)
+    icon: Mapped[str] = mapped_column(String, default="🏅")
+
+    awards: Mapped[List["UserBadge"]] = relationship(back_populates="badge")
+
+
+class UserBadge(Base):
+    """Badge awarded to a user at a specific moment."""
+
+    __tablename__ = "user_badge"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(ForeignKey("app_user.id"))
+    badge_id: Mapped[str] = mapped_column(ForeignKey("badge.id"))
+    earned_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    # ID of the lesson or course that triggered the award
+    context_id: Mapped[Optional[str]] = mapped_column(String)
+
+    user: Mapped["User"] = relationship()
+    badge: Mapped["Badge"] = relationship(back_populates="awards")
+
+
+# 7. Certificates
 class Certificate(Base):
     __tablename__ = "certificate"
 
