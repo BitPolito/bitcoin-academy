@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { getCourse, getCourseLessons, type Course, type Lesson } from '@/lib/services/courses';
 import { DocumentList } from '@/components/courses/DocumentList';
@@ -9,6 +9,7 @@ import { DocumentUpload } from '@/components/documents/DocumentUpload';
 
 export default function CourseWorkspacePage() {
   const params = useParams();
+  const router = useRouter();
   const courseId = params.courseId as string;
   const { data: session } = useSession();
   const accessToken = (session?.user as any)?.accessToken;
@@ -22,6 +23,10 @@ export default function CourseWorkspacePage() {
   const refreshDocuments = useCallback(() => {
     setDocRefreshKey((k) => k + 1);
   }, []);
+
+  function handleViewPreview(documentId: string) {
+    router.push(`/courses/${courseId}/documents/${documentId}/preview`);
+  }
 
   useEffect(() => {
     async function load() {
@@ -140,6 +145,7 @@ export default function CourseWorkspacePage() {
                   courseId={courseId}
                   accessToken={accessToken}
                   refreshKey={docRefreshKey}
+                  onViewPreview={handleViewPreview}
                 />
               </div>
             </div>

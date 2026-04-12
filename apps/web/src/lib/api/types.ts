@@ -1,0 +1,121 @@
+// ── Processing pipeline stages ──────────────────────────────────────────
+export type ProcessingStage =
+  | 'queued'
+  | 'uploading'
+  | 'parsing'
+  | 'normalizing'
+  | 'chunking'
+  | 'indexing'
+  | 'done'
+  | 'error';
+
+export type DocumentStatus = 'uploading' | 'processing' | 'ready' | 'error';
+
+// ── Wire types (raw JSON from API) ─────────────────────────────────────
+
+export interface ApiCourse {
+  id: number | string;
+  title: string;
+  description?: string;
+}
+
+export interface ApiLesson {
+  id: number | string;
+  title: string;
+  content?: string;
+}
+
+export interface ApiDocumentListItem {
+  id: string;
+  course_id: string;
+  filename: string;
+  mime_type: string | null;
+  size: number;
+  status: DocumentStatus;
+  processing_stage: ProcessingStage;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiDocumentStatusResponse {
+  id: string;
+  status: DocumentStatus;
+  processing_stage: ProcessingStage;
+  error_message: string | null;
+}
+
+export interface ApiDocumentDetail {
+  id: string;
+  course_id: string;
+  filename: string;
+  mime_type: string | null;
+  size: number;
+  status: DocumentStatus;
+  processing_stage: ProcessingStage;
+  error_message: string | null;
+  parser_used: string | null;
+  page_count: number | null;
+  chunk_count: number | null;
+  indexing_status: string | null;
+  metadata_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiDocumentPreview {
+  id: string;
+  filename: string;
+  extracted_text_preview: string | null;
+  page_count: number | null;
+  sections: Array<Record<string, unknown>> | null;
+  sample_chunks: Array<Record<string, unknown>> | null;
+}
+
+export interface CreateCourseRequest {
+  title: string;
+  description?: string;
+}
+
+// ── UI types (consumed by components) ───────────────────────────────────
+
+export interface DocumentListRow {
+  id: string;
+  courseId: string;
+  filename: string;
+  fileType: string;
+  size: number;
+  status: DocumentStatus;
+  processingStage: ProcessingStage;
+  isTerminal: boolean;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocumentDetailView {
+  id: string;
+  courseId: string;
+  filename: string;
+  fileType: string;
+  size: number;
+  status: DocumentStatus;
+  processingStage: ProcessingStage;
+  errorMessage: string | null;
+  parserUsed: string | null;
+  pageCount: number | null;
+  chunkCount: number | null;
+  indexingStatus: string | null;
+  normalizedMetadata: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocumentPreviewView {
+  id: string;
+  filename: string;
+  extractedTextPreview: string | null;
+  pageCount: number | null;
+  sections: Array<Record<string, unknown>> | null;
+  sampleChunks: Array<Record<string, unknown>> | null;
+}

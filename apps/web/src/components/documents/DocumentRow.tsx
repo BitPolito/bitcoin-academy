@@ -1,12 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import type { CourseDocument } from '@/lib/services/documents';
-import { deleteDocument } from '@/lib/services/documents';
+import type { DocumentListRow } from '@/lib/api/types';
+import { deleteDocument } from '@/lib/api/documents';
 import { ProcessingIndicator } from '@/components/courses/ProcessingIndicator';
 
 interface DocumentRowProps {
-  document: CourseDocument;
+  document: DocumentListRow;
   accessToken?: string;
   onDeleted?: () => void;
 }
