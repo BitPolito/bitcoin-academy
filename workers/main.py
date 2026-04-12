@@ -48,10 +48,11 @@ def process_course_document(file_path: str, course_id: str):
     except Exception as e:
         logger.error(f"Process failure: Crash while processing {file_path}. Error: {str(e)}")
         return {"status": "failed", "error": str(e)}
-
-if __name__ == "__main__":
-    print("\n pdf test")
-    process_course_document("bitcoin_whitepaper.pdf", "course_1")
     
-    print("\n not pdf")
-    process_course_document("picture.jpg", "course_1")  
+
+#local testing
+
+# if __name__ == "__main__":
+#     print("\n--- Running Local Tests ---")
+#     process_course_document("bitcoin_whitepaper.pdf", "course_1")
+#     process_course_document("picture.jpg", "course_1")
