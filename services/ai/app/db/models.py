@@ -42,6 +42,24 @@ class ResourceParentType(str, Enum):
     LESSON = "lesson"
 
 
+class DocumentProcessingStage(str, Enum):
+    QUEUED = "queued"
+    UPLOADING = "uploading"
+    PARSING = "parsing"
+    NORMALIZING = "normalizing"
+    CHUNKING = "chunking"
+    INDEXING = "indexing"
+    DONE = "done"
+    ERROR = "error"
+
+
+class DocumentStatus(str, Enum):
+    UPLOADING = "uploading"
+    PROCESSING = "processing"
+    READY = "ready"
+    ERROR = "error"
+
+
 # 1. Users
 class User(Base):
     __tablename__ = "app_user"
@@ -103,6 +121,7 @@ class Course(Base):
 
     section: Mapped["Section"] = relationship(back_populates="courses")
     chapters: Mapped[List["Chapter"]] = relationship(back_populates="course")
+    documents: Mapped[List["CourseDocument"]] = relationship(back_populates="course")
     progress: Mapped[List["UserCourseProgress"]
                      ] = relationship(back_populates="course")
     certificates: Mapped[List["Certificate"]
@@ -313,7 +332,41 @@ class UserCourseProgress(Base):
     course: Mapped["Course"] = relationship(back_populates="progress")
 
 
-# 5. Supplemental Materials
+# 5. Course Documents (uploaded materials for processing pipeline)
+class CourseDocument(Base):
+    __tablename__ = "course_document"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    course_id: Mapped[str] = mapped_column(ForeignKey("course.id"))
+    filename: Mapped[str] = mapped_column(String)
+    mime_type: Mapped[Optional[str]] = mapped_column(String)
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String, default=DocumentStatus.UPLOADING)
+    processing_stage: Mapped[str] = mapped_column(
+        String, default=DocumentProcessingStage.QUEUED
+    )
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+
+    parser_used: Mapped[Optional[str]] = mapped_column(String)
+    page_count: Mapped[Optional[int]] = mapped_column(Integer)
+    chunk_count: Mapped[Optional[int]] = mapped_column(Integer)
+    indexing_status: Mapped[Optional[str]] = mapped_column(String)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text)
+    extracted_text_preview: Mapped[Optional[str]] = mapped_column(Text)
+    sections_json: Mapped[Optional[str]] = mapped_column(Text)
+    sample_chunks_json: Mapped[Optional[str]] = mapped_column(Text)
+
+    created_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        String, default=func.now(), onupdate=func.now()
+    )
+
+    course: Mapped["Course"] = relationship(back_populates="documents")
+
+
+# 6. Supplemental Materials
 class Resource(Base):
     __tablename__ = "resource"
 

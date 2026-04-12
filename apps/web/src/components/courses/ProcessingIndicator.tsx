@@ -1,10 +1,10 @@
 'use client';
 
-import type { DocumentStatus } from '@/lib/services/documents';
+import type { DocumentStatus, ProcessingStage } from '@/lib/api/types';
 
 interface ProcessingIndicatorProps {
   status: DocumentStatus;
-  progress?: number;
+  stage?: ProcessingStage;
   className?: string;
 }
 
@@ -35,8 +35,20 @@ const STATUS_CONFIG: Record<DocumentStatus, { label: string; bg: string; text: s
   },
 };
 
-export function ProcessingIndicator({ status, progress, className = '' }: ProcessingIndicatorProps) {
+const STAGE_LABELS: Record<ProcessingStage, string> = {
+  queued: 'Queued',
+  uploading: 'Uploading',
+  parsing: 'Parsing',
+  normalizing: 'Normalizing',
+  chunking: 'Chunking',
+  indexing: 'Indexing',
+  done: 'Done',
+  error: 'Error',
+};
+
+export function ProcessingIndicator({ status, stage, className = '' }: ProcessingIndicatorProps) {
   const config = STATUS_CONFIG[status];
+  const stageLabel = stage && stage !== 'done' && stage !== 'error' ? STAGE_LABELS[stage] : null;
 
   return (
     <span
@@ -44,8 +56,8 @@ export function ProcessingIndicator({ status, progress, className = '' }: Proces
     >
       <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
       {config.label}
-      {status === 'processing' && progress != null && (
-        <span className="tabular-nums">{Math.round(progress)}%</span>
+      {stageLabel && status === 'processing' && (
+        <span className="opacity-75">· {stageLabel}</span>
       )}
     </span>
   );

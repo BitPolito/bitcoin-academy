@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
-import { uploadDocument, pollDocumentStatus } from '@/lib/services/documents';
+import { uploadDocument, pollDocumentUntilTerminal } from '@/lib/api/documents';
 
 interface DocumentUploadProps {
   courseId: string;
@@ -45,7 +45,7 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
             return updated;
           });
 
-          await pollDocumentStatus(doc.id, accessToken);
+          await pollDocumentUntilTerminal(doc.id, accessToken);
 
           setJobs((prev) => {
             const updated = [...prev];
