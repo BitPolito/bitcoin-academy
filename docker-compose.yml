@@ -1,0 +1,21 @@
+
+services:
+  api:
+    build: 
+      context: ./api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./api:/app
+    environment:
+      - ENVIRONMENT=development
+
+  frontend:
+    build: 
+      context: ./frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+    environment:
+      - ENVIRONMENT=development
