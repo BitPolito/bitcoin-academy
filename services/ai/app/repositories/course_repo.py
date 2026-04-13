@@ -1,23 +1,28 @@
 """Course repository - data access for course aggregate."""
-courses = [
-    {"id": 1, "title": "Python Basics", "description": "Learn Python from scratch"},
-    {"id": 2, "title": "FastAPI Advanced", "description": "Deep dive into FastAPI"}
-]
+from typing import List, Optional
 
-lessons = [
-    {"id": 1, "course_id": 1, "title": "Variables and Types", "content": "Intro to types"},
-    {"id": 2, "course_id": 1, "title": "Functions", "content": "How to define functions"},
-    {"id": 3, "course_id": 2, "title": "Routing", "content": "Learn how routing works"},
-]
+from sqlalchemy.orm import Session
 
-def get_all_courses():
-    return courses
+from app.db.models import Chapter, Course, Lesson
 
-def get_course_by_id(course_id: int):
-    return next((c for c in courses if c["id"] == course_id), None)
 
-def get_lessons_by_course_id(course_id: int):
-    return [l for l in lessons if l["course_id"] == course_id]
+def get_all_courses(db: Session, skip: int = 0, limit: int = 100) -> List[Course]:
+    return db.query(Course).filter(Course.is_active == True).offset(skip).limit(limit).all()
 
-def get_lesson_by_id(lesson_id: int):
-    return next((l for l in lessons if l["id"] == lesson_id), None)
+
+def get_course_by_id(db: Session, course_id: str) -> Optional[Course]:
+    return db.query(Course).filter(Course.id == course_id, Course.is_active == True).first()
+
+
+def get_lessons_by_course_id(db: Session, course_id: str) -> List[Lesson]:
+    return (
+        db.query(Lesson)
+        .join(Chapter, Lesson.chapter_id == Chapter.id)
+        .filter(Chapter.course_id == course_id)
+        .order_by(Chapter.order_index, Lesson.order_index)
+        .all()
+    )
+
+
+def get_lesson_by_id(db: Session, lesson_id: str) -> Optional[Lesson]:
+    return db.query(Lesson).filter(Lesson.id == lesson_id).first()

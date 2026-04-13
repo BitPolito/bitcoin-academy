@@ -1,21 +1,53 @@
-
 services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: bitcoin_academy
+      POSTGRES_PASSWORD: bitcoin_academy
+      POSTGRES_DB: bitcoin_academy
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bitcoin_academy"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   api:
-    build: 
-      context: ./api
+    build:
+      context: ./services/ai
     ports:
       - "8000:8000"
     volumes:
-      - ./api:/app
+      - ./services/ai:/app
+    env_file:
+      - ./services/ai/.env
     environment:
+      - DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy
       - ENVIRONMENT=development
+      - CORS_ORIGINS=http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
 
-  frontend:
-    build: 
-      context: ./frontend
+  web:
+    build:
+      context: ./apps/web
     ports:
       - "3000:3000"
     volumes:
-      - ./frontend:/app
+      - ./apps/web:/app
+      - /app/node_modules
+      - /app/.next
+    env_file:
+      - ./apps/web/.env.local
     environment:
-      - ENVIRONMENT=development
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+      - NEXTAUTH_URL=http://localhost:3000
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

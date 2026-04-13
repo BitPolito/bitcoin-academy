@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (Python)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: bitcoin_academy
+          POSTGRES_PASSWORD: bitcoin_academy
+          POSTGRES_DB: bitcoin_academy
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    defaults:
+      run:
+        working-directory: services/ai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/ai/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Type check (mypy)
+        run: mypy .
+        env:
+          DATABASE_URL: postgresql://bitcoin_academy:bitcoin_academy@localhost:5432/bitcoin_academy
+          SECRET_KEY: ci-secret-key-32-chars-minimum!!
+
+      - name: Run tests (pytest)
+        run: pytest
+        env:
+          DATABASE_URL: postgresql://bitcoin_academy:bitcoin_academy@localhost:5432/bitcoin_academy
+          SECRET_KEY: ci-secret-key-32-chars-minimum!!
+          ENVIRONMENT: development
+
+  frontend:
+    name: Frontend (Node.js)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check (tsc)
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run tests (Jest)
+        run: npm test -- --ci --passWithNoTests

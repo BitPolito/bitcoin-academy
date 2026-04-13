@@ -3,9 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Request, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-
+from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.middleware.auth import CurrentUser, get_current_user
 from app.middleware.security import lockout_manager
@@ -29,9 +27,6 @@ from app.schemas.auth_schemas import (
 from app.services.auth_service import AuthService, get_auth_service
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
-
-# Rate limiter for auth endpoints
-limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post(

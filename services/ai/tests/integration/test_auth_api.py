@@ -2,9 +2,10 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.db.session import engine, init_db, SessionLocal
-from app.db.models import Base, User
+from app.db.session import engine, SessionLocal
+from app.db.models import Base
 from app.main import app
+from app.core.rate_limit import limiter
 
 # Create test client
 client = TestClient(app)
@@ -12,12 +13,12 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def setup_database():
-    """Set up a fresh database for each test."""
-    # Create all tables
+    """Set up a fresh database and disable rate limiting for each test."""
+    limiter.enabled = False
     Base.metadata.create_all(bind=engine)
     yield
-    # Clean up after test
     Base.metadata.drop_all(bind=engine)
+    limiter.enabled = True
 
 
 @pytest.fixture
@@ -39,7 +40,7 @@ class TestRegistration:
             "/api/auth/register",
             json={
                 "email": "newuser@example.com",
-                "password": "SecurePass123",
+                "password": "SecureP@ss123!",
                 "display_name": "New User"
             }
         )
@@ -65,7 +66,7 @@ class TestRegistration:
             "/api/auth/register",
             json={
                 "email": "noname@example.com",
-                "password": "SecurePass123"
+                "password": "SecureP@ss123!"
             }
         )
 
@@ -81,7 +82,7 @@ class TestRegistration:
             "/api/auth/register",
             json={
                 "email": "duplicate@example.com",
-                "password": "SecurePass123"
+                "password": "SecureP@ss123!"
             }
         )
 
@@ -90,12 +91,12 @@ class TestRegistration:
             "/api/auth/register",
             json={
                 "email": "duplicate@example.com",
-                "password": "DifferentPass456"
+                "password": "Diff3rentP@ss456!"
             }
         )
 
         assert response.status_code == 409
-        assert "already exists" in response.json()["detail"]
+        assert "already exists" in response.json()["error"]["message"]
 
     def test_register_invalid_email(self):
         """Test registration with invalid email returns 400."""
@@ -103,7 +104,7 @@ class TestRegistration:
             "/api/auth/register",
             json={
                 "email": "not-an-email",
-                "password": "SecurePass123"
+                "password": "SecureP@ss123!"
             }
         )
 
@@ -168,7 +169,7 @@ class TestLogin:
             "/api/auth/register",
             json={
                 "email": "login@example.com",
-                "password": "SecurePass123",
+                "password": "SecureP@ss123!",
                 "display_name": "Login User"
             }
         )
@@ -178,7 +179,7 @@ class TestLogin:
             "/api/auth/login",
             json={
                 "email": "login@example.com",
-                "password": "SecurePass123"
+                "password": "SecureP@ss123!"
             }
         )
 
@@ -200,7 +201,7 @@ class TestLogin:
             "/api/auth/register",
             json={
                 "email": "wrongpass@example.com",
-                "password": "SecurePass123"
+                "password": "SecureP@ss123!"
             }
         )
 
@@ -209,12 +210,12 @@ class TestLogin:
             "/api/auth/login",
             json={
                 "email": "wrongpass@example.com",
-                "password": "WrongPassword456"
+                "password": "Wr0ngP@ssword456!"
             }
         )
 
         assert response.status_code == 401
-        assert "Invalid email or password" in response.json()["detail"]
+        assert "Invalid email or password" in response.json()["error"]["message"]
 
     def test_login_nonexistent_user(self):
         """Test login with non-existent user returns 401."""
@@ -227,7 +228,7 @@ class TestLogin:
         )
 
         assert response.status_code == 401
-        assert "Invalid email or password" in response.json()["detail"]
+        assert "Invalid email or password" in response.json()["error"]["message"]
 
     def test_login_missing_email(self):
         """Test login with missing email returns 422."""
@@ -262,7 +263,7 @@ class TestTokenRefresh:
             "/api/auth/register",
             json={
                 "email": "refresh@example.com",
-                "password": "SecurePass123"
+                "password": "SecureP@ss123!"
             }
         )
         tokens = register_response.json()["tokens"]
@@ -298,7 +299,7 @@ class TestTokenRefresh:
             "/api/auth/register",
             json={
                 "email": "refresh2@example.com",
-                "password": "SecurePass123"
+                "password": "SecureP@ss123!"
             }
         )
         tokens = register_response.json()["tokens"]
@@ -324,7 +325,7 @@ class TestGetCurrentUser:
             "/api/auth/register",
             json={
                 "email": "me@example.com",
-                "password": "SecurePass123",
+                "password": "SecureP@ss123!",
                 "display_name": "Current User"
             }
         )
@@ -362,8 +363,17 @@ class TestLogout:
     """Tests for logout endpoint."""
 
     def test_logout_success(self):
-        """Test successful logout."""
-        response = client.post("/api/auth/logout")
+        """Test successful logout with a valid token."""
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "logout@example.com", "password": "S1gN0ff$T3st321!"},
+        )
+        token = reg.json()["tokens"]["access_token"]
+
+        response = client.post(
+            "/api/auth/logout",
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
         assert response.status_code == 200
         assert "logged out" in response.json()["message"].lower()
@@ -379,7 +389,7 @@ class TestProtectedRoutes:
             "/api/auth/register",
             json={
                 "email": "protected@example.com",
-                "password": "SecurePass123"
+                "password": "SecureP@ss123!"
             }
         )
         tokens = register_response.json()["tokens"]

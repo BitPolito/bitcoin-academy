@@ -1,23 +1,23 @@
 """Pydantic schemas for course DTOs."""
-from pydantic import BaseModel
 from typing import List, Optional
 
+from pydantic import BaseModel, ConfigDict
+
+
 class LessonSchema(BaseModel):
-    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
     title: str
     content: Optional[str] = None
 
-    class Config:
-        orm_mode = True
-
 
 class CourseSchema(BaseModel):
-    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
     title: str
     description: Optional[str] = None
-
-    class Config:
-        orm_mode = True
 
 
 class CourseWithLessonsSchema(CourseSchema):
