@@ -1,9 +1,6 @@
-# BitPolito Academy
+# Bitcoin Academy
 
-BitPolito Academy is a local-first, open-source platform that provides a structured and interactive way to learn about Bitcoin.
-It transforms curated documents into guided courses with lessons, quizzes, and progress tracking.
-The goal is to make complex topics like cryptography and the Lightning Network accessible and engaging for students.
-Each learning path is transparent, verifiable, and supported by AI tutoring.
+An open-source, local-first platform for structured Bitcoin education. Transforms curated documents into guided courses with lessons, quizzes, progress tracking, and AI-assisted tutoring via a RAG pipeline.
 
 ## Table of Contents
 
@@ -11,36 +8,44 @@ Each learning path is transparent, verifiable, and supported by AI tutoring.
 - [Project Structure](#project-structure)
 - [Tech Stack](#tech-stack)
 - [Development](#development)
-- [API Documentation](#api-documentation)
+- [API](#api)
 - [Contributing](#contributing)
 - [License](#license)
 
+---
 
 ## Quick Start
 
-
 ### Prerequisites
 
-- **Node.js** 18+ (frontend)
-- **Python** 3.10+ (backend)
-- **npm** or **yarn**
-- **pip** or **poetry**
+- Node.js 18+
+- Python 3.10+
+- PostgreSQL (running and accessible)
 
-### Recommended setup
-
-To start the full development environment, use the script:
+### Recommended
 
 ```bash
 chmod +x start-dev.sh
 ./start-dev.sh
 ```
 
-This script installs dependencies and starts both the frontend (Next.js) and backend (FastAPI) in development mode.
+This script creates a Python virtualenv under `services/ai/venv/`, installs dependencies for both services, seeds the database with test users, and starts both servers.
 
-- Frontend: [http://localhost:3000](http://localhost:3000)
-- Backend API: [http://localhost:8000](http://localhost:8000)
-- API Docs (Swagger): [http://localhost:8000/docs](http://localhost:8000/docs)
-- API Docs (ReDoc): [http://localhost:8000/redoc](http://localhost:8000/redoc)
+| Service       | URL                          |
+|---------------|------------------------------|
+| Frontend      | http://localhost:3000        |
+| Backend API   | http://localhost:8000        |
+| Swagger UI    | http://localhost:8000/docs   |
+| ReDoc         | http://localhost:8000/redoc  |
+
+> Swagger UI and ReDoc are only available in `development` environment.
+
+**Dev credentials (seeded automatically):**
+
+| Role    | Email                      | Password              |
+|---------|----------------------------|-----------------------|
+| Admin   | admin@bitpolito.it         | DevAdmin@2024!Secure  |
+| Student | student@bitpolito.it       | DevStudent@2024!Learn |
 
 ### Manual setup
 
@@ -56,200 +61,153 @@ npm run dev
 
 ```bash
 cd services/ai
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-python -m uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+---
+
 ## Project Structure
-
-
-
-### Project structure (Monorepo)
 
 ```text
 bitcoin-academy/
 ├── apps/
-│   └── web/                    # Next.js frontend
-│       ├── src/
-│       │   ├── app/            # App Router pages
-│       │   ├── lib/            # Utilities and services
-│       │   └── components/     # React components
-│       ├── __tests__/          # Unit and integration tests
-│       ├── config/             # Configurations
-│       ├── docs/               # Documentation
-│       ├── .dockerignore
-│       ├── jest.config.js
-│       ├── jest.setup.js
-│       ├── next.config.js
-│       ├── postcss.config.js
-│       ├── tailwind.config.js
-│       ├── tsconfig.json
-│       └── package.json
+│   └── web/                        # Next.js 14 frontend
+│       └── src/
+│           ├── app/                # App Router pages (auth, courses, dashboard, study)
+│           ├── components/         # React components
+│           └── lib/                # API client, auth helpers, services
 ├── services/
-│   └── ai/                     # FastAPI backend
-│       ├── app/
-│       │   ├── api/            # API controllers
-│       │   ├── services/       # Business logic
-│       │   ├── repositories/   # Data access
-│       │   ├── db/             # Database models
-│       │   ├── core/           # Core utilities
-│       │   ├── middleware/     # HTTP middleware
-│       │   ├── rag/            # LangChain pipelines
-│       │   ├── schemas/        # Pydantic models
-│       │   ├── main.py
-│       │   └── api_deps.py
-│       ├── config/             # Configurations
-│       ├── docs/               # Documentation
-│       ├── tests/              # Unit and integration tests
-│       ├── .dockerignore
-│       ├── mypy.ini
-│       ├── pytest.ini
-│       ├── pyproject.toml
-│       ├── requirements.txt
-│       └── setup.cfg
-├── .github/                    # GitHub workflows
-├── .eslintrc.json
-├── .prettierrc.json
-├── .prettierignore
-├── .gitignore
-├── .env.example
-├── start-dev.sh                # Quick start script
-├── README.md
-└── package.json
+│   └── ai/                         # FastAPI backend (primary service)
+│       └── app/
+│           ├── api/                # Route handlers (auth, courses, documents, progress)
+│           ├── services/           # Business logic
+│           ├── repositories/       # Data access layer
+│           ├── db/                 # SQLAlchemy models and session
+│           ├── rag/                # LangChain RAG pipeline (chains, retrievers, prompts)
+│           ├── schemas/            # Pydantic request/response models
+│           ├── core/               # Config, DI container, error handling, token blacklist
+│           └── middleware/         # Request ID, security headers
+├── workers/                        # Document processing pipeline (stub)
+│   └── main.py                     # parse → chunk → embed → store (not yet integrated)
+├── shared-schemas/                 # Shared schema definitions (stub)
+├── api/                            # Prototype stub — in-memory fake DB, not used in dev
+├── frontend/                       # Dockerfile only — not used in dev
+├── docker-compose.yml              # Container definitions (see note below)
+├── start-dev.sh                    # Dev startup script
+└── package.json                    # Root workspace (npm workspaces: apps/*, services/*)
 ```
+
+> **Note:** `docker-compose.yml` currently references `api/` and `frontend/` (stubs), not the real services. It is not suitable for running the development stack.
+
+---
 
 ## Tech Stack
 
+### Frontend (`apps/web`)
 
+| Technology     | Role                          |
+|----------------|-------------------------------|
+| Next.js 14     | React framework, App Router   |
+| TypeScript     | Type safety                   |
+| Tailwind CSS   | Styling                       |
+| NextAuth.js 4  | Session-based authentication  |
+| Jest + RTL     | Unit and integration tests    |
 
+### Backend (`services/ai`)
 
-### Frontend
+| Technology          | Role                                    |
+|---------------------|-----------------------------------------|
+| FastAPI             | Async HTTP framework                    |
+| SQLAlchemy 2        | ORM                                     |
+| Pydantic v2         | Data validation and serialization       |
+| python-jose + bcrypt| JWT authentication                      |
+| LangChain + OpenAI  | RAG pipeline for AI tutoring            |
+| PostgreSQL          | Primary database                        |
+| slowapi             | Rate limiting                           |
+| pytest              | Test suite                              |
 
-- **Next.js 14** - React framework with App Router
-- **TypeScript** - Type-safe development
-- **Tailwind CSS** - Styling
-- **NextAuth.js** - Authentication
-- **React 18** - UI library
-
-### Backend
-
-- **FastAPI** - Modern async Python web framework
-- **SQLAlchemy** - ORM for database
-- **Pydantic** - Data validation
-- **LangChain** - RAG orchestration
-- **PostgreSQL** - Database (recommended)
+---
 
 ## Development
 
+### Environment variables
 
-
-### Quick start for both services
-
-```bash
-./start-dev.sh
-```
-
-Or manually in two separate terminals:
-
-```bash
-# Terminal 1 - Frontend
-cd apps/web
-npm run dev
-
-# Terminal 2 - Backend
-cd services/ai
-python -m uvicorn app.main:app --reload
-```
-
-> **Note**: Ensure that the backend FastAPI application is properly configured in `services/ai/app/main.py` with all necessary routes and middleware setup.
-
-
-
-### Useful commands
-
-**Frontend:**
-
-```bash
-cd apps/web
-npm run dev         # Start development server
-npm run build       # Production build
-npm run type-check  # Type checking
-npm run lint        # Linting
-npm run format      # Formatting
-```
-
-**Backend:**
-
-```bash
-cd services/ai
-python -m uvicorn app.main:app --reload  # Start development server
-mypy .                                   # Type checking
-pytest                                   # Run tests
-```
-
-
-
-### Environment configuration
-
-All environment variables are now managed in a single `.env` file located in the project root (`bitcoin-academy/.env`).
-
-Example `.env`:
+**Backend** — create `services/ai/.env`:
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
-NEXTAUTH_SECRET=dev-secret-key
-NEXTAUTH_URL=http://localhost:3000
-NODE_ENV=development
 DATABASE_URL=postgresql://user:password@localhost:5432/bitcoin_academy
 SECRET_KEY=your-secret-key
-API_PORT=8000
+ENVIRONMENT=development
+CORS_ORIGINS=http://localhost:3000
 ```
 
+`DATABASE_URL` and `SECRET_KEY` are required at startup — the app will crash without them.
 
+**Frontend** — create `apps/web/.env.local`:
 
+```env
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+NEXTAUTH_SECRET=dev-secret-key
+NEXTAUTH_URL=http://localhost:3000
+```
 
-## API Documentation
+### Commands
 
+**Root (from `bitcoin-academy/`):**
 
-### FastAPI Docs
+```bash
+npm run dev:web          # Start Next.js
+npm run dev:api          # Start FastAPI via uvicorn
+npm run test             # Run all tests
+npm run type-check       # TypeScript + mypy
+npm run lint             # ESLint
+npm run format           # Prettier
+```
 
-Once the backend is running, you can access the interactive API documentation:
+**Backend only:**
 
-- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+```bash
+cd services/ai
+mypy .                   # Type checking
+pytest                   # All tests
+pytest tests/unit -v     # Unit tests with coverage
+pytest tests/integration # Integration tests
+```
 
-### Main endpoints
+---
 
-- `GET /api/courses` - List all courses
-- `GET /api/courses/{id}` - Get course details
-- `GET /api/quizzes` - List quizzes
-- `POST /api/progress` - Update progress
-- `POST /api/chat` - Chat with AI tutor
-- `GET /api/certificates` - List certificates
+## API
 
+Registered routers in `services/ai/app/main.py`:
 
+| Prefix       | Description                  |
+|--------------|------------------------------|
+| `/auth`      | Registration, login, JWT     |
+| `/courses`   | Course CRUD                  |
+| `/documents` | PDF upload and indexing      |
+| `/progress`  | User progress tracking       |
+| `/health`    | Health check with DB ping    |
+
+> **Implemented but not yet registered:** `quizzes_api.py`, `chat_api.py`, `certificates_api.py` exist in `app/api/` but are not included in `app/main.py`.
+
+---
 
 ## Contributing
 
-Contributions and feedback are welcome! To contribute:
-
 1. Fork the repository
-2. Create a branch (`git checkout -b feature/new-feature`)
-3. Commit your changes (`git commit -m 'Add new feature'`)
-4. Push to your branch (`git push origin feature/new-feature`)
-5. Open a Pull Request
+2. Create a branch: `git checkout -b feature/your-feature`
+3. Commit your changes: `git commit -m 'feat: description'`
+4. Push and open a Pull Request
 
-### Guidelines
+**Guidelines:**
+- TypeScript for frontend, Python for backend
+- Run `npm run type-check` and `pytest` before opening a PR
+- Update this README if you change the project structure or add new routes
 
-- Follow the project structure
-- Use TypeScript for frontend, Python for backend
-- Use clear variable and function names
-- Comment complex logic
-- Test before submitting PR
-- Update documentation
-
-
+---
 
 ## License
 
-BitPolito Academy is open-source, released under the MIT license.
+MIT
