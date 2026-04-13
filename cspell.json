@@ -1,0 +1,27 @@
+{
+  "version": "0.2",
+  "words": [
+    "uvicorn",
+    "fastapi",
+    "pydantic",
+    "sqlalchemy",
+    "pytest",
+    "mypy",
+    "slowapi",
+    "langchain",
+    "openai",
+    "nextauth",
+    "NEXTAUTH",
+    "virtualenv",
+    "venv",
+    "bcrypt",
+    "passlib",
+    "psycopg",
+    "zxcvbn",
+    "bleach",
+    "isort",
+    "uvicorn",
+    "asyncio",
+    "httpx"
+  ]
+}

@@ -1,11 +1,12 @@
 """Documents API controller - upload, list, status, detail, preview."""
 from typing import List
 
-from fastapi import APIRouter, Depends, Path, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.services import document_service
+from app.workers import pipeline
 from app.schemas.document_schemas import (
     DocumentDetail,
     DocumentListItem,
@@ -36,16 +37,19 @@ def list_documents(
 def upload_document(
     course_id: str = Path(..., description="Course ID"),
     file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
 ) -> DocumentListItem:
     content = file.file.read()
+    filename = file.filename or "unknown"
     doc = document_service.create_document(
         db,
         course_id=course_id,
-        filename=file.filename or "unknown",
+        filename=filename,
         size=len(content),
         mime_type=file.content_type,
     )
+    background_tasks.add_task(pipeline.run, doc.id, course_id, filename)
     return doc
 
 

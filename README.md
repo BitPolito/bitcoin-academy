@@ -31,12 +31,12 @@ chmod +x start-dev.sh
 
 This script creates a Python virtualenv under `services/ai/venv/`, installs dependencies for both services, seeds the database with test users, and starts both servers.
 
-| Service       | URL                          |
-|---------------|------------------------------|
-| Frontend      | http://localhost:3000        |
-| Backend API   | http://localhost:8000        |
-| Swagger UI    | http://localhost:8000/docs   |
-| ReDoc         | http://localhost:8000/redoc  |
+| Service       | URL                                          |
+|---------------|----------------------------------------------|
+| Frontend      | <http://localhost:3000>                      |
+| Backend API   | <http://localhost:8000>                      |
+| Swagger UI    | <http://localhost:8000/docs>                 |
+| ReDoc         | <http://localhost:8000/redoc>                |
 
 > Swagger UI and ReDoc are only available in `development` environment.
 
@@ -74,14 +74,18 @@ python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 bitcoin-academy/
 ├── apps/
 │   └── web/                        # Next.js 14 frontend
+│       ├── Dockerfile
 │       └── src/
 │           ├── app/                # App Router pages (auth, courses, dashboard, study)
 │           ├── components/         # React components
 │           └── lib/                # API client, auth helpers, services
 ├── services/
 │   └── ai/                         # FastAPI backend (primary service)
+│       ├── Dockerfile
 │       └── app/
 │           ├── api/                # Route handlers (auth, courses, documents, progress)
+│           ├── workers/            # Document processing pipeline
+│           │   └── pipeline.py     # parse → chunk → embed → index (runs as BackgroundTask)
 │           ├── services/           # Business logic
 │           ├── repositories/       # Data access layer
 │           ├── db/                 # SQLAlchemy models and session
@@ -89,17 +93,18 @@ bitcoin-academy/
 │           ├── schemas/            # Pydantic request/response models
 │           ├── core/               # Config, DI container, error handling, token blacklist
 │           └── middleware/         # Request ID, security headers
-├── workers/                        # Document processing pipeline (stub)
-│   └── main.py                     # parse → chunk → embed → store (not yet integrated)
-├── shared-schemas/                 # Shared schema definitions (stub)
-├── api/                            # Prototype stub — in-memory fake DB, not used in dev
-├── frontend/                       # Dockerfile only — not used in dev
-├── docker-compose.yml              # Container definitions (see note below)
-├── start-dev.sh                    # Dev startup script
+├── workers/                        # Standalone pipeline script (reference / CLI testing)
+│   └── main.py
+├── docs/
+│   └── examples/
+│       └── prototype/              # Original in-memory API prototype (reference only)
+├── .github/
+│   └── workflows/
+│       └── ci.yml                  # CI: pytest + mypy + tsc + jest on every PR
+├── docker-compose.yml              # Full stack: postgres + api + web
+├── start-dev.sh                    # Dev startup script (no Docker required)
 └── package.json                    # Root workspace (npm workspaces: apps/*, services/*)
 ```
-
-> **Note:** `docker-compose.yml` currently references `api/` and `frontend/` (stubs), not the real services. It is not suitable for running the development stack.
 
 ---
 
@@ -202,6 +207,7 @@ Registered routers in `services/ai/app/main.py`:
 4. Push and open a Pull Request
 
 **Guidelines:**
+
 - TypeScript for frontend, Python for backend
 - Run `npm run type-check` and `pytest` before opening a PR
 - Update this README if you change the project structure or add new routes
