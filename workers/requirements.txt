@@ -1,4 +1,1 @@
 pydantic==2.5.2
-pdfplumber==0.11.0
-
-
