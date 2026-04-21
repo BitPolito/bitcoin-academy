@@ -1,4 +1,7 @@
 import os
+
+os.environ["CHROMA_TELEMETRY_IMPL"] = "INMEMORY"
+
 import logging
 import chromadb
 from chromadb.config import Settings
