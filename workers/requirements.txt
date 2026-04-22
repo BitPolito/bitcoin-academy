@@ -1,1 +1,3 @@
 pydantic==2.5.2
+fastembed==0.2.6
+chromadb==0.4.24
