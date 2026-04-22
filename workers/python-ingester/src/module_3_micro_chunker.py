@@ -1,69 +1,38 @@
-import uuid
 import logging
-from typing import List, Dict, Any
+from typing import List
+from services.ai.app.schemas.normalized_document import NormalizedDocument, DocumentChunk, DocumentBlock
 
 logger = logging.getLogger(__name__)
 
-class VerilocalMicroChunker:
-    def __init__(self, max_char_limit: int = 8000, chunk_size: int = 500, overlap: int = 50):
+class VerilocalChunker:
+    def __init__(self, max_char_limit: int = 1500):
         self.max_char_limit = max_char_limit
-        self.chunk_size = chunk_size
-        self.overlap = overlap
 
-    def process_chunks(self, structural_chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        final_chunks = []
-        for chunk in structural_chunks:
-            if chunk["type"] == "SECTION":
-                final_chunks.append(chunk)
-                continue
-            
-            if chunk["type"] == "CONTENT":
-                text = chunk["text"]
-                if len(text) > self.max_char_limit:
-                    logger.warning(f"Guillotine activated on {chunk['chunk_id']}.")
-                    text = text[:self.max_char_limit]
-                    chunk["text"] = text
-                
-                final_chunks.append(chunk)
-
-                micro_texts = self._chunk_text_with_overlap(text)
-                for micro_text in micro_texts:
-                    if len(micro_text.strip()) < 10:
-                        continue
-                    final_chunks.append({
-                        "chunk_id": str(uuid.uuid4()),
-                        "parent_id": chunk["chunk_id"],
-                        "course_id": chunk["course_id"],
-                        "document_id": chunk["document_id"],
-                        "type": "MICRO",
-                        "text": micro_text,
-                        "section_title": chunk.get("section_title"),
-                        "page_str": chunk.get("page_str"),
-                        "priority": 2
-                    })
-        return final_chunks
-
-    def _chunk_text_with_overlap(self, text: str) -> List[str]:
+    def process_document(self, doc: NormalizedDocument) -> List[DocumentChunk]:
         chunks = []
-        start = 0
-        text_len = len(text)
-        
-        while start < text_len:
-            end = start + self.chunk_size
-            if end < text_len:
-                last_space = text.rfind(' ', start, end)
-                if last_space != -1 and last_space > start:
-                    end = last_space
-                    
-            chunk_text = text[start:end].strip()
-            if chunk_text:
-                chunks.append(chunk_text)
+        current_group: List[DocumentBlock] = []
+        current_len = 0
+        chunk_idx = 0
+
+        for block in doc.blocks:
+            if not block.text.strip():
+                continue
                 
-            start = end - self.overlap
-            if start < text_len and start > 0 and text[start - 1] != ' ':
-                next_space = text.find(' ', start)
-                if next_space != -1:
-                    start = next_space + 1
-                else:
-                    break
+            block_len = len(block.text)
+            
+            # If adding this block exceeds the limit, flush the current group into a DocumentChunk
+            if current_len + block_len > self.max_char_limit and current_group:
+                chunks.append(DocumentChunk.from_blocks(current_group, doc, chunk_idx))
+                chunk_idx += 1
+                current_group = []
+                current_len = 0
+                
+            current_group.append(block)
+            current_len += block_len
+
+        # Flush any remaining blocks in the final group
+        if current_group:
+            chunks.append(DocumentChunk.from_blocks(current_group, doc, chunk_idx))
+
+        logger.info(f"Chunking complete. Produced {len(chunks)} official DocumentChunks.")
         return chunks

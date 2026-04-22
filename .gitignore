@@ -143,3 +143,10 @@ auth_secret*
 
 # Documentation
 docs/
+
+# Local test files and vector databases
+*.pdf
+*.pptx
+*.jsonl
+parsed_output/
+chroma_db/
