@@ -14,17 +14,25 @@ from services.ai.app.schemas.normalized_document import (
     TextbookExcerptMetadata
 )
 
+try:
+    from docling.document_converter import DocumentConverter
+except ImportError:
+    DocumentConverter = None
+
 logger = logging.getLogger(__name__)
 
 class StructuralParser:
-    def __init__(self, course_id: str, document_id: str, document_type: DocumentType, title: str, source_filename: str):
+    def __init__(self, course_id: str, document_id: str, document_type: DocumentType, title: str, source_filename: str, file_path: str, use_advanced_parser: bool):
         self.course_id = course_id
         self.document_id = document_id
         self.document_type = document_type
         self.title = title
         self.source_filename = source_filename
+        self.file_path = file_path
+        self.use_advanced_parser = use_advanced_parser
         self.current_section_path = []
         self.in_exclusion_zone = False # Tracks if we are in "Exercises" or "References"
+
         
     def _sanitize_text(self, text: str) -> str:
         # Fix PDF ligature corruption (the smoking gun from Query 20)
@@ -32,8 +40,46 @@ class StructuralParser:
         # Fix squished camelCase headers (e.g., "DefiningTheLoss" -> "Defining The Loss")
         text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
         return text
+    
+    def _parse_with_docling(self) -> NormalizedDocument:
+        if not DocumentConverter or not self.file_path:
+            raise ValueError("Docling is not installed or file_path is missing")
+
+        converter = DocumentConverter()
+        result = converter.convert(self.file_path).document
+        
+        markdown_content = result.export_to_markdown()
+        
+        blocks = [
+            DocumentBlock(
+                block_id=str(uuid.uuid4()),
+                block_type=BlockType.PARAGRAPH,
+                text=markdown_content,
+                position=BlockPosition(page=1, section_path=["Docling Enhanced Extraction"])
+            )
+        ]
+        
+        return NormalizedDocument(
+            doc_id=self.document_id,
+            course_id=self.course_id,
+            document_type=self.document_type,
+            title=self.title,
+            source_filename=self.source_filename,
+            parser_used="docling-tier-2-parser",
+            parsed_at=datetime.now(),
+            page_count=None,
+            slide_count=None,
+            blocks=blocks,
+            type_metadata=TextbookExcerptMetadata(book_title=self.title).model_dump() if self.document_type == DocumentType.TEXTBOOK_EXCERPT else None
+        )
 
     def parse_pages(self, pages: List[Any], total_pages: int) -> NormalizedDocument:
+        if self.use_advanced_parser and self.document_type != DocumentType.LECTURE_SLIDES:
+            try:
+                return self._parse_with_docling()
+            except Exception:
+                pass
+            
         blocks = []
         
         # --- PPTX HANDLING (Unchanged) ---
