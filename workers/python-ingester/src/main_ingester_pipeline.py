@@ -23,6 +23,8 @@ def run_extraction_pipeline(file_path: str, course_id: str, document_id: str, do
     ingestor = RamSafeIngestor(file_path=file_path, chunk_size=100)
     # The parser now builds a formal NormalizedDocument
     parser = StructuralParser(
+        file_path=target_file,
+        use_advanced_parser=False,
         course_id=course_id, 
         document_id=document_id, 
         document_type=doc_type,
