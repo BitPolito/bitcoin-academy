@@ -1,12 +1,13 @@
 """Documents API controller - upload, list, status, detail, preview."""
 from typing import List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Path, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, Path as PathParam, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.services import document_service
 from app.workers import pipeline
+from app.workers.pipeline import UPLOADS_DIR
 from app.schemas.document_schemas import (
     DocumentDetail,
     DocumentListItem,
@@ -23,7 +24,7 @@ router = APIRouter(prefix="/api", tags=["Documents"])
     response_model=List[DocumentListItem],
 )
 def list_documents(
-    course_id: str = Path(..., description="Course ID"),
+    course_id: str = PathParam(..., description="Course ID"),
     db: Session = Depends(get_db),
 ) -> List[DocumentListItem]:
     return document_service.list_documents(db, course_id)
@@ -35,13 +36,14 @@ def list_documents(
     status_code=201,
 )
 def upload_document(
-    course_id: str = Path(..., description="Course ID"),
+    background_tasks: BackgroundTasks,
+    course_id: str = PathParam(..., description="Course ID"),
     file: UploadFile = File(...),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
 ) -> DocumentListItem:
     content = file.file.read()
     filename = file.filename or "unknown"
+
     doc = document_service.create_document(
         db,
         course_id=course_id,
@@ -49,7 +51,20 @@ def upload_document(
         size=len(content),
         mime_type=file.content_type,
     )
-    background_tasks.add_task(pipeline.run, doc.id, course_id, filename)
+
+    # Persist the file so the background pipeline can read it from disk
+    upload_path = UPLOADS_DIR / course_id
+    upload_path.mkdir(parents=True, exist_ok=True)
+    file_path = upload_path / f"{doc.id}_{filename}"
+    file_path.write_bytes(content)
+
+    background_tasks.add_task(
+        pipeline.run,
+        document_id=doc.id,
+        course_id=course_id,
+        filename=filename,
+        file_path=str(file_path),
+    )
     return doc
 
 
@@ -58,7 +73,7 @@ def upload_document(
     response_model=DocumentStatusResponse,
 )
 def get_document_status(
-    document_id: str = Path(..., description="Document ID"),
+    document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
 ) -> DocumentStatusResponse:
     doc = document_service.get_document(db, document_id)
@@ -72,7 +87,7 @@ def get_document_status(
     response_model=DocumentDetail,
 )
 def get_document_detail(
-    document_id: str = Path(..., description="Document ID"),
+    document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
 ) -> DocumentDetail:
     doc = document_service.get_document(db, document_id)
@@ -86,7 +101,7 @@ def get_document_detail(
     response_model=DocumentPreview,
 )
 def get_document_preview(
-    document_id: str = Path(..., description="Document ID"),
+    document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
 ) -> DocumentPreview:
     preview = document_service.get_preview(db, document_id)
@@ -100,7 +115,7 @@ def get_document_preview(
     status_code=200,
 )
 def delete_document(
-    document_id: str = Path(..., description="Document ID"),
+    document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
 ):
     deleted = document_service.delete_document(db, document_id)

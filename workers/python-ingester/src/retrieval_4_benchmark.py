@@ -18,35 +18,79 @@ from retrieval_3_searcher import VerilocalSearcher
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
 
-# --- THE 20-QUERY ADVERSARIAL GAUNTLET ---
+# --- THE 20-QUERY ADVERSARIAL GAUNTLET (Bitcoin Academy edition) ---
+# Each query targets the same structural trap as the original DL suite
+# but uses Bitcoin-domain content so results are meaningful against
+# the course material indexed in ChromaDB.
 BENCHMARK_QUERIES = [
     # CATEGORY 1: DEFINITIONS
-    {"cat": "1. Definition Lookup", "q": "Define perplexity in the context of language modeling and explain its best and worst-case scenarios.", "trap": "ToC Index Trap"},
-    {"cat": "1. Definition Lookup", "q": "What is a tensor and how does it relate to scalars, vectors, and matrices in fundamental linear algebra?", "trap": "Sequential Noun Cluster Trap"},
-    {"cat": "1. Definition Lookup", "q": "What is the specific definition of Weight Decay and how does it restrict the values that parameters can take?", "trap": "LaTeX Fragmentation Trap"},
-    {"cat": "1. Definition Lookup", "q": "Provide the definition of Xavier initialization and explain how it addresses symmetry in neural network design.", "trap": "Disconnected Header Trap"},
-    {"cat": "1. Definition Lookup", "q": "What is the specific definition of the Gated Recurrent Unit (GRU) Update Gate?", "trap": "Equation-Heavy Context Trap"},
-    
+    {"cat": "1. Definition Lookup",
+     "q": "What is a UTXO (Unspent Transaction Output) and how is it consumed when a new Bitcoin transaction is created?",
+     "trap": "ToC Index Trap"},
+    {"cat": "1. Definition Lookup",
+     "q": "Define the Merkle root and explain its cryptographic role inside a Bitcoin block header.",
+     "trap": "Sequential Noun Cluster Trap"},
+    {"cat": "1. Definition Lookup",
+     "q": "What is the specific definition of scriptSig and scriptPubKey and how do they interact during transaction validation?",
+     "trap": "LaTeX Fragmentation Trap"},
+    {"cat": "1. Definition Lookup",
+     "q": "What is a Hash Time-Locked Contract (HTLC) and how is it used in Lightning Network payment channels?",
+     "trap": "Disconnected Header Trap"},
+    {"cat": "1. Definition Lookup",
+     "q": "What is the precise definition of Segregated Witness (SegWit, BIP141) and which transaction malleability problem does it solve?",
+     "trap": "Equation-Heavy Context Trap"},
+
     # CATEGORY 2: WHY/HOW
-    {"cat": "2. Mechanisms & Processes", "q": "How does the backpropagation through time (BPTT) algorithm address hidden states and why is truncation necessary?", "trap": "Math Derivation Trap"},
-    {"cat": "2. Mechanisms & Processes", "q": "Why does the vanishing gradient problem occur specifically when using sigmoid activation functions in deep neural networks?", "trap": "Historical Context Trap"},
-    {"cat": "2. Mechanisms & Processes", "q": "How does batch normalization mathematically transform data during the training phase, and how does this differ from the prediction phase?", "trap": "Chunk Character Limit Boundary"},
-    {"cat": "2. Mechanisms & Processes", "q": "What is the mechanism by which Multi-Head Attention combines different representation subspaces of queries, keys, and values?", "trap": "Tensor Code Block Trap"},
-    {"cat": "2. Mechanisms & Processes", "q": "How does the Adam optimizer integrate momentum and adaptive learning concepts computationally using moving averages?", "trap": "Pseudocode Trap"},
-    
+    {"cat": "2. Mechanisms & Processes",
+     "q": "How does Bitcoin's difficulty adjustment algorithm recalculate the proof-of-work target every 2016 blocks?",
+     "trap": "Math Derivation Trap"},
+    {"cat": "2. Mechanisms & Processes",
+     "q": "Why does Bitcoin use a stack-based scripting language and what security properties does this design guarantee?",
+     "trap": "Historical Context Trap"},
+    {"cat": "2. Mechanisms & Processes",
+     "q": "How does the Bitcoin peer-to-peer network propagate new transactions using INV, GETDATA, and TX messages?",
+     "trap": "Chunk Character Limit Boundary"},
+    {"cat": "2. Mechanisms & Processes",
+     "q": "What is the exact derivation path from a Bitcoin private key to a P2PKH address, including EC multiplication, SHA-256, RIPEMD-160, and Base58Check encoding?",
+     "trap": "Code Block Trap"},
+    {"cat": "2. Mechanisms & Processes",
+     "q": "How does Simplified Payment Verification (SPV) use Merkle proofs to verify transactions without downloading the full blockchain?",
+     "trap": "Pseudocode Trap"},
+
     # CATEGORY 3: COMPARISONS
-    {"cat": "3. Relational Logic", "q": "What are the primary architectural and structural differences between AlexNet and LeNet-5?", "trap": "Isolated Code Block Trap"},
-    {"cat": "3. Relational Logic", "q": "Compare the mechanisms and use cases of L1 regularization with L2 weight decay.", "trap": "Exercise Question Trap"},
-    {"cat": "3. Relational Logic", "q": "How does a Gated Recurrent Unit (GRU) memory cell differ from a Long Short-Term Memory (LSTM) cell in terms of gating mechanisms?", "trap": "Cross-Chapter Fragmentation"},
-    {"cat": "3. Relational Logic", "q": "What are the specific differences between the PyTorch and MXNet primitive implementations of a Dropout layer from scratch?", "trap": "Code Syntax Domination Trap"},
-    {"cat": "3. Relational Logic", "q": "Compare the performance, directional sharpness, and gradient convergence characteristics of the Adam optimizer versus Stochastic Gradient Descent (SGD).", "trap": "Generic Acronym Density Trap"},
-    
-    # CATEGORY 4: EDGE CASES
-    {"cat": "4. Adversarial Stress Tests", "q": "What is the exact mathematical equation for the Batch Normalization output $\\text{BN}(\\mathbf{x})$ during training, including the scale and shift parameters?", "trap": "Pure LaTeX/Unicode Trap"},
-    {"cat": "4. Adversarial Stress Tests", "q": "Design a CNN architecture that includes multiple convolutional and pooling layers, detailing the types of layers, their sequence, and their primary functions.", "trap": "Verbatim Textbook Exercise Trap"},
-    {"cat": "4. Adversarial Stress Tests", "q": "Provide a summary of the introduction to deep learning, including a motivating example and the key components of machine learning problems.", "trap": "Massive ToC Sequence Trap"},
-    {"cat": "4. Adversarial Stress Tests", "q": "Show the specific PyTorch concise implementation code using high-level APIs for initializing a Dropout Multilayer Perceptron.", "trap": "Framework Action Block Trap"},
-    {"cat": "4. Adversarial Stress Tests", "q": "Explain the symptoms of model under昀椀tting compared to over昀椀tting and how generalization error is impacted.", "trap": "PDF Ligature Corruption Typo Trap"}
+    {"cat": "3. Relational Logic",
+     "q": "What are the primary structural and security differences between Pay-to-Public-Key-Hash (P2PKH) and Pay-to-Script-Hash (P2SH) output types?",
+     "trap": "Isolated Code Block Trap"},
+    {"cat": "3. Relational Logic",
+     "q": "Compare soft fork and hard fork upgrade mechanisms in Bitcoin in terms of backward compatibility and coordination requirements.",
+     "trap": "Exercise Question Trap"},
+    {"cat": "3. Relational Logic",
+     "q": "How does an HTLC on the Lightning Network differ from a standard on-chain Bitcoin transaction in its locking and settlement mechanism?",
+     "trap": "Cross-Chapter Fragmentation"},
+    {"cat": "3. Relational Logic",
+     "q": "What are the specific differences between BIP32 hierarchical deterministic wallets and BIP44 multi-account wallet derivation?",
+     "trap": "Code Syntax Domination Trap"},
+    {"cat": "3. Relational Logic",
+     "q": "Compare the security guarantees and trust assumptions of a Bitcoin full node versus an SPV light client in a hostile network environment.",
+     "trap": "Generic Acronym Density Trap"},
+
+    # CATEGORY 4: ADVERSARIAL STRESS TESTS
+    {"cat": "4. Adversarial Stress Tests",
+     "q": "What is the exact mathematical formula for Bitcoin's difficulty target T given the ratio of actual to expected time for the last 2016 blocks?",
+     "trap": "Pure LaTeX/Unicode Trap"},
+    {"cat": "4. Adversarial Stress Tests",
+     "q": "Design a 2-of-3 multisig P2SH locking script and detail each opcode (OP_2, OP_CHECKMULTISIG) together with the corresponding unlocking script.",
+     "trap": "Verbatim Textbook Exercise Trap"},
+    {"cat": "4. Adversarial Stress Tests",
+     "q": "Provide a summary of the introduction to Bitcoin, including its peer-to-peer architecture, the role of cryptographic proof, and the mechanism for preventing double-spending.",
+     "trap": "Massive ToC Sequence Trap"},
+    {"cat": "4. Adversarial Stress Tests",
+     "q": "Show the specific Python code using the 'ecdsa' or 'bitcoinlib' library for generating a Bitcoin private key and deriving the corresponding P2PKH address.",
+     "trap": "Framework Action Block Trap"},
+    # Deliberate ligature corruption (昀椀 = fi) — tests _sanitize_query() in retrieval_3_searcher.py
+    {"cat": "4. Adversarial Stress Tests",
+     "q": "Explain the symptoms of sel昀椀sh mining compared to honest mining and how the attacker gains a disproportionate share of block rewards.",
+     "trap": "PDF Ligature Corruption Typo Trap"},
 ]
 
 def run_benchmark():
@@ -56,7 +100,7 @@ def run_benchmark():
     report_lines = [
         "# ISSUE R-03: Retrieval Benchmark Report",
         f"**Date Executed:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        "**Target:** Dive Into Deep Learning (PDF Baseline Test)\n",
+        "**Target:** Bitcoin Academy — 20-query adversarial gauntlet\n",
         "---"
     ]
     

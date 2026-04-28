@@ -2,9 +2,8 @@ import uuid
 import statistics
 import logging
 import re
-from typing import List, Any
+from typing import Any, List, Optional
 from datetime import datetime
-
 from services.ai.app.schemas.normalized_document import (
     NormalizedDocument,
     DocumentBlock,
@@ -22,7 +21,19 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class StructuralParser:
-    def __init__(self, course_id: str, document_id: str, document_type: DocumentType, title: str, source_filename: str, file_path: str, use_advanced_parser: bool):
+    def __init__(
+        self,
+        course_id: str,
+        document_id: str,
+        document_type: DocumentType,
+        title: str,
+        source_filename: str,
+        file_path: str,
+        use_advanced_parser: bool,
+        lecture_id: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        prerequisites: Optional[List[str]] = None,
+    ):
         self.course_id = course_id
         self.document_id = document_id
         self.document_type = document_type
@@ -30,8 +41,11 @@ class StructuralParser:
         self.source_filename = source_filename
         self.file_path = file_path
         self.use_advanced_parser = use_advanced_parser
+        self.lecture_id = lecture_id or document_id
+        self.tags = tags or []
+        self.prerequisites = prerequisites or []
         self.current_section_path = []
-        self.in_exclusion_zone = False # Tracks if we are in "Exercises" or "References"
+        self.in_exclusion_zone = False
 
         
     def _sanitize_text(self, text: str) -> str:
@@ -45,40 +59,88 @@ class StructuralParser:
         if not DocumentConverter or not self.file_path:
             raise ValueError("Docling is not installed or file_path is missing")
 
+        from docling_core.types.doc.labels import DocItemLabel
+        from docling_core.types.doc.document import TableItem, DocItem
+
+        LABEL_MAP = {
+            DocItemLabel.TITLE:          (BlockType.HEADING,    1),
+            DocItemLabel.SECTION_HEADER: (BlockType.HEADING,    2),
+            DocItemLabel.TEXT:           (BlockType.PARAGRAPH,  None),
+            DocItemLabel.PARAGRAPH:      (BlockType.PARAGRAPH,  None),
+            DocItemLabel.LIST_ITEM:      (BlockType.LIST_ITEM,  None),
+            DocItemLabel.TABLE:          (BlockType.TABLE,      None),
+            DocItemLabel.FORMULA:        (BlockType.MATH,       None),
+            DocItemLabel.CODE:           (BlockType.CODE_BLOCK, None),
+        }
+
         converter = DocumentConverter()
-        result = converter.convert(self.file_path).document
-        
-        markdown_content = result.export_to_markdown()
-        
-        blocks = [
-            DocumentBlock(
-                block_id=str(uuid.uuid4()),
-                block_type=BlockType.PARAGRAPH,
-                text=markdown_content,
-                position=BlockPosition(page=1, section_path=["Docling Enhanced Extraction"])
+        doc = converter.convert(self.file_path).document
+        blocks = []
+
+        for node, _ in doc.iterate_items():
+            # iterate_items yields NodeItem; only DocItems carry label/prov/text
+            if not isinstance(node, DocItem):
+                continue
+            item: DocItem = node
+
+            block_type, default_heading_level = LABEL_MAP.get(
+                item.label, (BlockType.PARAGRAPH, None)
             )
-        ]
-        
+
+            page_num = item.prov[0].page_no if item.prov else None
+
+            if isinstance(item, TableItem):
+                text = item.export_to_markdown()
+            else:
+                raw = getattr(item, "text", None)
+                if not raw:
+                    continue
+                text = self._sanitize_text(str(raw))
+
+            if not text.strip():
+                continue
+
+            heading_level = None
+            if block_type == BlockType.HEADING:
+                heading_level = getattr(item, "level", default_heading_level) or default_heading_level or 1
+                self.current_section_path = [text]
+
+            blocks.append(DocumentBlock(
+                block_id=str(uuid.uuid4()),
+                block_type=block_type,
+                text=text,
+                position=BlockPosition(
+                    page=page_num,
+                    section_path=self.current_section_path.copy(),
+                ),
+                heading_level=heading_level,
+            ))
+
+        page_count = len({b.position.page for b in blocks if b.position.page is not None}) or None
+
         return NormalizedDocument(
             doc_id=self.document_id,
             course_id=self.course_id,
+            lecture_id=self.lecture_id,
             document_type=self.document_type,
             title=self.title,
             source_filename=self.source_filename,
             parser_used="docling-tier-2-parser",
             parsed_at=datetime.now(),
-            page_count=None,
+            page_count=page_count,
             slide_count=None,
             blocks=blocks,
+            tags=self.tags,
+            prerequisites=self.prerequisites,
             type_metadata=TextbookExcerptMetadata(book_title=self.title).model_dump() if self.document_type == DocumentType.TEXTBOOK_EXCERPT else None
         )
 
     def parse_pages(self, pages: List[Any], total_pages: int) -> NormalizedDocument:
-        if self.use_advanced_parser and self.document_type != DocumentType.LECTURE_SLIDES:
+        if self.use_advanced_parser:
             try:
                 return self._parse_with_docling()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Docling failed ({e}), falling back to hybrid parser.")
             
         blocks = []
         
@@ -182,6 +244,7 @@ class StructuralParser:
         doc = NormalizedDocument(
             doc_id=self.document_id,
             course_id=self.course_id,
+            lecture_id=self.lecture_id,
             document_type=self.document_type,
             title=self.title,
             source_filename=self.source_filename,
@@ -190,6 +253,8 @@ class StructuralParser:
             page_count=total_pages if self.document_type != DocumentType.LECTURE_SLIDES else None,
             slide_count=total_pages if self.document_type == DocumentType.LECTURE_SLIDES else None,
             blocks=blocks,
+            tags=self.tags,
+            prerequisites=self.prerequisites,
             type_metadata=TextbookExcerptMetadata(book_title=self.title).model_dump() if self.document_type == DocumentType.TEXTBOOK_EXCERPT else None
         )
         return doc
