@@ -70,7 +70,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
 
@@ -85,3 +85,27 @@ jobs:
 
       - name: Run tests (Jest)
         run: npm test -- --ci --passWithNoTests
+
+  qvac-service:
+    name: QVAC Service (Node.js)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: workers/qvac-service
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: workers/qvac-service/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
