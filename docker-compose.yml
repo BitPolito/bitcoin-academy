@@ -15,6 +15,26 @@ services:
       timeout: 5s
       retries: 5
 
+  qvac:
+    image: node:22-alpine
+    working_dir: /app
+    command: node src/server.js
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./workers/qvac-service:/app
+      - /app/node_modules
+      - qvac_data:/app/hyperdb
+    environment:
+      - QVAC_PORT=3001
+      # Set QVAC_LLM_SRC to a local model path to enable LLM generation.
+      # Leave unset to run in embedding + retrieval only mode.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: ./services/ai
@@ -28,8 +48,11 @@ services:
       - DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy
       - ENVIRONMENT=development
       - CORS_ORIGINS=http://localhost:3000
+      - QVAC_SERVICE_URL=http://qvac:3001
     depends_on:
       postgres:
+        condition: service_healthy
+      qvac:
         condition: service_healthy
 
   web:
@@ -51,3 +74,4 @@ services:
 
 volumes:
   postgres_data:
+  qvac_data:

@@ -47,7 +47,15 @@ print_error() {
 print_section "Checking Prerequisites"
 
 if ! command -v node &> /dev/null; then
-    print_error "Node.js is not installed. Please install Node.js 18+"
+    print_error "Node.js is not installed. Please install Node.js 22.17 or later."
+    exit 1
+fi
+
+# @qvac/sdk uses bare runtime shims that require Node.js >= 22.17
+NODE_MAJOR=$(node --version | sed 's/v//' | cut -d. -f1)
+NODE_MINOR=$(node --version | sed 's/v//' | cut -d. -f2)
+if [ "$NODE_MAJOR" -lt 22 ] || { [ "$NODE_MAJOR" -eq 22 ] && [ "$NODE_MINOR" -lt 17 ]; }; then
+    print_error "Node.js 22.17+ is required (found $(node --version)). The @qvac/sdk package will not load on older versions."
     exit 1
 fi
 
@@ -111,6 +119,18 @@ fi
 
 echo "✅ Backend setup complete"
 
+# Setup QVAC service
+print_section "Setting up QVAC Service"
+
+cd "$PROJECT_DIR/workers/qvac-service"
+
+if [ ! -d "node_modules" ]; then
+    echo "Installing QVAC service dependencies..."
+    npm install --silent
+fi
+
+echo "QVAC service setup complete"
+
 # Setup Frontend
 print_section "Setting up Frontend"
 
@@ -136,10 +156,18 @@ print_section "Starting Development Servers"
 echo ""
 echo "Backend will start on:   http://localhost:8000"
 echo "API Documentation:       http://localhost:8000/docs"
+echo "QVAC service on:         http://localhost:3001"
 echo "Frontend will start on:  http://localhost:3000"
 echo ""
-print_warning "Keep this terminal open to run both servers"
+print_warning "Keep this terminal open to run all servers"
 echo ""
+
+# Start QVAC service in background
+echo "Starting QVAC service..."
+cd "$PROJECT_DIR/workers/qvac-service"
+node src/server.js > "$PROJECT_DIR/workers/qvac-service/qvac.log" 2>&1 &
+QVAC_PID=$!
+echo "QVAC service PID: $QVAC_PID"
 
 # Start backend in background
 echo "Starting FastAPI backend..."
@@ -148,6 +176,9 @@ source venv/bin/activate 2>/dev/null || source venv/Scripts/activate 2>/dev/null
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 > backend.log 2>&1 &
 BACKEND_PID=$!
 echo "Backend PID: $BACKEND_PID"
+
+# Register cleanup before any blocking call
+trap "kill $BACKEND_PID $QVAC_PID 2>/dev/null" EXIT
 
 # Wait a bit for backend to start
 sleep 3
@@ -161,13 +192,10 @@ echo "  Admin:   admin@bitpolito.it / DevAdmin@2024!Secure"
 echo "  Student: student@bitpolito.it / DevStudent@2024!Learn"
 echo ""
 
-# Start frontend
+# Start frontend (blocks until Ctrl-C)
 echo "Starting Next.js frontend..."
 cd "$PROJECT_DIR/apps/web"
 npm run dev
-
-# Cleanup on exit
-trap "kill $BACKEND_PID 2>/dev/null" EXIT
 
 echo ""
 print_section "Development Servers Stopped"
