@@ -1,0 +1,17 @@
+{
+  "name": "qvac-service",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "ingest": "node src/ingest.js",
+    "test": "node --test --experimental-test-module-mocks tests/*.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@qvac/sdk": "^0.9.1"
+  }
+}
