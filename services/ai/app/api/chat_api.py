@@ -1,5 +1,5 @@
 """Chat API controller - RAG-backed Q&A endpoint."""
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, Field
@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api", tags=["Chat"])
 
 
 # ---------------------------------------------------------------------------
-# Request / Response schemas (inline — chat is self-contained)
+# Request / Response schemas
 # ---------------------------------------------------------------------------
 
 class ChatRequest(BaseModel):
@@ -19,11 +19,8 @@ class ChatRequest(BaseModel):
 
 
 class CitationOut(BaseModel):
-    label: str
-    section: Optional[str] = None
-    page: Optional[int] = None
-    slide: Optional[int] = None
-    text_snippet: str
+    snippet: str
+    score: float
 
 
 class ChatResponse(BaseModel):
@@ -41,9 +38,9 @@ class ChatResponse(BaseModel):
     response_model=ChatResponse,
     summary="Ask a question about course materials",
     description=(
-        "Retrieves relevant passages from the indexed course documents and "
-        "synthesises an answer. Requires a valid JWT. "
-        "Falls back to raw context when no OpenAI key is configured."
+        "Retrieves relevant passages from the indexed course documents via the "
+        "QVAC service and synthesises an answer. Requires a valid JWT. "
+        "Falls back to a plain message when the QVAC service is unavailable."
     ),
 )
 def chat(
@@ -54,15 +51,6 @@ def chat(
     result = chat_service.answer(question=body.message, course_id=course_id)
     return ChatResponse(
         answer=result.answer,
-        citations=[
-            CitationOut(
-                label=c.label,
-                section=c.section,
-                page=c.page,
-                slide=c.slide,
-                text_snippet=c.text_snippet,
-            )
-            for c in result.citations
-        ],
+        citations=[CitationOut(snippet=c.snippet, score=c.score) for c in result.citations],
         retrieval_used=result.retrieval_used,
     )
