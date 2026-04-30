@@ -1,9 +1,12 @@
 'use client';
 
 import { LessonNav } from './LessonNav';
+import { ContentChunks } from './ContentChunks';
 import type { Lesson } from '@/lib/services/courses';
 
 interface SourcePaneProps {
+  courseId: string;
+  accessToken?: string;
   courseTitle?: string;
   lessons: Lesson[];
   selectedLesson: Lesson | null;
@@ -14,6 +17,8 @@ interface SourcePaneProps {
 }
 
 export function SourcePane({
+  courseId,
+  accessToken,
   courseTitle,
   lessons,
   selectedLesson,
@@ -57,30 +62,18 @@ export function SourcePane({
               {selectedLesson.title}
             </h3>
 
-            {selectedLesson.content ? (
+            {selectedLesson.content && (
               <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
                 {selectedLesson.content}
               </p>
-            ) : (
-              <div className="rounded-lg border border-dashed border-gray-300 bg-white p-5 text-center">
-                <svg
-                  className="mx-auto h-8 w-8 text-gray-300"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"
-                  />
-                </svg>
-                <p className="mt-2 text-sm text-gray-500">
-                  Use the AI Tutor to explore the course material for this lesson.
-                </p>
-              </div>
             )}
+
+            {/* Document chunks from uploaded course material */}
+            <ContentChunks
+              courseId={courseId}
+              accessToken={accessToken}
+              className="mt-2"
+            />
 
             {/* Completion button */}
             <div className="pt-2">

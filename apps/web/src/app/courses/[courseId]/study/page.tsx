@@ -122,6 +122,8 @@ export default function StudyPage() {
         <SplitPane
           left={
             <SourcePane
+              courseId={courseId}
+              accessToken={accessToken}
               courseTitle={course?.title}
               lessons={lessons}
               selectedLesson={selectedLesson}
