@@ -19,3 +19,8 @@ psycopg2-binary==2.9.9
 zxcvbn==4.4.28
 bleach==6.1.0
 slowapi==0.1.9
+# RAG pipeline — document ingestion and vector search
+pdfplumber==0.11.4
+python-pptx==0.6.23
+fastembed==0.2.6
+chromadb>=0.5.0

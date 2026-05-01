@@ -34,6 +34,19 @@ class DocumentType(str, Enum):
     REFERENCE = "reference"
 
 
+class ChunkType(str, Enum):
+    """Hierarchical granularity level of a DocumentChunk.
+
+    SECTION   — Level 1: all blocks under one heading; broadest context unit.
+    PARAGRAPH — Level 2: primary retrieval unit (~1500 chars), grouped by topic.
+    MICRO     — Level 3: sentence-boundary sub-split (~300 chars), for reranking.
+    """
+
+    SECTION = "section"
+    PARAGRAPH = "paragraph"
+    MICRO = "micro"
+
+
 class BlockType(str, Enum):
     """Atomic content unit types.
 
@@ -242,6 +255,20 @@ class NormalizedDocument(BaseModel):
     slide_count: Optional[int] = None
     word_count: Optional[int] = None
 
+    # --- Document-level classification metadata ----------------------------
+    lecture_id: Optional[str] = Field(
+        None,
+        description="Lecture/document identifier within the course (e.g. 'L03', 'BIP141')",
+    )
+    tags: List[str] = Field(
+        default_factory=list,
+        description="Topic tags for content filtering (e.g. ['cryptography', 'hashing'])",
+    )
+    prerequisites: List[str] = Field(
+        default_factory=list,
+        description="Prerequisite topic labels (e.g. ['public-key-crypto', 'hash-functions'])",
+    )
+
     blocks: List[DocumentBlock] = Field(
         default_factory=list,
         description="Ordered list of content blocks extracted from the source",
@@ -305,12 +332,19 @@ class DocumentChunk(BaseModel):
     chunk_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     doc_id: str
     course_id: str
+    lecture_id: Optional[str] = Field(
+        None, description="Lecture/document ID within the course"
+    )
     document_type: DocumentType
 
     text: str = Field(description="The text to embed and return in retrieval")
     block_ids: List[str] = Field(
         description="IDs of the source DocumentBlocks this chunk spans"
     )
+
+    # --- Classification metadata (inherited from NormalizedDocument) --------
+    tags: List[str] = Field(default_factory=list)
+    prerequisites: List[str] = Field(default_factory=list)
 
     # --- Citation fields (always populated) --------------------------------
     citation_page: Optional[int] = Field(
@@ -336,6 +370,20 @@ class DocumentChunk(BaseModel):
     chunk_index: int = Field(description="0-indexed position of this chunk within its document")
     char_count: int
 
+    # --- Hierarchy fields (R-01) -------------------------------------------
+    chunk_type: ChunkType = Field(
+        default=ChunkType.PARAGRAPH,
+        description="Granularity level: section (L1), paragraph (L2), micro (L3)",
+    )
+    parent_chunk_id: Optional[str] = Field(
+        None,
+        description=(
+            "chunk_id of the parent in the hierarchy.  "
+            "None for section chunks; section chunk_id for paragraph chunks; "
+            "paragraph chunk_id for micro chunks."
+        ),
+    )
+
     # -----------------------------------------------------------------------
     # Factory
     # -----------------------------------------------------------------------
@@ -346,10 +394,15 @@ class DocumentChunk(BaseModel):
         blocks: List[DocumentBlock],
         doc: NormalizedDocument,
         chunk_index: int,
+        chunk_type: Optional["ChunkType"] = None,
+        parent_chunk_id: Optional[str] = None,
     ) -> "DocumentChunk":
         """Build a chunk from a contiguous list of DocumentBlocks."""
         if not blocks:
             raise ValueError("Cannot create a chunk from an empty block list")
+
+        if chunk_type is None:
+            chunk_type = ChunkType.PARAGRAPH
 
         text = "\n\n".join(b.text for b in blocks)
         first = blocks[0].position
@@ -367,6 +420,7 @@ class DocumentChunk(BaseModel):
         return cls(
             doc_id=doc.doc_id,
             course_id=doc.course_id,
+            lecture_id=doc.lecture_id,
             document_type=doc.document_type,
             text=text,
             block_ids=[b.block_id for b in blocks],
@@ -376,4 +430,8 @@ class DocumentChunk(BaseModel):
             citation_label=label,
             chunk_index=chunk_index,
             char_count=len(text),
+            chunk_type=chunk_type,
+            parent_chunk_id=parent_chunk_id,
+            tags=list(doc.tags),
+            prerequisites=list(doc.prerequisites),
         )

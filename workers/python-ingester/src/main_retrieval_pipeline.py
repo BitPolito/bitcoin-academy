@@ -58,6 +58,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the R-02 Retrieval CLI")
     parser.add_argument("jsonl_file", help="Path to the parsed JSONL file")
     parser.add_argument("--rebuild", action="store_true", help="Force a complete teardown and rebuild of the index")
-    
+    parser.add_argument("--index-only", action="store_true", help="Build the index and exit without starting the REPL")
+
     args = parser.parse_args()
-    run_cli_orchestrator(args.jsonl_file, rebuild_index=args.rebuild)
+
+    if args.index_only:
+        from retrieval_2_embedder import VerilocalEmbedder
+        from retrieval_1_chroma import ChromaDatabaseManager
+        db = ChromaDatabaseManager()
+        db.reset_collection()
+        embedder = VerilocalEmbedder()
+        data_pack = embedder.process_jsonl_for_indexing(args.jsonl_file)
+        db.insert_batch(
+            ids=data_pack["ids"],
+            embeddings=data_pack["embeddings"],
+            documents=data_pack["documents"],
+            metadatas=data_pack["metadatas"],
+        )
+        logger.info(f"Index built: {db.get_collection_count()} vectors in ChromaDB.")
+    else:
+        run_cli_orchestrator(args.jsonl_file, rebuild_index=args.rebuild)
