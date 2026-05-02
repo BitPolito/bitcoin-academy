@@ -23,6 +23,7 @@ def create_document(
     filename: str,
     size: int,
     mime_type: Optional[str] = None,
+    document_type: str = "lecture",
 ) -> CourseDocument:
     doc = CourseDocument(
         id=str(uuid.uuid4()),
@@ -32,8 +33,22 @@ def create_document(
         size=size,
         status=DocumentStatus.PROCESSING,
         processing_stage=DocumentProcessingStage.QUEUED,
+        document_type=document_type,
     )
     return document_repo.create(db, doc)
+
+
+def reset_status(db: Session, document_id: str) -> Optional[CourseDocument]:
+    """Reset a failed document to pending so the pipeline can retry it."""
+    doc = document_repo.get_by_id(db, document_id)
+    if doc is None:
+        return None
+    doc.status = DocumentStatus.PROCESSING
+    doc.processing_stage = DocumentProcessingStage.QUEUED
+    doc.error_message = None
+    db.commit()
+    db.refresh(doc)
+    return doc
 
 
 def delete_document(db: Session, document_id: str) -> bool:

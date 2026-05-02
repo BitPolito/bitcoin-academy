@@ -52,12 +52,24 @@ export async function uploadDocument(
   courseId: string,
   file: File,
   accessToken?: string,
+  documentType = 'lecture',
 ): Promise<ApiDocumentListItem> {
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('document_type', documentType);
   return apiFetch<ApiDocumentListItem>(`/courses/${courseId}/documents`, {
     method: 'POST',
     body: formData,
+    accessToken,
+  });
+}
+
+export async function retryDocument(
+  documentId: string,
+  accessToken?: string,
+): Promise<ApiDocumentStatusResponse> {
+  return apiFetch<ApiDocumentStatusResponse>(`/documents/${documentId}/retry`, {
+    method: 'POST',
     accessToken,
   });
 }

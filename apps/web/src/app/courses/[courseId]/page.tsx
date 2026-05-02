@@ -6,6 +6,13 @@ import { useSession } from 'next-auth/react';
 import { getCourse, getCourseLessons, type Course, type Lesson } from '@/lib/services/courses';
 import { DocumentList } from '@/components/courses/DocumentList';
 import { DocumentUpload } from '@/components/documents/DocumentUpload';
+import type { MaterialType } from '@/lib/api/types';
+
+const TABS: { id: MaterialType; label: string }[] = [
+  { id: 'lecture',    label: 'Lectures' },
+  { id: 'past_exam',  label: 'Past Exams' },
+  { id: 'supplement', label: 'Supplements' },
+];
 
 export default function CourseWorkspacePage() {
   const params = useParams();
@@ -19,10 +26,9 @@ export default function CourseWorkspacePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [docRefreshKey, setDocRefreshKey] = useState(0);
+  const [activeTab, setActiveTab] = useState<MaterialType>('lecture');
 
-  const refreshDocuments = useCallback(() => {
-    setDocRefreshKey((k) => k + 1);
-  }, []);
+  const refreshDocuments = useCallback(() => setDocRefreshKey((k) => k + 1), []);
 
   function handleViewPreview(documentId: string) {
     router.push(`/courses/${courseId}/documents/${documentId}/preview`);
@@ -43,7 +49,6 @@ export default function CourseWorkspacePage() {
         setLoading(false);
       }
     }
-
     if (courseId) load();
   }, [courseId, accessToken]);
 
@@ -55,13 +60,9 @@ export default function CourseWorkspacePage() {
           <div className="h-4 w-2/3 bg-gray-100 rounded" />
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 bg-white rounded-lg shadow p-6 space-y-4">
-              <div className="h-5 w-1/4 bg-gray-200 rounded" />
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-12 bg-gray-50 rounded" />
-              ))}
+              {[1, 2, 3].map((i) => <div key={i} className="h-12 bg-gray-50 rounded" />)}
             </div>
             <div className="bg-white rounded-lg shadow p-6 space-y-4">
-              <div className="h-5 w-1/3 bg-gray-200 rounded" />
               <div className="h-24 bg-gray-50 rounded" />
             </div>
           </div>
@@ -75,10 +76,7 @@ export default function CourseWorkspacePage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
           <p className="text-sm text-red-700">{error || 'Course not found'}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="mt-3 text-sm font-medium text-red-700 hover:text-red-800 underline"
-          >
+          <button onClick={() => window.location.reload()} className="mt-3 text-sm font-medium text-red-700 hover:text-red-800 underline">
             Retry
           </button>
         </div>
@@ -88,11 +86,30 @@ export default function CourseWorkspacePage() {
 
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">{course.title}</h1>
-        {course.description && (
-          <p className="mt-1 text-gray-600">{course.description}</p>
-        )}
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{course.title}</h1>
+          {course.description && <p className="mt-1 text-gray-600">{course.description}</p>}
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => router.push(`/courses/${courseId}/study`)}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-md hover:bg-orange-700 transition-colors"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.438 60.438 0 00-.491 6.347A48.62 48.62 0 0112 20.904a48.62 48.62 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.636 50.636 0 00-2.658-.813A59.906 59.906 0 0112 3.493a59.903 59.903 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0112 13.489a50.702 50.702 0 017.74-3.342" />
+            </svg>
+            Study
+          </button>
+          {process.env.NODE_ENV === 'development' && (
+            <button
+              onClick={() => router.push(`/courses/${courseId}/debug`)}
+              className="text-xs text-gray-400 hover:text-gray-600 underline"
+            >
+              Debug
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -105,10 +122,7 @@ export default function CourseWorkspacePage() {
             <div className="p-6">
               {lessons.length === 0 ? (
                 <div className="text-center py-8">
-                  <svg className="mx-auto h-10 w-10 text-gray-300" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.438 60.438 0 00-.491 6.347A48.62 48.62 0 0112 20.904a48.62 48.62 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.636 50.636 0 00-2.658-.813A59.906 59.906 0 0112 3.493a59.903 59.903 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0112 13.489a50.702 50.702 0 017.74-3.342" />
-                  </svg>
-                  <p className="mt-2 text-sm text-gray-500">No lessons available yet</p>
+                  <p className="text-sm text-gray-500">No lessons available yet</p>
                 </div>
               ) : (
                 <ul className="divide-y divide-gray-100">
@@ -132,7 +146,7 @@ export default function CourseWorkspacePage() {
         <div className="space-y-6">
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b border-gray-100">
-              <h2 className="text-lg font-semibold text-gray-900">Documents</h2>
+              <h2 className="text-lg font-semibold text-gray-900">Materials</h2>
             </div>
             <div className="p-6">
               <DocumentUpload
@@ -140,12 +154,31 @@ export default function CourseWorkspacePage() {
                 accessToken={accessToken}
                 onUploadComplete={refreshDocuments}
               />
-              <div className="mt-4">
+
+              {/* Tabs */}
+              <div className="mt-4 flex gap-1 border-b border-gray-200">
+                {TABS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`px-3 py-2 text-xs font-medium transition-colors border-b-2 -mb-px ${
+                      activeTab === tab.id
+                        ? 'border-orange-500 text-orange-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-3">
                 <DocumentList
                   courseId={courseId}
                   accessToken={accessToken}
                   refreshKey={docRefreshKey}
                   onViewPreview={handleViewPreview}
+                  filterType={activeTab}
                 />
               </div>
             </div>

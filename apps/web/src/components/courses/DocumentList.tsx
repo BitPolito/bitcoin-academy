@@ -11,6 +11,7 @@ interface DocumentListProps {
   accessToken?: string;
   refreshKey?: number;
   onViewPreview?: (documentId: string) => void;
+  filterType?: string;
 }
 
 const AUTO_POLL_INTERVAL_MS = 8000;
@@ -39,6 +40,7 @@ export function DocumentList({
   accessToken,
   refreshKey = 0,
   onViewPreview,
+  filterType,
 }: DocumentListProps) {
   const [documents, setDocuments] = useState<DocumentListRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -174,7 +176,7 @@ export function DocumentList({
       </div>
 
       <ul className="divide-y divide-gray-100">
-        {documents.map((doc) => {
+        {documents.filter((d) => !filterType || d.documentType === filterType).map((doc) => {
           const isExpanded = expandedId === doc.id;
           return (
             <li key={doc.id} className="py-2 px-1">

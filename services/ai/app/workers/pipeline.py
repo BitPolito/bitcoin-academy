@@ -158,7 +158,13 @@ def _mark_error(doc: CourseDocument, message: str, db) -> None:
 # Public entry point — runs as a FastAPI BackgroundTask
 # ---------------------------------------------------------------------------
 
-def run(document_id: str, course_id: str, filename: str, file_path: str) -> None:
+def run(
+    document_id: str,
+    course_id: str,
+    filename: str,
+    file_path: str,
+    material_type: str = "lecture",
+) -> None:
     """Execute the full ingestion pipeline for an uploaded document.
 
     Opens its own DB session so it is safe to run after the request session
@@ -240,11 +246,13 @@ def run(document_id: str, course_id: str, filename: str, file_path: str) -> None
             metadatas = [
                 {
                     "doc_id": c.doc_id,
+                    "filename": filename,
                     "course_id": c.course_id,
                     "lecture_id": c.lecture_id or c.doc_id,
                     "document_type": c.document_type.value,
+                    "material_type": material_type,
                     "label": c.citation_label,
-                    "section": c.citation_section or "N/A",
+                    "section": c.citation_section or "",
                     "page": c.citation_page or 0,
                     "slide": c.citation_slide or 0,
                     "chunk_type": c.chunk_type.value,
@@ -298,14 +306,14 @@ def run(document_id: str, course_id: str, filename: str, file_path: str) -> None
 
             logger.info("Pipeline done for %s — %d paragraph chunks indexed", document_id, len(para_chunks))
 
-        except Exception as exc:
-            logger.exception("Pipeline failed for %s: %s", document_id, exc)
-            _mark_error(doc, str(exc), db)
-
-        finally:
+            # Only clean up on success so the file is available for retry on failure.
             try:
                 if os.path.exists(file_path):
                     os.remove(file_path)
                     logger.debug("Cleaned up temp file: %s", file_path)
             except OSError:
                 pass
+
+        except Exception as exc:
+            logger.exception("Pipeline failed for %s: %s", document_id, exc)
+            _mark_error(doc, str(exc), db)

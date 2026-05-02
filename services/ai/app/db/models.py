@@ -349,6 +349,8 @@ class CourseDocument(Base):
     )
     error_message: Mapped[Optional[str]] = mapped_column(Text)
 
+    document_type: Mapped[str] = mapped_column(String, default="lecture")
+
     parser_used: Mapped[Optional[str]] = mapped_column(String)
     page_count: Mapped[Optional[int]] = mapped_column(Integer)
     chunk_count: Mapped[Optional[int]] = mapped_column(Integer)

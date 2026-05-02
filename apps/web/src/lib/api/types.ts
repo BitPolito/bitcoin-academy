@@ -25,6 +25,8 @@ export interface ApiLesson {
   content?: string;
 }
 
+export type MaterialType = 'lecture' | 'past_exam' | 'supplement';
+
 export interface ApiDocumentListItem {
   id: string;
   course_id: string;
@@ -34,6 +36,7 @@ export interface ApiDocumentListItem {
   status: DocumentStatus;
   processing_stage: ProcessingStage;
   error_message: string | null;
+  document_type: MaterialType;
   created_at: string;
   updated_at: string;
 }
@@ -54,6 +57,7 @@ export interface ApiDocumentDetail {
   status: DocumentStatus;
   processing_stage: ProcessingStage;
   error_message: string | null;
+  document_type: MaterialType;
   parser_used: string | null;
   page_count: number | null;
   chunk_count: number | null;
@@ -79,6 +83,53 @@ export interface CreateCourseRequest {
 
 // ── UI types (consumed by components) ───────────────────────────────────
 
+// ── Evidence pack (study action retrieval context) ──────────────────────
+
+export interface CitationAnchor {
+  doc_id: string;
+  doc_name: string;
+  section: string | null;
+  page: number | null;
+  slide: number | null;
+  chunk_id: string;
+  chunk_type: string;
+}
+
+export interface EvidenceChunk {
+  chunk_id: string;
+  text: string;
+  score: number;
+  anchor: CitationAnchor;
+}
+
+export interface EvidencePack {
+  query: string;
+  action: string;
+  chunks: EvidenceChunk[];
+  total_candidates: number;
+}
+
+export type StudyAction =
+  | 'explain'
+  | 'summarize'
+  | 'retrieve'
+  | 'open_questions'
+  | 'quiz'
+  | 'oral';
+
+export interface ApiStudyRequest {
+  action: StudyAction;
+  query: string;
+  context?: string;
+}
+
+export interface ApiStudyResponse {
+  action: StudyAction;
+  output: string;
+  evidence: EvidencePack;
+  retrieval_used: boolean;
+}
+
 export interface DocumentListRow {
   id: string;
   courseId: string;
@@ -89,6 +140,7 @@ export interface DocumentListRow {
   processingStage: ProcessingStage;
   isTerminal: boolean;
   errorMessage: string | null;
+  documentType: MaterialType;
   createdAt: string;
   updatedAt: string;
 }
@@ -102,6 +154,7 @@ export interface DocumentDetailView {
   status: DocumentStatus;
   processingStage: ProcessingStage;
   errorMessage: string | null;
+  documentType: MaterialType;
   parserUsed: string | null;
   pageCount: number | null;
   chunkCount: number | null;
