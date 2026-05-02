@@ -1,9 +1,6 @@
 'use client';
 
-/**
- * Login page component
- * Handles user authentication with form validation
- */
+import { Suspense } from 'react';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -15,7 +12,7 @@ interface FormErrors {
   general?: string;
 }
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
@@ -225,5 +222,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="mt-8 bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 min-h-[320px]" />}>
+      <LoginForm />
+    </Suspense>
   );
 }

@@ -29,7 +29,10 @@ _TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 _OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 _LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
 
-_qvac_client = httpx.AsyncClient(base_url=_QVAC_SERVICE_URL, timeout=60.0)
+_qvac_client = httpx.AsyncClient(
+    base_url=_QVAC_SERVICE_URL,
+    timeout=httpx.Timeout(connect=5.0, read=45.0, write=10.0, pool=5.0),
+)
 
 _LANGCHAIN_AVAILABLE = False
 _ChatOpenAI = None
@@ -78,6 +81,18 @@ _SYSTEM_PROMPTS = {
         "Generate 3 oral exam questions drawn from the provided context, "
         "followed by a concise model answer for each. "
         "Format each entry as:\nQ: ...\nModel answer: ..."
+    ),
+    StudyAction.DERIVE: (
+        "You are a Bitcoin education assistant skilled in formal derivations. "
+        "Using ONLY the provided context, present a step-by-step proof or derivation. "
+        "Number each step, state the reasoning clearly, and cite sources (e.g. 'p.7', 'Slide 5'). "
+        "If the full derivation is not supported by the context, say so explicitly."
+    ),
+    StudyAction.COMPARE: (
+        "You are a Bitcoin education assistant. "
+        "Using ONLY the provided context, produce a structured comparison of the requested concepts or definitions. "
+        "Use a table or parallel-list format: left column = Concept A, right column = Concept B. "
+        "Conclude with a 1-paragraph synthesis of key differences and similarities, citing sources."
     ),
 }
 

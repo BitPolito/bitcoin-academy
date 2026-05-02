@@ -21,3 +21,7 @@ def get_course_lessons(db: Session, course_id: str) -> List[Lesson]:
 
 def get_lesson(db: Session, lesson_id: str) -> Optional[Lesson]:
     return course_repo.get_lesson_by_id(db, lesson_id)
+
+
+def create_course(db: Session, title: str, description: Optional[str] = None) -> Course:
+    return course_repo.create_course(db, title=title, description=description)

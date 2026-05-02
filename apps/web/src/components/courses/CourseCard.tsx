@@ -2,78 +2,86 @@
 
 import Link from 'next/link';
 import type { Course } from '@/lib/services/courses';
-import { ProgressBar } from '@/components/ui/ProgressBar';
+
+interface DocStats {
+  total: number;
+  ready: number;
+  processing: number;
+  error: number;
+}
 
 interface CourseCardProps {
   course: Course;
   progress?: number | null;
+  stats?: DocStats | null;
 }
 
-export function CourseCard({ course, progress = null }: CourseCardProps) {
-  const ctaLabel =
-    progress === 100
-      ? 'Review course'
-      : progress != null && progress > 0
-      ? 'Continue studying'
-      : 'Start studying';
+function Mini({ n, k, warn }: { n: number; k: string; warn?: boolean }) {
+  return (
+    <div className="text-center">
+      <div className="text-xl tnum font-medium" style={warn ? { color: '#a55a00' } : {}}>{n}</div>
+      <div className="font-mono text-[9px] tracking-[0.18em] uppercase opacity-70 mt-0.5">{k}</div>
+    </div>
+  );
+}
+
+export function CourseCard({ course, progress = null, stats = null }: CourseCardProps) {
+  const failed = stats?.error ?? 0;
+  const processing = stats?.processing ?? 0;
+  const statusDot =
+    failed > 0     ? { color: '#b3261e', label: `${failed} failed` }
+    : processing > 0 ? { color: '#a55a00', label: `${processing} processing` }
+    : stats        ? { color: '#1a7f3a', label: 'all indexed' }
+    : { color: '#1a7f3a', label: progress === 100 ? 'completed' : progress != null && progress > 0 ? `${progress}% done` : 'ready' };
 
   return (
     <Link
       href={`/courses/${course.id}`}
-      className="block bg-white rounded-lg shadow hover:shadow-md transition-shadow border border-gray-100"
+      className="b-hard rounded-lg p-5 bg-white dark:bg-blue-dark/30 hover-card cursor-pointer block"
     >
-      <div className="p-6">
-        <div className="flex items-start justify-between">
-          <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-semibold text-gray-900 truncate">
-              {course.title}
-            </h3>
-            {course.description && (
-              <p className="mt-2 text-sm text-gray-600 line-clamp-2">
-                {course.description}
-              </p>
-            )}
-          </div>
-          <div className="ml-4 flex-shrink-0">
-            <span className="inline-flex items-center justify-center h-10 w-10 rounded-lg bg-orange-100 text-orange-600">
-              <svg
-                className="h-5 w-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
-                />
-              </svg>
-            </span>
-          </div>
-        </div>
+      {/* Top row */}
+      <div className="flex items-center justify-between mb-3">
+        <span className="font-mono text-[10px] tracking-[0.2em] uppercase opacity-70">
+          {course.description ? course.description.slice(0, 20) : `#${course.id}`}
+        </span>
+      </div>
 
-        {/* Progress indicator */}
-        <div className="mt-4">
-          {progress !== null ? (
-            <ProgressBar percent={progress} size="sm" />
-          ) : (
-            <div className="h-1.5 w-full bg-gray-100 rounded-full animate-pulse" />
-          )}
+      {/* Striped cover */}
+      <div className="stripes b-thin rounded-md mb-4 relative overflow-hidden" style={{ aspectRatio: '16/7' }}>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-50">
+            {course.title.slice(0, 16)}
+          </span>
         </div>
+        <div className="absolute top-1.5 left-1.5 w-2 h-2 border-l border-t border-current opacity-40" />
+        <div className="absolute top-1.5 right-1.5 w-2 h-2 border-r border-t border-current opacity-40" />
+        <div className="absolute bottom-1.5 left-1.5 w-2 h-2 border-l border-b border-current opacity-40" />
+        <div className="absolute bottom-1.5 right-1.5 w-2 h-2 border-r border-b border-current opacity-40" />
+      </div>
 
-        <div className="mt-3 flex items-center text-sm text-orange-600 font-medium">
-          {ctaLabel}
-          <svg
-            className="ml-1 h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={2}
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-          </svg>
+      <h3 className="text-lg font-medium leading-snug mb-1">{course.title}</h3>
+      {course.description && (
+        <div className="font-mono text-[11px] opacity-70 mb-3 line-clamp-1">{course.description}</div>
+      )}
+
+      {/* Doc stats grid */}
+      {stats && (
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          <Mini n={stats.total}      k="docs"    />
+          <Mini n={stats.ready}      k="indexed" />
+          <Mini n={processing + failed} k="open" warn={failed > 0 || processing > 0} />
         </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex items-center justify-between b-thin-t pt-3 mt-auto">
+        <span className="font-mono text-[11px] flex items-center gap-2">
+          <span className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: statusDot.color }} />
+          {statusDot.label}
+        </span>
+        {progress != null && progress > 0 && progress < 100 && (
+          <span className="font-mono text-[11px] opacity-60">{progress}% done</span>
+        )}
       </div>
     </Link>
   );

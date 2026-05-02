@@ -3,7 +3,27 @@ from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.db.models import Chapter, Course, Lesson
+from app.db.models import Chapter, Course, Lesson, Section
+
+_DEFAULT_SECTION_TITLE = "User Courses"
+
+
+def _get_or_create_default_section(db: Session) -> str:
+    section = db.query(Section).filter(Section.title == _DEFAULT_SECTION_TITLE).first()
+    if section is None:
+        section = Section(title=_DEFAULT_SECTION_TITLE)
+        db.add(section)
+        db.flush()
+    return section.id
+
+
+def create_course(db: Session, title: str, description: Optional[str] = None) -> Course:
+    section_id = _get_or_create_default_section(db)
+    course = Course(title=title, description=description, section_id=section_id)
+    db.add(course)
+    db.commit()
+    db.refresh(course)
+    return course
 
 
 def get_all_courses(db: Session, skip: int = 0, limit: int = 100) -> List[Course]:

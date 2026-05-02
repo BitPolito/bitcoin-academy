@@ -3,6 +3,7 @@ from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Path, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -11,6 +12,20 @@ from app.schemas.course_schemas import CourseSchema, LessonSchema
 from app.core.errors import NotFoundError, ValidationError_
 
 router = APIRouter(prefix="/api", tags=["Courses"])
+
+
+class CreateCourseBody(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=500)
+
+
+@router.post("/courses", response_model=CourseSchema, status_code=201)
+def create_course(
+    body: CreateCourseBody,
+    db: Session = Depends(get_db),
+) -> CourseSchema:
+    """Create a new course workspace."""
+    return course_service.create_course(db, title=body.title, description=body.description)
 
 
 @router.get("/courses", response_model=List[CourseSchema])

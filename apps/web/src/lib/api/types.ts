@@ -121,7 +121,9 @@ export type StudyAction =
   | 'retrieve'
   | 'open_questions'
   | 'quiz'
-  | 'oral';
+  | 'oral'
+  | 'derive'
+  | 'compare';
 
 export interface ApiStudyRequest {
   action: StudyAction;

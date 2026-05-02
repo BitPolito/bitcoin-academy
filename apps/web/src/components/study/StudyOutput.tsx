@@ -26,13 +26,12 @@ export function StudyOutput({ result, courseId }: StudyOutputProps) {
 
   return (
     <div className="space-y-4">
-      {/* Main output */}
       {!hasOutput && !hasCitations && (
-        <p className="text-sm text-gray-400 italic">No results found in course materials.</p>
+        <p className="font-mono text-[11px] opacity-50 italic">No results found in course materials.</p>
       )}
 
       {!hasOutput && hasCitations && result.action !== 'retrieve' && (
-        <div className="rounded-md bg-yellow-50 border border-yellow-200 px-4 py-3 text-sm text-yellow-800">
+        <div className="b-thin rounded-md px-4 py-3 text-sm" style={{ borderColor: '#a55a00', color: '#a55a00' }}>
           LLM generation unavailable (OPENAI_API_KEY not configured). Showing source passages below.
         </div>
       )}
@@ -44,21 +43,21 @@ export function StudyOutput({ result, courseId }: StudyOutputProps) {
       ) : hasOutput && result.action === 'open_questions' ? (
         <QuestionsOutput text={result.answer} />
       ) : hasOutput ? (
-        <div className="prose prose-sm max-w-none text-gray-800">
-          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{result.answer}</pre>
+        <div className="text-[13.5px] leading-relaxed">
+          <pre className="whitespace-pre-wrap font-sans">{result.answer}</pre>
         </div>
       ) : null}
 
-      {/* Sources section */}
+      {/* Sources toggle (non-retrieve actions) */}
       {hasCitations && result.action !== 'retrieve' && (
         <div>
           <button
             onClick={() => setShowSources((v) => !v)}
-            className="flex items-center gap-1 text-xs font-medium text-orange-600 hover:text-orange-700"
+            className="flex items-center gap-1.5 font-mono text-[11px] tracking-[0.14em] uppercase opacity-70 hover:opacity-100 transition-opacity"
           >
             <svg
-              className={`h-3.5 w-3.5 transition-transform ${showSources ? 'rotate-90' : ''}`}
-              fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"
+              className={`h-3 w-3 transition-transform ${showSources ? 'rotate-90' : ''}`}
+              fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor"
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
             </svg>
@@ -97,7 +96,7 @@ function QuizOutput({
 }) {
   const questions = text.split(/\n(?=Q:)/g).filter((s) => s.trim());
   if (questions.length === 0) {
-    return <pre className="whitespace-pre-wrap font-sans text-sm text-gray-800">{text}</pre>;
+    return <pre className="whitespace-pre-wrap font-sans text-[13.5px] leading-relaxed">{text}</pre>;
   }
   return (
     <div className="space-y-4">
@@ -105,17 +104,17 @@ function QuizOutput({
         const [questionPart, answerPart] = q.split(/Answer:/i);
         const revealed = revealedAnswers.has(i);
         return (
-          <div key={i} className="rounded-lg border border-gray-200 p-4 bg-white">
-            <pre className="whitespace-pre-wrap font-sans text-sm text-gray-800">{questionPart.trim()}</pre>
+          <div key={i} className="b-thin rounded-lg p-4 bg-white dark:bg-blue-dark/20">
+            <pre className="whitespace-pre-wrap font-sans text-[13.5px] leading-relaxed">{questionPart.trim()}</pre>
             <button
               onClick={() => onToggle(i)}
-              className="mt-3 text-xs font-medium text-orange-600 hover:text-orange-700"
+              className="mt-3 font-mono text-[11px] tracking-[0.14em] uppercase opacity-70 hover:opacity-100"
             >
               {revealed ? 'Hide answer' : 'Reveal answer'}
             </button>
             {revealed && answerPart && (
-              <div className="mt-2 rounded-md bg-green-50 border border-green-200 px-3 py-2">
-                <p className="text-xs font-medium text-green-700">Answer: {answerPart.trim()}</p>
+              <div className="mt-2 b-thin rounded-md px-3 py-2" style={{ borderColor: '#1a7f3a', background: 'rgba(26,127,58,0.06)' }}>
+                <p className="font-mono text-[12px]" style={{ color: '#1a7f3a' }}>Answer: {answerPart.trim()}</p>
               </div>
             )}
           </div>
@@ -128,17 +127,17 @@ function QuizOutput({
 function OralOutput({ text }: { text: string }) {
   const questions = text.split(/\n(?=Q\d+:)/g).filter((s) => s.trim());
   if (questions.length === 0) {
-    return <pre className="whitespace-pre-wrap font-sans text-sm text-gray-800">{text}</pre>;
+    return <pre className="whitespace-pre-wrap font-sans text-[13.5px] leading-relaxed">{text}</pre>;
   }
   return (
     <div className="space-y-4">
       {questions.map((q, i) => (
-        <div key={i} className="rounded-lg border border-gray-200 p-4 bg-white">
-          <pre className="whitespace-pre-wrap font-sans text-sm text-gray-800">{q.trim()}</pre>
+        <div key={i} className="b-thin rounded-lg p-4 bg-white dark:bg-blue-dark/20">
+          <pre className="whitespace-pre-wrap font-sans text-[13.5px] leading-relaxed">{q.trim()}</pre>
           <textarea
             placeholder="Type your answer here…"
             rows={3}
-            className="mt-3 w-full resize-none rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+            className="mt-3 w-full resize-none rounded-md b-thin px-3 py-2 text-sm bg-transparent outline-none focus:ring-1 focus:ring-blue-dark"
           />
         </div>
       ))}
@@ -151,7 +150,7 @@ function QuestionsOutput({ text }: { text: string }) {
   return (
     <div className="space-y-2">
       {lines.map((line, i) => (
-        <p key={i} className="text-sm text-gray-800 leading-relaxed">{line}</p>
+        <p key={i} className="text-[13.5px] leading-relaxed">{line}</p>
       ))}
     </div>
   );

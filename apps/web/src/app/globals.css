@@ -2,18 +2,187 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── JetBrains Mono ────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ── Base ─────────────────────────────────────────────────────────── */
 html {
   scroll-behavior: smooth;
+  background: #F9F9F9;
 }
-
+html.dark,
+html.dark body {
+  background: #001CE0;
+}
 body {
-  @apply bg-white text-gray-900;
+  font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  color: #001CE0;
+  background: #F9F9F9;
+}
+html.dark body {
+  color: #ffffff;
+}
+a   { transition: color 0.15s; }
+button { transition: all 0.18s ease; }
+
+/* ── Hard borders — BitPolito brand weight ───────────────────────── */
+.b-hard   { border: 2px solid #001CE0; }
+.dark .b-hard { border-color: #ffffff; }
+.b-hard-1 { border: 1px solid #001CE0; }
+.dark .b-hard-1 { border-color: #ffffff; }
+
+/* ── Thin borders (layout / dividers) ───────────────────────────── */
+.b-thin   { border: 1px solid rgba(0,28,224,0.18); }
+.dark .b-thin { border-color: rgba(255,255,255,0.22); }
+.b-thin-b { border-bottom: 1px solid rgba(0,28,224,0.18); }
+.dark .b-thin-b { border-bottom-color: rgba(255,255,255,0.22); }
+.b-thin-t { border-top: 1px solid rgba(0,28,224,0.18); }
+.dark .b-thin-t { border-top-color: rgba(255,255,255,0.22); }
+.b-thin-r { border-right: 1px solid rgba(0,28,224,0.18); }
+.dark .b-thin-r { border-right-color: rgba(255,255,255,0.22); }
+.b-thin-l { border-left: 1px solid rgba(0,28,224,0.18); }
+.dark .b-thin-l { border-left-color: rgba(255,255,255,0.22); }
+
+/* ── Striped placeholder ────────────────────────────────────────── */
+.stripes {
+  background-image: repeating-linear-gradient(
+    45deg, rgba(0,28,224,0.07) 0 6px, transparent 6px 12px
+  );
+}
+.dark .stripes {
+  background-image: repeating-linear-gradient(
+    45deg, rgba(255,255,255,0.10) 0 6px, transparent 6px 12px
+  );
 }
 
-a {
-  @apply transition-colors;
+/* ── Dot grid ────────────────────────────────────────────────────── */
+.dotgrid {
+  background-image: radial-gradient(rgba(0,28,224,0.10) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+.dark .dotgrid {
+  background-image: radial-gradient(rgba(255,255,255,0.10) 1px, transparent 1px);
 }
 
-button {
-  @apply transition-all;
+/* ── Brand color helper ──────────────────────────────────────────── */
+.ink { color: #001CE0; }
+.dark .ink { color: #ffffff; }
+
+/* ── Monospace override ─────────────────────────────────────────── */
+.mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-feature-settings: 'tnum' 1, 'cv11' 1;
+}
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* ── Citation highlight ─────────────────────────────────────────── */
+.cite-hl {
+  background: rgba(0,28,224,0.10);
+  box-shadow: inset 0 -2px 0 #001CE0;
+  border-radius: 2px;
+}
+.dark .cite-hl {
+  background: rgba(255,255,255,0.18);
+  box-shadow: inset 0 -2px 0 #ffffff;
+}
+
+/* ── Workstation scrollbar ──────────────────────────────────────── */
+.ws-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.ws-scroll::-webkit-scrollbar-track { background: transparent; }
+.ws-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0,28,224,0.18); border-radius: 0;
+}
+.ws-scroll:hover::-webkit-scrollbar-thumb { background: rgba(0,28,224,0.32); }
+.dark .ws-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.22); }
+.dark .ws-scroll:hover::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.42); }
+
+/* ── Animated barber-pole progress fill ────────────────────────── */
+@keyframes barber {
+  0%   { background-position: 0 0; }
+  100% { background-position: 28px 0; }
+}
+.bar-stripes {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(255,255,255,0.45) 0 6px,
+    rgba(255,255,255,0.0) 6px 14px
+  );
+  animation: barber 1s linear infinite;
+}
+
+/* ── Pulsing dot for processing state ───────────────────────────── */
+@keyframes dotpulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+.dotpulse { animation: dotpulse 1.4s ease-in-out infinite; }
+
+/* ── Hover card lift ────────────────────────────────────────────── */
+.hover-card { transition: all 0.18s ease; }
+.hover-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 6px 6px 0 0 #001CE0;
+}
+.dark .hover-card:hover { box-shadow: 6px 6px 0 0 #ffffff; }
+
+/* ── Button family ──────────────────────────────────────────────── */
+.btn-primary {
+  background: #001CE0; color: #fff; border: 2px solid #001CE0;
+  padding: 8px 14px; border-radius: 8px; font-weight: 700;
+  font-size: 13px; letter-spacing: 0.01em;
+  display: inline-flex; align-items: center; gap: 8px;
+  transition: all 0.18s ease;
+}
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 4px 4px 0 0 #001CE0;
+  transform: translate(-2px, -2px);
+}
+.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+.dark .btn-primary { background: #fff; color: #001CE0; border-color: #fff; }
+.dark .btn-primary:hover:not(:disabled) { box-shadow: 4px 4px 0 0 #fff; }
+
+.btn-ghost {
+  background: transparent; color: #001CE0; border: 2px solid #001CE0;
+  padding: 7px 13px; border-radius: 8px; font-weight: 700;
+  font-size: 13px;
+  display: inline-flex; align-items: center; gap: 8px;
+  transition: all 0.18s ease;
+}
+.btn-ghost:hover:not(:disabled) {
+  box-shadow: 4px 4px 0 0 #001CE0;
+  transform: translate(-2px, -2px);
+}
+.btn-ghost:disabled { opacity: 0.45; cursor: not-allowed; }
+.dark .btn-ghost { color: #fff; border-color: #fff; }
+.dark .btn-ghost:hover:not(:disabled) { box-shadow: 4px 4px 0 0 #fff; }
+
+/* ── Chip / badge ───────────────────────────────────────────────── */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 600;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+
+/* ── Page fade-in ───────────────────────────────────────────────── */
+.page-fade { animation: pf 0.22s ease both; }
+@keyframes pf {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Corner tick decoration ─────────────────────────────────────── */
+.tick-corners { position: relative; }
+.tick-corners::before, .tick-corners::after {
+  content: ''; position: absolute;
+  width: 8px; height: 8px; pointer-events: none;
+  border-color: #001CE0;
+}
+.dark .tick-corners::before,
+.dark .tick-corners::after { border-color: #fff; }
+.tick-corners::before {
+  top: 0; left: 0;
+  border-top: 2px solid; border-left: 2px solid;
+}
+.tick-corners::after {
+  bottom: 0; right: 0;
+  border-bottom: 2px solid; border-right: 2px solid;
 }

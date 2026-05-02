@@ -180,8 +180,25 @@ echo "Backend PID: $BACKEND_PID"
 # Register cleanup before any blocking call
 trap "kill $BACKEND_PID $QVAC_PID 2>/dev/null" EXIT
 
-# Wait a bit for backend to start
-sleep 3
+# Wait for backend to be ready
+echo "Waiting for backend (http://localhost:8000)..."
+for i in $(seq 1 20); do
+  curl -sf http://localhost:8000/api/health > /dev/null 2>&1 && break
+  sleep 1
+done
+curl -sf http://localhost:8000/api/health > /dev/null 2>&1 \
+  && echo "Backend ready" \
+  || print_warning "Backend did not respond in time — check backend.log"
+
+# Wait for QVAC service to be ready
+echo "Waiting for QVAC service (http://localhost:3001)..."
+for i in $(seq 1 15); do
+  curl -sf http://localhost:3001/health > /dev/null 2>&1 && break
+  sleep 1
+done
+curl -sf http://localhost:3001/health > /dev/null 2>&1 \
+  && echo "QVAC service ready" \
+  || print_warning "QVAC service did not respond in time — check qvac.log"
 
 # Initialize and seed database
 echo "Initializing database and seeding test users..."

@@ -46,3 +46,13 @@ export async function getLesson(
 ): Promise<Lesson> {
   return apiFetch<Lesson>(`/lessons/${lessonId}`, { accessToken });
 }
+
+export async function createCourse(
+  title: string,
+  description?: string,
+): Promise<Course> {
+  return apiFetch<Course>('/courses', {
+    method: 'POST',
+    body: { title, description },
+  });
+}

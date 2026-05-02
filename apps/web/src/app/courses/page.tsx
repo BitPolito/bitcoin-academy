@@ -3,24 +3,43 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { getCourses, type Course } from '@/lib/services/courses';
+import { getCourses, createCourse, type Course } from '@/lib/services/courses';
 import { getCourseProgress } from '@/lib/services/progress';
+import { getDocumentListRows } from '@/lib/api/documents';
 import { CourseCard } from '@/components/courses/CourseCard';
+import { CreateCourseModal } from '@/components/courses/CreateCourseModal';
+
+type Filter = 'all';
+
+interface DocStats {
+  total: number;
+  ready: number;
+  processing: number;
+  error: number;
+}
 
 export default function CoursesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [courses, setCourses] = useState<Course[]>([]);
   const [progress, setProgress] = useState<Record<string | number, number>>({});
+  const [docStats, setDocStats] = useState<Record<string | number, DocStats>>({});
+  const [globalStats, setGlobalStats] = useState({ docs: 0, indexed: 0, processing: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filter] = useState<Filter>('all');
+  const [showCreate, setShowCreate] = useState(false);
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/login');
-      return;
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n') { e.preventDefault(); setShowCreate(true); }
     }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  useEffect(() => {
+    if (status === 'unauthenticated') { router.push('/login'); return; }
     if (status !== 'authenticated') return;
 
     const token = (session?.user as any)?.accessToken;
@@ -30,105 +49,174 @@ export default function CoursesPage() {
         const data = await getCourses(0, 100, token);
         setCourses(data);
 
-        // Fetch progress for all courses in parallel; failures are non-critical
-        const results = await Promise.allSettled(
-          data.map((c) => getCourseProgress(String(c.id), token))
-        );
-        const map: Record<string | number, number> = {};
-        results.forEach((r, i) => {
-          if (r.status === 'fulfilled') map[data[i].id] = r.value.percent;
+        // Fetch progress + doc counts in parallel
+        const [progressResults, docsResults] = await Promise.all([
+          Promise.allSettled(data.map((c) => getCourseProgress(String(c.id), token))),
+          Promise.allSettled(data.map((c) => getDocumentListRows(String(c.id), token))),
+        ]);
+
+        const progressMap: Record<string | number, number> = {};
+        progressResults.forEach((r, i) => {
+          if (r.status === 'fulfilled') progressMap[data[i].id] = r.value.percent;
         });
-        setProgress(map);
+        setProgress(progressMap);
+
+        const statsMap: Record<string | number, DocStats> = {};
+        let totalDocs = 0, totalIndexed = 0, totalProcessing = 0;
+        docsResults.forEach((r, i) => {
+          if (r.status === 'fulfilled') {
+            const docs = r.value;
+            const stats: DocStats = {
+              total: docs.length,
+              ready: docs.filter(d => d.status === 'ready').length,
+              processing: docs.filter(d => d.status === 'processing' || d.status === 'uploading').length,
+              error: docs.filter(d => d.status === 'error').length,
+            };
+            statsMap[data[i].id] = stats;
+            totalDocs += stats.total;
+            totalIndexed += stats.ready;
+            totalProcessing += stats.processing;
+          }
+        });
+        setDocStats(statsMap);
+        setGlobalStats({ docs: totalDocs, indexed: totalIndexed, processing: totalProcessing });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load courses');
       } finally {
         setLoading(false);
       }
     }
-
     fetchAll();
   }, [status, session, router]);
 
+  async function handleCreate(title: string, description?: string) {
+    const created = await createCourse(title, description);
+    setCourses((prev) => [...prev, created]);
+    router.push(`/courses/${created.id}`);
+  }
+
   if (status === 'loading' || (status === 'authenticated' && loading)) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <header className="bg-white shadow-sm">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <div className="h-7 w-48 bg-gray-200 rounded animate-pulse" />
-          </div>
-        </header>
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <main className="page-fade max-w-8xl mx-auto px-6 py-8">
+        <div className="animate-pulse space-y-8">
+          <div className="h-10 w-1/2 bg-blue-dark/10 rounded" />
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-white rounded-lg shadow p-6 animate-pulse">
-                <div className="h-5 w-3/4 bg-gray-200 rounded" />
-                <div className="mt-3 h-4 w-full bg-gray-100 rounded" />
-                <div className="mt-1 h-4 w-2/3 bg-gray-100 rounded" />
-                <div className="mt-5 h-1.5 w-full bg-gray-100 rounded-full" />
+              <div key={i} className="b-hard rounded-lg p-5 space-y-4" style={{ minHeight: 238 }}>
+                <div className="h-3 w-1/3 bg-blue-dark/10 rounded" />
+                <div className="h-20 bg-blue-dark/5 rounded" />
+                <div className="h-5 w-3/4 bg-blue-dark/10 rounded" />
               </div>
             ))}
           </div>
-        </main>
-      </div>
+        </div>
+      </main>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <div>
-            <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-700">
-              &larr; Dashboard
-            </Link>
-            <h1 className="text-2xl font-bold text-gray-900 mt-1">Courses</h1>
+    <main className="page-fade max-w-8xl mx-auto px-6 py-8">
+      {/* Hero */}
+      <div className="grid grid-cols-12 gap-6 mb-10">
+        <div className="col-span-12 lg:col-span-8">
+          <div className="flex items-center gap-2 font-mono text-[11px] tracking-[0.12em] uppercase opacity-70 mb-6">
+            <span>Academy</span>
+            <span className="opacity-40">/</span>
+            <span className="font-semibold opacity-100">Courses</span>
+          </div>
+          <h1 className="text-5xl lg:text-6xl font-medium tracking-tight leading-[1.05] mb-5">
+            Study, grounded in your<br className="hidden lg:block" /> own course material.
+          </h1>
+          <p className="text-lg leading-relaxed max-w-[58ch] opacity-80">
+            Each course is an isolated workspace. Drop in slides, notes and past exams —
+            Academy indexes everything and keeps every answer anchored to its source.
+          </p>
+          <div className="flex items-center gap-3 mt-6">
+            <span className="font-mono text-[11px] opacity-60">
+              {courses.length} {courses.length === 1 ? 'course' : 'courses'} · {globalStats.docs} documents · {globalStats.indexed} indexed
+            </span>
           </div>
         </div>
-      </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {error ? (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
-            <p className="text-sm text-red-700">{error}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-3 text-sm font-medium text-red-700 hover:text-red-800 underline"
-            >
-              Retry
-            </button>
+        {/* Stats widget */}
+        <div className="col-span-12 lg:col-span-4">
+          <div className="b-hard rounded-lg p-5 bg-white dark:bg-blue-dark/40 tick-corners">
+            <div className="flex items-end justify-between b-thin-b pb-1.5 mb-3">
+              <span className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70">Local index · QVAC</span>
+              <span className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-60">v0.1 MVP</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <StatBox n={String(courses.length)} k="courses" />
+              <StatBox n={String(globalStats.docs)} k="documents" />
+              <StatBox n={String(globalStats.indexed)} k="indexed" />
+              <StatBox n={String(globalStats.processing)} k="processing" warn={globalStats.processing > 0} />
+            </div>
+            <div className="mt-4 pt-4 b-thin-t flex items-center justify-between">
+              <span className="font-mono text-[11px] opacity-70">Local-first · all data on device</span>
+              <span className="font-mono text-[10px] tracking-[0.2em] uppercase">v0.1</span>
+            </div>
           </div>
-        ) : courses.length === 0 ? (
-          <div className="text-center py-16">
-            <svg
-              className="mx-auto h-12 w-12 text-gray-300"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
-              />
-            </svg>
-            <h3 className="mt-4 text-lg font-medium text-gray-900">No courses available</h3>
-            <p className="mt-1 text-sm text-gray-500">
-              Courses will appear here once they are created.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {courses.map((course) => (
-              <CourseCard
-                key={course.id}
-                course={course}
-                progress={progress[course.id] ?? null}
-              />
-            ))}
-          </div>
-        )}
-      </main>
+        </div>
+      </div>
+
+      {/* Filter rail */}
+      <div className="flex items-center gap-2 mb-4">
+        <button
+          className="font-mono text-[11px] tracking-[0.18em] uppercase px-3 h-8 rounded-md bg-blue-dark text-white dark:bg-white dark:text-blue-dark"
+        >
+          All <span className="opacity-60 ml-1">{courses.length}</span>
+        </button>
+        <div className="ml-auto font-mono text-[11px] opacity-60">sorted · last updated</div>
+      </div>
+
+      {error ? (
+        <div className="b-hard rounded-lg p-6 text-center" style={{ borderColor: '#b3261e', color: '#b3261e' }}>
+          <p className="text-sm">{error}</p>
+          <button onClick={() => window.location.reload()} className="mt-3 text-sm font-medium underline">Retry</button>
+        </div>
+      ) : courses.length === 0 ? (
+        <div className="b-hard rounded-lg p-10 text-center bg-white dark:bg-blue-dark">
+          <div className="mx-auto w-10 h-10 b-thin rounded-md mb-4 stripes" />
+          <div className="font-medium text-lg">No courses yet</div>
+          <div className="opacity-70 text-sm mt-1 mb-5">Create your first course to get started.</div>
+          <button className="btn-primary" onClick={() => setShowCreate(true)}>Create workspace →</button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {courses.map((course) => (
+            <CourseCard
+              key={course.id}
+              course={course}
+              progress={progress[course.id] ?? null}
+              stats={docStats[course.id] ?? null}
+            />
+          ))}
+          {/* Create course card */}
+          <button
+            onClick={() => setShowCreate(true)}
+            className="b-hard rounded-lg p-6 stripes hover-card flex flex-col items-center justify-center min-h-[238px] text-center w-full"
+          >
+            <div className="font-mono text-3xl leading-none mb-2">+</div>
+            <div className="font-medium">Create new course</div>
+            <div className="font-mono text-[11px] opacity-70 mt-1">⌘N</div>
+          </button>
+        </div>
+      )}
+
+      {showCreate && (
+        <CreateCourseModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />
+      )}
+    </main>
+  );
+}
+
+function StatBox({ n, k, warn }: { n: string; k: string; warn?: boolean }) {
+  return (
+    <div className="b-thin rounded-md p-3">
+      <div className={`text-2xl font-medium tnum ${warn ? '' : ''}`} style={warn ? { color: '#a55a00' } : {}}>
+        {n}
+      </div>
+      <div className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-70 mt-1">{k}</div>
     </div>
   );
 }
