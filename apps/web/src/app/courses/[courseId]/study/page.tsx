@@ -15,6 +15,7 @@ import { SourcePane } from '@/components/study/SourcePane';
 import { OutputPane } from '@/components/study/OutputPane';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { BadgeDisplay } from '@/components/ui/BadgeDisplay';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
 export default function StudyPage() {
   const params = useParams();
@@ -52,6 +53,9 @@ export default function StudyPage() {
       try {
         const progress = await getCourseProgress(courseId, accessToken);
         setCourseProgress(progress);
+        if (progress.completedLessonIds.length > 0) {
+          setCompletedLessons(new Set(progress.completedLessonIds));
+        }
       } catch {
         // progress is non-critical
       }
@@ -133,11 +137,13 @@ export default function StudyPage() {
             />
           }
           right={
-            <OutputPane
-              courseId={courseId}
-              accessToken={accessToken}
-              selectedLesson={selectedLesson}
-            />
+            <ErrorBoundary>
+              <OutputPane
+                courseId={courseId}
+                accessToken={accessToken}
+                selectedLesson={selectedLesson}
+              />
+            </ErrorBoundary>
           }
           defaultLeftPercent={40}
         />

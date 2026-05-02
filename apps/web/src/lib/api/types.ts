@@ -63,13 +63,19 @@ export interface ApiDocumentDetail {
   updated_at: string;
 }
 
+export interface ApiPreviewChunk {
+  text: string;
+  label: string | null;
+  section: string | null;
+}
+
 export interface ApiDocumentPreview {
   id: string;
   filename: string;
   extracted_text_preview: string | null;
   page_count: number | null;
-  sections: Array<Record<string, unknown>> | null;
-  sample_chunks: Array<Record<string, unknown>> | null;
+  sections: string[] | null;
+  sample_chunks: ApiPreviewChunk[] | null;
 }
 
 export interface CreateCourseRequest {
@@ -116,6 +122,6 @@ export interface DocumentPreviewView {
   filename: string;
   extractedTextPreview: string | null;
   pageCount: number | null;
-  sections: Array<Record<string, unknown>> | null;
-  sampleChunks: Array<Record<string, unknown>> | null;
+  sections: string[] | null;
+  sampleChunks: ApiPreviewChunk[] | null;
 }

@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react';
 import { getCourse, getCourseLessons, type Course, type Lesson } from '@/lib/services/courses';
 import { DocumentList } from '@/components/courses/DocumentList';
 import { DocumentUpload } from '@/components/documents/DocumentUpload';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
 export default function CourseWorkspacePage() {
   const params = useParams();
@@ -135,11 +136,13 @@ export default function CourseWorkspacePage() {
               <h2 className="text-lg font-semibold text-gray-900">Documents</h2>
             </div>
             <div className="p-6">
-              <DocumentUpload
-                courseId={courseId}
-                accessToken={accessToken}
-                onUploadComplete={refreshDocuments}
-              />
+              <ErrorBoundary>
+                <DocumentUpload
+                  courseId={courseId}
+                  accessToken={accessToken}
+                  onUploadComplete={refreshDocuments}
+                />
+              </ErrorBoundary>
               <div className="mt-4">
                 <DocumentList
                   courseId={courseId}

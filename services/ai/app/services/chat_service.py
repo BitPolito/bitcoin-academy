@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 _QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 _TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 
+_client = httpx.AsyncClient(base_url=_QVAC_SERVICE_URL, timeout=60.0)
+
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -27,6 +29,11 @@ _TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 class Citation:
     snippet: str
     score: float
+    label: str = ""
+    page: int = 0
+    slide: int = 0
+    section: str = ""
+    doc_id: str = ""
 
 
 @dataclass
@@ -40,7 +47,7 @@ class ChatResult:
 # Public API
 # ---------------------------------------------------------------------------
 
-def answer(question: str, course_id: str) -> ChatResult:
+async def answer(question: str, course_id: str) -> ChatResult:
     """Send the question to the QVAC /query endpoint and return a ChatResult.
 
     retrieval_used is True only when the QVAC service returned at least one
@@ -48,13 +55,11 @@ def answer(question: str, course_id: str) -> ChatResult:
     retrieval was skipped.
     """
     try:
-        resp = httpx.post(
-            f"{_QVAC_SERVICE_URL}/query",
+        resp = await _client.post(
+            "/query",
             json={"question": question, "workspace": course_id, "topK": _TOP_K},
-            timeout=60.0,
         )
         resp.raise_for_status()
-        data = resp.json()
     except httpx.HTTPError as exc:
         logger.warning("QVAC service unavailable: %s", exc)
         return ChatResult(
@@ -62,9 +67,32 @@ def answer(question: str, course_id: str) -> ChatResult:
             retrieval_used=False,
         )
 
-    sources = data.get("sources", [])
+    try:
+        data = resp.json()
+        answer_text = data["answer"]
+        sources = data.get("sources", [])
+    except (ValueError, KeyError) as exc:
+        logger.error("Unexpected QVAC response: %s — %.200s", exc, resp.text)
+        return ChatResult(
+            answer="Received an unexpected response from the AI service.",
+            retrieval_used=False,
+        )
+
+    citations = [
+        Citation(
+            snippet=s.get("snippet", ""),
+            score=s.get("score", 0.0),
+            label=s.get("label", ""),
+            page=s.get("page", 0),
+            slide=s.get("slide", 0),
+            section=s.get("section", ""),
+            doc_id=s.get("doc_id", ""),
+        )
+        for s in sources
+    ]
+
     return ChatResult(
-        answer=data["answer"],
-        citations=[Citation(snippet=s["snippet"], score=s["score"]) for s in sources],
+        answer=answer_text,
+        citations=citations,
         retrieval_used=bool(sources),
     )
