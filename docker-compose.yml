@@ -16,17 +16,15 @@ services:
       retries: 5
 
   qvac:
-    image: node:22-alpine
-    working_dir: /app
-    command: node src/server.js
+    build: ./workers/qvac-service
     ports:
       - "3001:3001"
     volumes:
-      - ./workers/qvac-service:/app
-      - /app/node_modules
       - qvac_data:/app/hyperdb
+      - qvac_ingest:/qvac_ingest
     environment:
       - QVAC_PORT=3001
+      - QVAC_INGEST_DIR=/qvac_ingest
       # Set QVAC_LLM_SRC to a local model path to enable LLM generation.
       # Leave unset to run in embedding + retrieval only mode.
     healthcheck:
@@ -42,6 +40,7 @@ services:
       - "8000:8000"
     volumes:
       - ./services/ai:/app
+      - qvac_ingest:/qvac_ingest
     env_file:
       - ./services/ai/.env
     environment:
@@ -49,6 +48,7 @@ services:
       - ENVIRONMENT=development
       - CORS_ORIGINS=http://localhost:3000
       - QVAC_SERVICE_URL=http://qvac:3001
+      - QVAC_INGEST_DIR=/qvac_ingest
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,3 +75,4 @@ services:
 volumes:
   postgres_data:
   qvac_data:
+  qvac_ingest:

@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react';
 import { getCourse, getCourseLessons, type Course, type Lesson } from '@/lib/services/courses';
 import { DocumentList } from '@/components/courses/DocumentList';
 import { DocumentUpload } from '@/components/documents/DocumentUpload';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import type { MaterialType } from '@/lib/api/types';
 
 const TABS: { id: MaterialType; label: string }[] = [
@@ -149,11 +150,13 @@ export default function CourseWorkspacePage() {
               <h2 className="text-lg font-semibold text-gray-900">Materials</h2>
             </div>
             <div className="p-6">
-              <DocumentUpload
-                courseId={courseId}
-                accessToken={accessToken}
-                onUploadComplete={refreshDocuments}
-              />
+              <ErrorBoundary>
+                <DocumentUpload
+                  courseId={courseId}
+                  accessToken={accessToken}
+                  onUploadComplete={refreshDocuments}
+                />
+              </ErrorBoundary>
 
               {/* Tabs */}
               <div className="mt-4 flex gap-1 border-b border-gray-200">

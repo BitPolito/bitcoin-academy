@@ -18,9 +18,9 @@ import logging
 import os
 import sys
 import types
-import urllib.error
-import urllib.request
 from pathlib import Path
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -117,25 +117,16 @@ def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> Non
     Non-blocking best-effort: logs a warning on failure so the pipeline
     continues even when the QVAC Node.js service is not running.
     """
-    payload = json.dumps({
-        "jsonlPath": str(jsonl_path),
-        "workspace": workspace,
-        "rebuild": rebuild,
-    }).encode()
-    req = urllib.request.Request(
-        f"{QVAC_SERVICE_URL}/ingest",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            logger.info("QVAC ingest accepted — workspace '%s', status %d", workspace, resp.status)
-    except urllib.error.URLError as exc:
-        # Service not running or unreachable — not a pipeline error.
-        logger.warning("QVAC service unavailable, skipping QVAC ingest: %s", exc.reason)
-    except Exception as exc:
-        logger.warning("QVAC ingest failed: %s", exc)
+        with httpx.Client(timeout=10) as client:
+            resp = client.post(
+                f"{QVAC_SERVICE_URL}/ingest",
+                json={"jsonlPath": str(jsonl_path), "workspace": workspace, "rebuild": rebuild},
+            )
+            resp.raise_for_status()
+            logger.info("QVAC ingest accepted — workspace '%s', status %d", workspace, resp.status_code)
+    except httpx.HTTPError as exc:
+        logger.warning("QVAC service unavailable, skipping QVAC ingest: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +267,7 @@ def run(
             # Stage 3 — QVAC ingest (best-effort; pipeline succeeds even if skipped)
             # ------------------------------------------------------------------
             jsonl_path = _write_qvac_jsonl(para_chunks, document_id)
-            _qvac_ingest(jsonl_path, workspace=course_id, rebuild=True)
+            _qvac_ingest(jsonl_path, workspace=course_id, rebuild=False)
 
             # ------------------------------------------------------------------
             # Finalise DB record

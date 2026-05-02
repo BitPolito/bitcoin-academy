@@ -121,3 +121,18 @@ def count_completed_lessons(db: Session, user_id: str, course_id: str) -> int:
         .scalar()
         or 0
     )
+
+
+def get_completed_lesson_ids(db: Session, user_id: str, course_id: str) -> list[str]:
+    rows = (
+        db.query(UserLessonProgress.lesson_id)
+        .join(Lesson, UserLessonProgress.lesson_id == Lesson.id)
+        .join(Chapter, Lesson.chapter_id == Chapter.id)
+        .filter(
+            Chapter.course_id == course_id,
+            UserLessonProgress.user_id == user_id,
+            UserLessonProgress.status == "completed",
+        )
+        .all()
+    )
+    return [row[0] for row in rows]

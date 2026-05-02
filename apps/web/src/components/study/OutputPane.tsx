@@ -72,7 +72,7 @@ export function OutputPane({ courseId, accessToken, selectedLesson }: OutputPane
     setActiveAction(action);
     setMessages((prev) => [...prev, { role: 'user', content: `[${action}] ${query}` }]);
     try {
-      const result = await sendStudyAction(courseId, action, query, accessToken, selectedLesson?.title);
+      const result = await sendStudyAction(courseId, action, query, accessToken);
       setMessages((prev) => [...prev, { role: 'action-result', action, query, result }]);
     } catch (err) {
       setMessages((prev) => [
@@ -166,13 +166,12 @@ export function OutputPane({ courseId, accessToken, selectedLesson }: OutputPane
         })}
 
         {loading && (
-          <div className="flex justify-start">
-            <div className="bg-gray-100 rounded-xl px-4 py-3">
-              <div className="flex gap-1">
-                {[0, 1, 2].map((i) => (
-                  <div key={i} className="h-2 w-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
-                ))}
-              </div>
+          <div className="flex justify-start w-full" aria-label="Loading response" aria-live="polite">
+            <div className="bg-gray-100 rounded-xl px-4 py-3 w-full max-w-[85%] space-y-2">
+              <p className="text-xs text-gray-400 mb-1">Thinking…</p>
+              <div className="h-3 rounded bg-gray-300 animate-pulse w-full" />
+              <div className="h-3 rounded bg-gray-300 animate-pulse w-4/5" />
+              <div className="h-3 rounded bg-gray-300 animate-pulse w-3/5" />
             </div>
           </div>
         )}

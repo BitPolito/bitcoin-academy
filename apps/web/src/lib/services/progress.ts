@@ -7,6 +7,7 @@ export interface CourseProgress {
   lessonCount: number;
   completedCount: number;
   updatedAt: string;
+  completedLessonIds: string[];
 }
 
 export interface Badge {
@@ -42,6 +43,7 @@ function mapProgress(raw: Record<string, unknown>): CourseProgress {
     lessonCount: raw.lesson_count as number,
     completedCount: raw.completed_count as number,
     updatedAt: raw.updated_at as string,
+    completedLessonIds: (raw.completed_lesson_ids as string[]) ?? [],
   };
 }
 

@@ -67,13 +67,19 @@ export interface ApiDocumentDetail {
   updated_at: string;
 }
 
+export interface ApiPreviewChunk {
+  text: string;
+  label: string | null;
+  section: string | null;
+}
+
 export interface ApiDocumentPreview {
   id: string;
   filename: string;
   extracted_text_preview: string | null;
   page_count: number | null;
-  sections: Array<Record<string, unknown>> | null;
-  sample_chunks: Array<Record<string, unknown>> | null;
+  sections: string[] | null;
+  sample_chunks: ApiPreviewChunk[] | null;
 }
 
 export interface CreateCourseRequest {
@@ -120,14 +126,23 @@ export type StudyAction =
 export interface ApiStudyRequest {
   action: StudyAction;
   query: string;
-  context?: string;
+}
+
+export interface ApiCitationOut {
+  snippet: string;
+  score: number;
+  label: string;
+  page: number;
+  slide: number;
+  section: string;
+  doc_id: string;
 }
 
 export interface ApiStudyResponse {
-  action: StudyAction;
-  output: string;
-  evidence: EvidencePack;
+  answer: string;
+  citations: ApiCitationOut[];
   retrieval_used: boolean;
+  action: string;
 }
 
 export interface DocumentListRow {
@@ -169,6 +184,6 @@ export interface DocumentPreviewView {
   filename: string;
   extractedTextPreview: string | null;
   pageCount: number | null;
-  sections: Array<Record<string, unknown>> | null;
-  sampleChunks: Array<Record<string, unknown>> | null;
+  sections: string[] | null;
+  sampleChunks: ApiPreviewChunk[] | null;
 }

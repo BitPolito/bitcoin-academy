@@ -47,17 +47,17 @@ export function ContentChunks({ courseId, accessToken, className }: ContentChunk
             return {
               documentId: doc.id,
               filename: doc.filename,
-              sections: (preview.sections ?? []) as Section[],
-              chunks: (preview.sampleChunks ?? []) as Chunk[],
+              sections: (preview.sections ?? []).map((title) => ({ title })),
+              chunks: (preview.sampleChunks ?? []).map((c) => ({
+                text: c.text,
+                section: c.section ?? undefined,
+              })),
             };
           })
         );
 
         const loaded = previews
-          .filter(
-            (r): r is PromiseFulfilledResult<DocumentContent> => r.status === 'fulfilled'
-          )
-          .map((r) => r.value)
+          .flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
           .filter((d) => d.chunks.length > 0 || d.sections.length > 0);
 
         setContents(loaded);

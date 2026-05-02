@@ -8,9 +8,8 @@ export async function sendStudyAction(
   action: StudyAction,
   query: string,
   accessToken?: string,
-  context?: string,
 ): Promise<ApiStudyResponse> {
-  const body: ApiStudyRequest = { action, query, ...(context ? { context } : {}) };
+  const body: ApiStudyRequest = { action, query };
   return apiFetch<ApiStudyResponse>(`/courses/${courseId}/study`, {
     method: 'POST',
     body,

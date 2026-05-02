@@ -13,8 +13,8 @@ export function StudyOutput({ result, courseId }: StudyOutputProps) {
   const [showSources, setShowSources] = useState(result.action === 'retrieve');
   const [revealedAnswers, setRevealedAnswers] = useState<Set<number>>(new Set());
 
-  const hasOutput = result.output && result.output.trim().length > 0;
-  const hasChunks = result.evidence.chunks.length > 0;
+  const hasOutput = result.answer && result.answer.trim().length > 0;
+  const hasCitations = result.citations.length > 0;
 
   function toggleReveal(i: number) {
     setRevealedAnswers((prev) => {
@@ -27,30 +27,30 @@ export function StudyOutput({ result, courseId }: StudyOutputProps) {
   return (
     <div className="space-y-4">
       {/* Main output */}
-      {!hasOutput && !hasChunks && (
+      {!hasOutput && !hasCitations && (
         <p className="text-sm text-gray-400 italic">No results found in course materials.</p>
       )}
 
-      {!hasOutput && hasChunks && result.action !== 'retrieve' && (
+      {!hasOutput && hasCitations && result.action !== 'retrieve' && (
         <div className="rounded-md bg-yellow-50 border border-yellow-200 px-4 py-3 text-sm text-yellow-800">
           LLM generation unavailable (OPENAI_API_KEY not configured). Showing source passages below.
         </div>
       )}
 
       {hasOutput && result.action === 'quiz' ? (
-        <QuizOutput text={result.output} revealedAnswers={revealedAnswers} onToggle={toggleReveal} />
+        <QuizOutput text={result.answer} revealedAnswers={revealedAnswers} onToggle={toggleReveal} />
       ) : hasOutput && result.action === 'oral' ? (
-        <OralOutput text={result.output} />
+        <OralOutput text={result.answer} />
       ) : hasOutput && result.action === 'open_questions' ? (
-        <QuestionsOutput text={result.output} />
+        <QuestionsOutput text={result.answer} />
       ) : hasOutput ? (
         <div className="prose prose-sm max-w-none text-gray-800">
-          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{result.output}</pre>
+          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{result.answer}</pre>
         </div>
       ) : null}
 
       {/* Sources section */}
-      {hasChunks && result.action !== 'retrieve' && (
+      {hasCitations && result.action !== 'retrieve' && (
         <div>
           <button
             onClick={() => setShowSources((v) => !v)}
@@ -62,23 +62,23 @@ export function StudyOutput({ result, courseId }: StudyOutputProps) {
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
             </svg>
-            {showSources ? 'Hide' : 'Show'} {result.evidence.chunks.length} source{result.evidence.chunks.length !== 1 ? 's' : ''}
+            {showSources ? 'Hide' : 'Show'} {result.citations.length} source{result.citations.length !== 1 ? 's' : ''}
           </button>
           {showSources && (
             <div className="mt-2 space-y-2">
-              {result.evidence.chunks.map((chunk, i) => (
-                <CitationCard key={chunk.chunk_id} chunk={chunk} courseId={courseId} index={i + 1} />
+              {result.citations.map((citation, i) => (
+                <CitationCard key={i} citation={citation} courseId={courseId} index={i + 1} />
               ))}
             </div>
           )}
         </div>
       )}
 
-      {/* Retrieve: always show chunks directly */}
-      {result.action === 'retrieve' && hasChunks && (
+      {/* Retrieve: always show citations directly */}
+      {result.action === 'retrieve' && hasCitations && (
         <div className="space-y-2">
-          {result.evidence.chunks.map((chunk, i) => (
-            <CitationCard key={chunk.chunk_id} chunk={chunk} courseId={courseId} index={i + 1} />
+          {result.citations.map((citation, i) => (
+            <CitationCard key={i} citation={citation} courseId={courseId} index={i + 1} />
           ))}
         </div>
       )}
