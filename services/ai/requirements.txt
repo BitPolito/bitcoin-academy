@@ -10,9 +10,6 @@ python-multipart==0.0.6
 httpx==0.25.2
 pytest==7.4.3
 pytest-asyncio==0.21.1
-langchain==0.2.17
-langchain-openai==0.1.25
-openai==1.51.2
 python-dotenv==1.0.0
 psycopg2-binary==2.9.9
 # Security packages
@@ -24,3 +21,6 @@ pdfplumber==0.11.4
 python-pptx==0.6.23
 fastembed==0.2.6
 chromadb>=0.5.0
+# LLM generation — used by study_service for action-specific generation
+langchain>=0.3.0
+langchain-openai>=0.2.0

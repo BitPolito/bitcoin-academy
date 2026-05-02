@@ -1,5 +1,5 @@
 """Chat API controller - RAG-backed Q&A endpoint."""
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel, Field
@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api", tags=["Chat"])
 
 
 # ---------------------------------------------------------------------------
-# Request / Response schemas (inline — chat is self-contained)
+# Request / Response schemas
 # ---------------------------------------------------------------------------
 
 class ChatRequest(BaseModel):
@@ -19,11 +19,13 @@ class ChatRequest(BaseModel):
 
 
 class CitationOut(BaseModel):
-    label: str
-    section: Optional[str] = None
-    page: Optional[int] = None
-    slide: Optional[int] = None
-    text_snippet: str
+    snippet: str
+    score: float
+    label: str = ""
+    page: int = 0
+    slide: int = 0
+    section: str = ""
+    doc_id: str = ""
 
 
 class ChatResponse(BaseModel):
@@ -41,26 +43,28 @@ class ChatResponse(BaseModel):
     response_model=ChatResponse,
     summary="Ask a question about course materials",
     description=(
-        "Retrieves relevant passages from the indexed course documents and "
-        "synthesises an answer. Requires a valid JWT. "
-        "Falls back to raw context when no OpenAI key is configured."
+        "Retrieves relevant passages from the indexed course documents via the "
+        "QVAC service and synthesises an answer. Requires a valid JWT. "
+        "Falls back to a plain message when the QVAC service is unavailable."
     ),
 )
-def chat(
+async def chat(
     body: ChatRequest,
     course_id: str = Path(..., description="Course whose documents to search"),
     _current_user: CurrentUser = Depends(get_current_user),
 ) -> ChatResponse:
-    result = chat_service.answer(question=body.message, course_id=course_id)
+    result = await chat_service.answer(question=body.message, course_id=course_id)
     return ChatResponse(
         answer=result.answer,
         citations=[
             CitationOut(
+                snippet=c.snippet,
+                score=c.score,
                 label=c.label,
-                section=c.section,
                 page=c.page,
                 slide=c.slide,
-                text_snippet=c.text_snippet,
+                section=c.section,
+                doc_id=c.doc_id,
             )
             for c in result.citations
         ],

@@ -1,12 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { getCourse, type Course } from '@/lib/services/courses';
+import { getCourse, getCourseLessons, type Course, type Lesson } from '@/lib/services/courses';
+import {
+  getCourseProgress,
+  markLessonComplete,
+  type Badge,
+  type CourseProgress,
+} from '@/lib/services/progress';
 import { SplitPane } from '@/components/study/SplitPane';
 import { SourcePane } from '@/components/study/SourcePane';
 import { OutputPane } from '@/components/study/OutputPane';
+import { ProgressBar } from '@/components/ui/ProgressBar';
+import { BadgeDisplay } from '@/components/ui/BadgeDisplay';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
 export default function StudyPage() {
   const params = useParams();
@@ -15,21 +24,67 @@ export default function StudyPage() {
   const accessToken = (session?.user as any)?.accessToken;
 
   const [course, setCourse] = useState<Course | null>(null);
+  const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
+  const [completedLessons, setCompletedLessons] = useState<Set<string>>(new Set());
+  const [courseProgress, setCourseProgress] = useState<CourseProgress | null>(null);
+  const [newBadges, setNewBadges] = useState<Badge[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       try {
-        const data = await getCourse(courseId, accessToken);
-        setCourse(data);
+        const [courseData, lessonsData] = await Promise.all([
+          getCourse(courseId, accessToken),
+          getCourseLessons(courseId, accessToken),
+        ]);
+        setCourse(courseData);
+        setLessons(lessonsData);
+        if (lessonsData.length > 0) setSelectedLesson(lessonsData[0]);
       } catch {
-        // Course info is optional for the layout
+        // empty state shown in SourcePane
       } finally {
         setLoading(false);
       }
     }
-    if (courseId) load();
+
+    async function loadProgress() {
+      if (!accessToken) return;
+      try {
+        const progress = await getCourseProgress(courseId, accessToken);
+        setCourseProgress(progress);
+        if (progress.completedLessonIds.length > 0) {
+          setCompletedLessons(new Set(progress.completedLessonIds));
+        }
+      } catch {
+        // progress is non-critical
+      }
+    }
+
+    if (courseId) {
+      load();
+      loadProgress();
+    }
   }, [courseId, accessToken]);
+
+  const handleMarkComplete = useCallback(
+    async (lesson: Lesson) => {
+      if (!accessToken) return;
+      const lessonId = String(lesson.id);
+      try {
+        const result = await markLessonComplete(lessonId, courseId, accessToken);
+        setCompletedLessons((prev) => new Set([...prev, lessonId]));
+        setCourseProgress(result.courseProgress);
+        if (result.newBadges.length > 0) {
+          setNewBadges(result.newBadges);
+          setTimeout(() => setNewBadges([]), 5000);
+        }
+      } catch {
+        // non-critical; UI stays responsive
+      }
+    },
+    [courseId, accessToken]
+  );
 
   if (loading) {
     return (
@@ -40,12 +95,59 @@ export default function StudyPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-7rem)]">
-      <SplitPane
-        left={<SourcePane courseTitle={course?.title} />}
-        right={<OutputPane />}
-        defaultLeftPercent={50}
-      />
+    <div className="flex flex-col h-[calc(100vh-7rem)]">
+      {/* Course progress strip */}
+      {courseProgress && (
+        <div className="flex-shrink-0 px-6 py-2 bg-white border-b border-gray-100">
+          <ProgressBar
+            percent={courseProgress.percent}
+            label={`${courseProgress.completedCount} of ${courseProgress.lessonCount} lessons completed`}
+            size="sm"
+          />
+        </div>
+      )}
+
+      {/* Badge notification — auto-dismisses after 5 s */}
+      {newBadges.length > 0 && (
+        <div className="flex-shrink-0 flex items-center gap-3 px-6 py-3 bg-yellow-50 border-b border-yellow-200">
+          <span className="text-sm font-medium text-yellow-800">
+            {newBadges.length === 1 ? 'New badge earned!' : 'New badges earned!'}
+          </span>
+          <div className="flex gap-2">
+            {newBadges.map((badge) => (
+              <BadgeDisplay key={badge.id} badge={badge} size="sm" />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Split pane — fills remaining height */}
+      <div className="flex-1 overflow-hidden">
+        <SplitPane
+          left={
+            <SourcePane
+              courseId={courseId}
+              accessToken={accessToken}
+              courseTitle={course?.title}
+              lessons={lessons}
+              selectedLesson={selectedLesson}
+              completedLessons={completedLessons}
+              onSelectLesson={setSelectedLesson}
+              onMarkComplete={handleMarkComplete}
+            />
+          }
+          right={
+            <ErrorBoundary>
+              <OutputPane
+                courseId={courseId}
+                accessToken={accessToken}
+                selectedLesson={selectedLesson}
+              />
+            </ErrorBoundary>
+          }
+          defaultLeftPercent={40}
+        />
+      </div>
     </div>
   );
 }

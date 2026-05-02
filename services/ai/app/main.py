@@ -15,6 +15,7 @@ from app.api.courses_api import router as courses_router
 from app.api.documents_api import router as documents_router
 from app.api.progress_api import router as progress_router
 from app.api.quizzes_api import router as quizzes_router
+from app.api.study_api import router as study_router
 from app.db.session import init_db, get_db
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
@@ -118,6 +119,7 @@ app.include_router(courses_router)
 app.include_router(documents_router)
 app.include_router(progress_router)
 app.include_router(quizzes_router)
+app.include_router(study_router)
 
 
 @app.get("/", tags=["Root"])

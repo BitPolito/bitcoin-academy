@@ -31,7 +31,8 @@ def _to_lesson_response(record) -> LessonProgressResponse:
 
 
 def _to_course_response(
-    record, lesson_count: int, completed_count: int
+    record, lesson_count: int, completed_count: int,
+    completed_lesson_ids: Optional[List[str]] = None,
 ) -> CourseProgressResponse:
     updated_at = record.updated_at
     if hasattr(updated_at, "isoformat"):
@@ -43,6 +44,7 @@ def _to_course_response(
         lesson_count=lesson_count,
         completed_count=completed_count,
         updated_at=str(updated_at),
+        completed_lesson_ids=completed_lesson_ids or [],
     )
 
 
@@ -125,9 +127,10 @@ def update_lesson_progress(
         if awarded:
             new_badges.append(awarded)
 
+    completed_ids = progress_repo.get_completed_lesson_ids(db, user_id, course_id)
     return ProgressUpdateResult(
         lesson_progress=_to_lesson_response(lesson_record),
-        course_progress=_to_course_response(course_record, lesson_count, completed_count),
+        course_progress=_to_course_response(course_record, lesson_count, completed_count, completed_ids),
         new_badges=new_badges,
     )
 
@@ -145,7 +148,8 @@ def get_course_progress(
             db, user_id, course_id, percent=0, status="not_started"
         )
 
-    return _to_course_response(record, lesson_count, completed_count)
+    completed_ids = progress_repo.get_completed_lesson_ids(db, user_id, course_id)
+    return _to_course_response(record, lesson_count, completed_count, completed_ids)
 
 
 def list_badges(db: Session) -> List[BadgeResponse]:

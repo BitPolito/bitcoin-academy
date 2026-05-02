@@ -35,6 +35,7 @@ class CourseProgressResponse(BaseModel):
     lesson_count: int
     completed_count: int
     updated_at: str
+    completed_lesson_ids: List[str] = []
 
     class Config:
         from_attributes = True

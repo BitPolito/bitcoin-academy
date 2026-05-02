@@ -7,6 +7,11 @@ Import-conflict guard: registers 'services.ai.app.schemas.normalized_document'
 in sys.modules as an alias for the already-loaded 'app.schemas.normalized_document'
 so that ingester modules that use the longer import path get the *same* class
 objects as the rest of the FastAPI app.
+
+QVAC integration: after chunking, paragraph chunks are written to a JSONL file
+and posted to the QVAC Node.js service for embedding + HyperDB indexing.
+If the QVAC service is not running the pipeline still completes — ChromaDB
+remains the active query path until chat_service.py is switched over.
 """
 import json
 import logging
@@ -14,6 +19,8 @@ import os
 import sys
 import types
 from pathlib import Path
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +34,10 @@ _INGESTER_SRC = _MONOREPO_ROOT / "workers" / "python-ingester" / "src"
 
 CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", str(_SERVICES_AI / "chroma_db"))
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(_SERVICES_AI / "uploads")))
+
+# JSONL files are written here so the QVAC service can read them by absolute path.
+QVAC_INGEST_DIR = Path(os.getenv("QVAC_INGEST_DIR", str(_SERVICES_AI / "qvac_ingest")))
+QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +90,43 @@ from app.db.models import CourseDocument, DocumentProcessingStage, DocumentStatu
 from app.db.session import get_db_context
 from app.repositories import document_repo
 from app.schemas.normalized_document import ChunkType, DocumentType
+
+
+# ---------------------------------------------------------------------------
+# QVAC helpers
+# ---------------------------------------------------------------------------
+
+def _write_qvac_jsonl(chunks: list, document_id: str) -> Path:
+    """Serialize paragraph chunks to a JSONL file readable by the QVAC service.
+
+    Uses course_id as workspace identifier, matching the convention in ingest.js.
+    Returns the absolute path written.
+    """
+    QVAC_INGEST_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = QVAC_INGEST_DIR / f"{document_id}_contingency.jsonl"
+    with out_path.open("w", encoding="utf-8") as f:
+        for chunk in chunks:
+            f.write(json.dumps(chunk.model_dump(mode="json")) + "\n")
+    logger.debug("Wrote %d chunks to %s", len(chunks), out_path)
+    return out_path
+
+
+def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> None:
+    """POST the JSONL path to the QVAC service for embedding + HyperDB indexing.
+
+    Non-blocking best-effort: logs a warning on failure so the pipeline
+    continues even when the QVAC Node.js service is not running.
+    """
+    try:
+        with httpx.Client(timeout=10) as client:
+            resp = client.post(
+                f"{QVAC_SERVICE_URL}/ingest",
+                json={"jsonlPath": str(jsonl_path), "workspace": workspace, "rebuild": rebuild},
+            )
+            resp.raise_for_status()
+            logger.info("QVAC ingest accepted — workspace '%s', status %d", workspace, resp.status_code)
+    except httpx.HTTPError as exc:
+        logger.warning("QVAC service unavailable, skipping QVAC ingest: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +254,12 @@ def run(document_id: str, course_id: str, filename: str, file_path: str) -> None
                     metadatas=metadatas,
                 )
                 logger.info("Indexed %d vectors into ChromaDB at %s", len(ids), CHROMA_DB_PATH)
+
+            # ------------------------------------------------------------------
+            # Stage 3 — QVAC ingest (best-effort; pipeline succeeds even if skipped)
+            # ------------------------------------------------------------------
+            jsonl_path = _write_qvac_jsonl(para_chunks, document_id)
+            _qvac_ingest(jsonl_path, workspace=course_id, rebuild=False)
 
             # ------------------------------------------------------------------
             # Finalise DB record

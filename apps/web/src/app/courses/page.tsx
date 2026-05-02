@@ -5,12 +5,14 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getCourses, type Course } from '@/lib/services/courses';
+import { getCourseProgress } from '@/lib/services/progress';
 import { CourseCard } from '@/components/courses/CourseCard';
 
 export default function CoursesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [courses, setCourses] = useState<Course[]>([]);
+  const [progress, setProgress] = useState<Record<string | number, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,10 +23,22 @@ export default function CoursesPage() {
     }
     if (status !== 'authenticated') return;
 
-    async function fetchCourses() {
+    const token = (session?.user as any)?.accessToken;
+
+    async function fetchAll() {
       try {
-        const data = await getCourses(0, 100, (session?.user as any)?.accessToken);
+        const data = await getCourses(0, 100, token);
         setCourses(data);
+
+        // Fetch progress for all courses in parallel; failures are non-critical
+        const results = await Promise.allSettled(
+          data.map((c) => getCourseProgress(String(c.id), token))
+        );
+        const map: Record<string | number, number> = {};
+        results.forEach((r, i) => {
+          if (r.status === 'fulfilled') map[data[i].id] = r.value.percent;
+        });
+        setProgress(map);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load courses');
       } finally {
@@ -32,7 +46,7 @@ export default function CoursesPage() {
       }
     }
 
-    fetchCourses();
+    fetchAll();
   }, [status, session, router]);
 
   if (status === 'loading' || (status === 'authenticated' && loading)) {
@@ -50,7 +64,7 @@ export default function CoursesPage() {
                 <div className="h-5 w-3/4 bg-gray-200 rounded" />
                 <div className="mt-3 h-4 w-full bg-gray-100 rounded" />
                 <div className="mt-1 h-4 w-2/3 bg-gray-100 rounded" />
-                <div className="mt-5 h-4 w-1/3 bg-orange-100 rounded" />
+                <div className="mt-5 h-1.5 w-full bg-gray-100 rounded-full" />
               </div>
             ))}
           </div>
@@ -85,16 +99,32 @@ export default function CoursesPage() {
           </div>
         ) : courses.length === 0 ? (
           <div className="text-center py-16">
-            <svg className="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+            <svg
+              className="mx-auto h-12 w-12 text-gray-300"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.5}
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
+              />
             </svg>
             <h3 className="mt-4 text-lg font-medium text-gray-900">No courses available</h3>
-            <p className="mt-1 text-sm text-gray-500">Courses will appear here once they are created.</p>
+            <p className="mt-1 text-sm text-gray-500">
+              Courses will appear here once they are created.
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {courses.map((course) => (
-              <CourseCard key={course.id} course={course} />
+              <CourseCard
+                key={course.id}
+                course={course}
+                progress={progress[course.id] ?? null}
+              />
             ))}
           </div>
         )}
