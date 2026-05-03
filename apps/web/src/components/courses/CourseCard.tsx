@@ -12,7 +12,6 @@ interface DocStats {
 
 interface CourseCardProps {
   course: Course;
-  progress?: number | null;
   stats?: DocStats | null;
 }
 
@@ -25,14 +24,14 @@ function Mini({ n, k, warn }: { n: number; k: string; warn?: boolean }) {
   );
 }
 
-export function CourseCard({ course, progress = null, stats = null }: CourseCardProps) {
+export function CourseCard({ course, stats = null }: CourseCardProps) {
   const failed = stats?.error ?? 0;
   const processing = stats?.processing ?? 0;
   const statusDot =
-    failed > 0     ? { color: '#b3261e', label: `${failed} failed` }
+    failed > 0       ? { color: '#b3261e', label: `${failed} failed` }
     : processing > 0 ? { color: '#a55a00', label: `${processing} processing` }
-    : stats        ? { color: '#1a7f3a', label: 'all indexed' }
-    : { color: '#1a7f3a', label: progress === 100 ? 'completed' : progress != null && progress > 0 ? `${progress}% done` : 'ready' };
+    : stats          ? { color: '#1a7f3a', label: 'all indexed' }
+    : { color: '#001CE0', label: 'ready' };
 
   return (
     <Link
@@ -74,14 +73,11 @@ export function CourseCard({ course, progress = null, stats = null }: CourseCard
       )}
 
       {/* Footer */}
-      <div className="flex items-center justify-between b-thin-t pt-3 mt-auto">
+      <div className="flex items-center b-thin-t pt-3 mt-auto">
         <span className="font-mono text-[11px] flex items-center gap-2">
           <span className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: statusDot.color }} />
           {statusDot.label}
         </span>
-        {progress != null && progress > 0 && progress < 100 && (
-          <span className="font-mono text-[11px] opacity-60">{progress}% done</span>
-        )}
       </div>
     </Link>
   );

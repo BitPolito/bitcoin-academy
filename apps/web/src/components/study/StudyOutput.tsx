@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import type { ApiStudyResponse } from '@/lib/api/types';
 import { CitationCard } from './CitationCard';
 
@@ -43,9 +44,7 @@ export function StudyOutput({ result, courseId }: StudyOutputProps) {
       ) : hasOutput && result.action === 'open_questions' ? (
         <QuestionsOutput text={result.answer} />
       ) : hasOutput ? (
-        <div className="text-[13.5px] leading-relaxed">
-          <pre className="whitespace-pre-wrap font-sans">{result.answer}</pre>
-        </div>
+        <ReactMarkdown className="md-prose">{result.answer}</ReactMarkdown>
       ) : null}
 
       {/* Sources toggle (non-retrieve actions) */}
@@ -127,13 +126,13 @@ function QuizOutput({
 function OralOutput({ text }: { text: string }) {
   const questions = text.split(/\n(?=Q\d+:)/g).filter((s) => s.trim());
   if (questions.length === 0) {
-    return <pre className="whitespace-pre-wrap font-sans text-[13.5px] leading-relaxed">{text}</pre>;
+    return <ReactMarkdown className="md-prose">{text}</ReactMarkdown>;
   }
   return (
     <div className="space-y-4">
       {questions.map((q, i) => (
         <div key={i} className="b-thin rounded-lg p-4 bg-white dark:bg-blue-dark/20">
-          <pre className="whitespace-pre-wrap font-sans text-[13.5px] leading-relaxed">{q.trim()}</pre>
+          <ReactMarkdown className="md-prose">{q.trim()}</ReactMarkdown>
           <textarea
             placeholder="Type your answer here…"
             rows={3}

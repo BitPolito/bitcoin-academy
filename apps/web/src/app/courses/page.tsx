@@ -3,8 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { getCourses, createCourse, type Course } from '@/lib/services/courses';
-import { getCourseProgress } from '@/lib/services/progress';
+import { getCourses, createCourse, MVP_COURSES_LIMIT, type Course } from '@/lib/services/courses';
 import { getDocumentListRows } from '@/lib/api/documents';
 import { CourseCard } from '@/components/courses/CourseCard';
 import { CreateCourseModal } from '@/components/courses/CreateCourseModal';
@@ -22,7 +21,6 @@ export default function CoursesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [courses, setCourses] = useState<Course[]>([]);
-  const [progress, setProgress] = useState<Record<string | number, number>>({});
   const [docStats, setDocStats] = useState<Record<string | number, DocStats>>({});
   const [globalStats, setGlobalStats] = useState({ docs: 0, indexed: 0, processing: 0 });
   const [loading, setLoading] = useState(true);
@@ -46,20 +44,12 @@ export default function CoursesPage() {
 
     async function fetchAll() {
       try {
-        const data = await getCourses(0, 100, token);
+        const data = await getCourses(0, MVP_COURSES_LIMIT, token);
         setCourses(data);
 
-        // Fetch progress + doc counts in parallel
-        const [progressResults, docsResults] = await Promise.all([
-          Promise.allSettled(data.map((c) => getCourseProgress(String(c.id), token))),
-          Promise.allSettled(data.map((c) => getDocumentListRows(String(c.id), token))),
-        ]);
-
-        const progressMap: Record<string | number, number> = {};
-        progressResults.forEach((r, i) => {
-          if (r.status === 'fulfilled') progressMap[data[i].id] = r.value.percent;
-        });
-        setProgress(progressMap);
+        const docsResults = await Promise.allSettled(
+          data.map((c) => getDocumentListRows(String(c.id), token))
+        );
 
         const statsMap: Record<string | number, DocStats> = {};
         let totalDocs = 0, totalIndexed = 0, totalProcessing = 0;
@@ -187,7 +177,6 @@ export default function CoursesPage() {
             <CourseCard
               key={course.id}
               course={course}
-              progress={progress[course.id] ?? null}
               stats={docStats[course.id] ?? null}
             />
           ))}

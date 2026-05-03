@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { signOut, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getCourses, type Course } from '@/lib/services/courses';
+import { getCourses, MVP_COURSES_LIMIT, type Course } from '@/lib/services/courses';
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
@@ -17,7 +17,7 @@ export default function DashboardPage() {
 
     async function fetchCourses() {
       try {
-        const data = await getCourses(0, 100, (session?.user as any)?.accessToken);
+        const data = await getCourses(0, MVP_COURSES_LIMIT, (session?.user as any)?.accessToken);
         setCourses(data);
       } catch {
         // Non-critical — dashboard still usable without course count

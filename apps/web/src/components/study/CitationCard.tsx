@@ -47,6 +47,11 @@ export function CitationCard({ citation, courseId, index }: CitationCardProps) {
         <p className="font-mono text-[10px] opacity-50 mb-1 truncate">{citation.section}</p>
       )}
       <p className="text-[12.5px] leading-snug opacity-90">&ldquo;{snippet}&rdquo;</p>
+      {citation.doc_id && (
+        <p className="mt-1.5 font-mono text-[10px] text-blue-dark dark:text-white/60 opacity-70">
+          View in source →
+        </p>
+      )}
     </div>
   );
 }

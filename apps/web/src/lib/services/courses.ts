@@ -1,5 +1,9 @@
 import { apiFetch } from '@/lib/api';
 
+// MVP limit: pagination not implemented. Acceptable for expected scale (5–10 courses).
+// When real pagination is needed, replace getCourses calls with a paginated version.
+export const MVP_COURSES_LIMIT = 100;
+
 export interface Course {
   id: number;
   title: string;
