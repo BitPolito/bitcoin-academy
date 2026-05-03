@@ -67,12 +67,14 @@ bitcoin-academy/
 │   └── src/
 │       ├── app/
 │       │   ├── (auth)/              # Login / signup
+│       │   ├── dashboard/           # Student dashboard (progress, completed courses)
 │       │   └── courses/
 │       │       ├── page.tsx         # Courses home — hero, stats, card grid
 │       │       ├── layout.tsx       # TopBar + ToastProvider for all /courses/*
 │       │       └── [courseId]/
 │       │           ├── page.tsx     # Workspace — upload, doc list, detail panel
 │       │           ├── study/       # Study — split-pane, 8 AI actions, evidence drawer
+│       │           ├── debug/       # Pipeline visibility (dev only)
 │       │           └── documents/[documentId]/preview/  # SourceViewer 3-pane
 │       ├── components/
 │       │   ├── ui/                  # BrandMark, TopBar, Toast, BadgeDisplay, ProgressBar
@@ -94,10 +96,13 @@ bitcoin-academy/
 │       ├── core/rate_limit.py       # slowapi Limiter singleton
 │       └── db/                      # SQLAlchemy models, session, init_db
 ├── workers/
-│   ├── python-ingester/src/         # RamSafeIngestor, StructuralParser, Chunker, ChromaDB
+│   ├── python-ingester/src/         # RamSafeIngestor, StructuralParser, Chunker (used by pipeline.py)
+│   │                                # + main_ingester_pipeline.py (CLI ingestion path)
 │   └── qvac-service/src/            # Node.js — POST /ingest, POST /query, GET /health
 ├── docs/
-│   └── qvac-integration.md
+│   ├── qvac-integration.md
+│   ├── mvp-issues.md                # Open issues and gaps (P1/P2/post-MVP)
+│   └── src/                         # Sample documents for testing (PDF, PPTX)
 ├── start-dev.sh                     # Full dev start with health check loop
 └── docker-compose.yml
 ```
@@ -122,10 +127,10 @@ bitcoin-academy/
 ## Ingestion flow
 
 ```
-Upload via UI                       Direct CLI
-        │                                │
-        ▼                                ▼
-pipeline.py (BackgroundTask)    main_ingester_pipeline.py
+Upload via UI
+        │
+        ▼
+pipeline.py (BackgroundTask)
   │
   ├─ RamSafeIngestor      → RAM-safe batch reader (PDF/PPTX)
   ├─ StructuralParser     → pdfplumber + Docling ML → normalized blocks
@@ -133,6 +138,8 @@ pipeline.py (BackgroundTask)    main_ingester_pipeline.py
   ├─ fastembed + ChromaDB → paragraph chunks → persistent vector store
   ├─ Write *_contingency.jsonl to QVAC_INGEST_DIR
   └─ POST :3001/ingest    → QVAC ragIngest → HyperDB workspace
+
+CLI path: workers/python-ingester/src/main_ingester_pipeline.py
 ```
 
 Documents are indexed in **both** systems:
