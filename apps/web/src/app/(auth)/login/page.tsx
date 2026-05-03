@@ -12,6 +12,14 @@ interface FormErrors {
   general?: string;
 }
 
+const inputBase =
+  'appearance-none block w-full px-3 py-2 border rounded-md bg-white dark:bg-[#0a0a0a] text-[#001CE0] dark:text-white placeholder-[rgba(0,28,224,0.25)] dark:placeholder-white/25 focus:outline-none focus:ring-1 focus:ring-blue-dark focus:border-blue-dark sm:text-sm transition-colors';
+
+const inputBorder = 'border-[rgba(0,28,224,0.18)] dark:border-[rgba(255,255,255,0.22)]';
+const inputBorderErr = 'border-err dark:border-red-400';
+
+const labelClass = 'block font-mono text-[11px] tracking-wide uppercase text-[#001CE0]/70 dark:text-white/60';
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -23,48 +31,28 @@ function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
 
-  // Handle session expired error from URL
   const sessionError =
     errorParam === 'SessionExpired' ? 'Your session has expired. Please log in again.' : null;
 
-  /**
-   * Validate form fields
-   */
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
-
-    // Email validation
     if (!email) {
       newErrors.email = 'Email is required';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       newErrors.email = 'Please enter a valid email address';
     }
-
-    // Password validation
     if (!password) {
       newErrors.password = 'Password is required';
     }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  /**
-   * Handle form submission
-   */
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-
-    // Clear previous errors
     setErrors({});
-
-    // Validate form
-    if (!validateForm()) {
-      return;
-    }
-
+    if (!validateForm()) return;
     setIsLoading(true);
-
     try {
       const result = await signIn('credentials', {
         email,
@@ -72,14 +60,13 @@ function LoginForm() {
         redirect: false,
         callbackUrl,
       });
-
       if (result?.error) {
         setErrors({ general: result.error });
       } else if (result?.ok) {
         router.push(callbackUrl);
         router.refresh();
       }
-    } catch (error) {
+    } catch {
       setErrors({ general: 'An unexpected error occurred. Please try again.' });
     } finally {
       setIsLoading(false);
@@ -87,30 +74,29 @@ function LoginForm() {
   };
 
   return (
-    <div className="mt-8 bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
-      <h2 className="text-center text-2xl font-bold text-gray-900 mb-6">Sign in to your account</h2>
+    <div className="mt-8 bg-white dark:bg-[#0f0f0f] py-8 px-4 b-thin sm:rounded-lg sm:px-10">
+      <h2 className="text-center text-xl font-bold ink dark:text-white mb-6 font-mono tracking-tight">
+        Sign in
+      </h2>
 
-      {/* Session expired error */}
       {sessionError && (
-        <div className="mb-4 p-3 rounded bg-yellow-50 border border-yellow-200">
-          <p className="text-sm text-yellow-800">{sessionError}</p>
+        <div className="mb-4 p-3 rounded bg-amber-50 dark:bg-[rgba(255,180,0,0.07)] border border-amber-200 dark:border-amber-600/30">
+          <p className="text-sm text-amber-800 dark:text-amber-400">{sessionError}</p>
         </div>
       )}
 
-      {/* General error message */}
       {errors.general && (
-        <div className="mb-4 p-3 rounded bg-red-50 border border-red-200">
-          <p className="text-sm text-red-600">{errors.general}</p>
+        <div className="mb-4 p-3 rounded bg-red-50 dark:bg-[rgba(255,0,0,0.06)] border border-red-200 dark:border-red-700/40">
+          <p className="text-sm text-red-600 dark:text-red-400">{errors.general}</p>
         </div>
       )}
 
-      <form className="space-y-6" onSubmit={handleSubmit} noValidate>
-        {/* Email field */}
+      <form className="space-y-5" onSubmit={handleSubmit} noValidate>
         <div>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="email" className={labelClass}>
             Email address
           </label>
-          <div className="mt-1">
+          <div className="mt-1.5">
             <input
               id="email"
               name="email"
@@ -119,27 +105,24 @@ function LoginForm() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className={`appearance-none block w-full px-3 py-2 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-orange-500 focus:border-orange-500 sm:text-sm ${
-                errors.email ? 'border-red-300' : 'border-gray-300'
-              }`}
+              className={`${inputBase} ${errors.email ? inputBorderErr : inputBorder}`}
               placeholder="you@example.com"
               aria-invalid={errors.email ? 'true' : 'false'}
               aria-describedby={errors.email ? 'email-error' : undefined}
             />
           </div>
           {errors.email && (
-            <p className="mt-1 text-sm text-red-600" id="email-error" role="alert">
+            <p className="mt-1 font-mono text-[11px] text-err dark:text-red-400" id="email-error" role="alert">
               {errors.email}
             </p>
           )}
         </div>
 
-        {/* Password field */}
         <div>
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="password" className={labelClass}>
             Password
           </label>
-          <div className="mt-1">
+          <div className="mt-1.5">
             <input
               id="password"
               name="password"
@@ -148,49 +131,35 @@ function LoginForm() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className={`appearance-none block w-full px-3 py-2 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-orange-500 focus:border-orange-500 sm:text-sm ${
-                errors.password ? 'border-red-300' : 'border-gray-300'
-              }`}
+              className={`${inputBase} ${errors.password ? inputBorderErr : inputBorder}`}
               placeholder="••••••••"
               aria-invalid={errors.password ? 'true' : 'false'}
               aria-describedby={errors.password ? 'password-error' : undefined}
             />
           </div>
           {errors.password && (
-            <p className="mt-1 text-sm text-red-600" id="password-error" role="alert">
+            <p className="mt-1 font-mono text-[11px] text-err dark:text-red-400" id="password-error" role="alert">
               {errors.password}
             </p>
           )}
         </div>
 
-        {/* Submit button */}
         <div>
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-primary w-full justify-center"
           >
             {isLoading ? (
               <>
                 <svg
-                  className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                  className="animate-spin h-4 w-4"
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
                   viewBox="0 0 24 24"
                 >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
                 Signing in...
               </>
@@ -201,22 +170,20 @@ function LoginForm() {
         </div>
       </form>
 
-      {/* Sign up link */}
       <div className="mt-6">
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-300" />
+            <div className="w-full border-t border-[rgba(0,28,224,0.12)] dark:border-[rgba(255,255,255,0.12)]" />
           </div>
           <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-white text-gray-500">Don&apos;t have an account?</span>
+            <span className="px-2 bg-white dark:bg-[#0f0f0f] font-mono text-[11px] tracking-wide text-[#001CE0]/40 dark:text-white/30">
+              Don&apos;t have an account?
+            </span>
           </div>
         </div>
 
-        <div className="mt-6">
-          <Link
-            href="/signup"
-            className="w-full flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
-          >
+        <div className="mt-4">
+          <Link href="/signup" className="btn-ghost w-full justify-center">
             Create an account
           </Link>
         </div>
@@ -227,7 +194,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="mt-8 bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 min-h-[320px]" />}>
+    <Suspense fallback={<div className="mt-8 bg-white dark:bg-[#0f0f0f] py-8 px-4 b-thin sm:rounded-lg sm:px-10 min-h-[320px]" />}>
       <LoginForm />
     </Suspense>
   );

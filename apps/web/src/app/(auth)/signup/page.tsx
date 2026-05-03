@@ -1,15 +1,10 @@
 'use client';
 
-/**
- * Signup page component
- * Handles user registration with form validation
- */
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import { FormEvent, useState } from 'react';
 
-// Backend API URL
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface FormErrors {
@@ -19,6 +14,14 @@ interface FormErrors {
   displayName?: string;
   general?: string;
 }
+
+const inputBase =
+  'appearance-none block w-full px-3 py-2 border rounded-md bg-white dark:bg-[#0a0a0a] text-[#001CE0] dark:text-white placeholder-[rgba(0,28,224,0.25)] dark:placeholder-white/25 focus:outline-none focus:ring-1 focus:ring-blue-dark focus:border-blue-dark sm:text-sm transition-colors';
+
+const inputBorder = 'border-[rgba(0,28,224,0.18)] dark:border-[rgba(255,255,255,0.22)]';
+const inputBorderErr = 'border-err dark:border-red-400';
+
+const labelClass = 'block font-mono text-[11px] tracking-wide uppercase text-[#001CE0]/70 dark:text-white/60';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -30,20 +33,15 @@ export default function SignupPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
 
-  /**
-   * Validate form fields
-   */
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
 
-    // Email validation
     if (!email) {
       newErrors.email = 'Email is required';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       newErrors.email = 'Please enter a valid email address';
     }
 
-    // Password validation
     if (!password) {
       newErrors.password = 'Password is required';
     } else if (password.length < 8) {
@@ -56,14 +54,12 @@ export default function SignupPage() {
       newErrors.password = 'Password must contain at least one digit';
     }
 
-    // Confirm password validation
     if (!confirmPassword) {
       newErrors.confirmPassword = 'Please confirm your password';
     } else if (password !== confirmPassword) {
       newErrors.confirmPassword = 'Passwords do not match';
     }
 
-    // Display name validation (optional but if provided, must be valid)
     if (displayName && displayName.length < 2) {
       newErrors.displayName = 'Display name must be at least 2 characters long';
     }
@@ -72,39 +68,20 @@ export default function SignupPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  /**
-   * Handle form submission
-   */
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-
-    // Clear previous errors
     setErrors({});
-
-    // Validate form
-    if (!validateForm()) {
-      return;
-    }
-
+    if (!validateForm()) return;
     setIsLoading(true);
-
     try {
-      // Register the user
       const registerResponse = await fetch(`${API_URL}/api/auth/register`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email,
-          password,
-          display_name: displayName || null,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, display_name: displayName || null }),
       });
 
       if (!registerResponse.ok) {
         const error = await registerResponse.json();
-
         if (registerResponse.status === 409) {
           setErrors({ email: 'A user with this email already exists' });
         } else if (registerResponse.status === 400) {
@@ -115,7 +92,6 @@ export default function SignupPage() {
         return;
       }
 
-      // Auto-login after successful registration
       const result = await signIn('credentials', {
         email,
         password,
@@ -124,13 +100,12 @@ export default function SignupPage() {
       });
 
       if (result?.error) {
-        // Registration succeeded but login failed - redirect to login page
         router.push('/login?message=Registration successful. Please log in.');
       } else if (result?.ok) {
         router.push('/dashboard');
         router.refresh();
       }
-    } catch (error) {
+    } catch {
       setErrors({ general: 'An unexpected error occurred. Please try again.' });
     } finally {
       setIsLoading(false);
@@ -138,23 +113,24 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="mt-8 bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
-      <h2 className="text-center text-2xl font-bold text-gray-900 mb-6">Create your account</h2>
+    <div className="mt-8 bg-white dark:bg-[#0f0f0f] py-8 px-4 b-thin sm:rounded-lg sm:px-10">
+      <h2 className="text-center text-xl font-bold ink dark:text-white mb-6 font-mono tracking-tight">
+        Create account
+      </h2>
 
-      {/* General error message */}
       {errors.general && (
-        <div className="mb-4 p-3 rounded bg-red-50 border border-red-200" role="alert">
-          <p className="text-sm text-red-600">{errors.general}</p>
+        <div className="mb-4 p-3 rounded bg-red-50 dark:bg-[rgba(255,0,0,0.06)] border border-red-200 dark:border-red-700/40" role="alert">
+          <p className="text-sm text-red-600 dark:text-red-400">{errors.general}</p>
         </div>
       )}
 
-      <form className="space-y-6" onSubmit={handleSubmit} noValidate>
-        {/* Display name field (optional) */}
+      <form className="space-y-5" onSubmit={handleSubmit} noValidate>
         <div>
-          <label htmlFor="displayName" className="block text-sm font-medium text-gray-700">
-            Display name <span className="text-gray-400">(optional)</span>
+          <label htmlFor="displayName" className={labelClass}>
+            Display name{' '}
+            <span className="normal-case text-[#001CE0]/35 dark:text-white/30 tracking-normal">(optional)</span>
           </label>
-          <div className="mt-1">
+          <div className="mt-1.5">
             <input
               id="displayName"
               name="displayName"
@@ -162,27 +138,24 @@ export default function SignupPage() {
               autoComplete="name"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              className={`appearance-none block w-full px-3 py-2 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-orange-500 focus:border-orange-500 sm:text-sm ${
-                errors.displayName ? 'border-red-300' : 'border-gray-300'
-              }`}
+              className={`${inputBase} ${errors.displayName ? inputBorderErr : inputBorder}`}
               placeholder="Satoshi Nakamoto"
               aria-invalid={errors.displayName ? 'true' : 'false'}
               aria-describedby={errors.displayName ? 'displayName-error' : undefined}
             />
           </div>
           {errors.displayName && (
-            <p className="mt-1 text-sm text-red-600" id="displayName-error" role="alert">
+            <p className="mt-1 font-mono text-[11px] text-err dark:text-red-400" id="displayName-error" role="alert">
               {errors.displayName}
             </p>
           )}
         </div>
 
-        {/* Email field */}
         <div>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="email" className={labelClass}>
             Email address
           </label>
-          <div className="mt-1">
+          <div className="mt-1.5">
             <input
               id="email"
               name="email"
@@ -191,27 +164,24 @@ export default function SignupPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className={`appearance-none block w-full px-3 py-2 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-orange-500 focus:border-orange-500 sm:text-sm ${
-                errors.email ? 'border-red-300' : 'border-gray-300'
-              }`}
+              className={`${inputBase} ${errors.email ? inputBorderErr : inputBorder}`}
               placeholder="you@example.com"
               aria-invalid={errors.email ? 'true' : 'false'}
               aria-describedby={errors.email ? 'email-error' : undefined}
             />
           </div>
           {errors.email && (
-            <p className="mt-1 text-sm text-red-600" id="email-error" role="alert">
+            <p className="mt-1 font-mono text-[11px] text-err dark:text-red-400" id="email-error" role="alert">
               {errors.email}
             </p>
           )}
         </div>
 
-        {/* Password field */}
         <div>
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="password" className={labelClass}>
             Password
           </label>
-          <div className="mt-1">
+          <div className="mt-1.5">
             <input
               id="password"
               name="password"
@@ -220,31 +190,28 @@ export default function SignupPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className={`appearance-none block w-full px-3 py-2 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-orange-500 focus:border-orange-500 sm:text-sm ${
-                errors.password ? 'border-red-300' : 'border-gray-300'
-              }`}
+              className={`${inputBase} ${errors.password ? inputBorderErr : inputBorder}`}
               placeholder="••••••••"
               aria-invalid={errors.password ? 'true' : 'false'}
               aria-describedby={errors.password ? 'password-error' : 'password-hint'}
             />
           </div>
           {errors.password ? (
-            <p className="mt-1 text-sm text-red-600" id="password-error" role="alert">
+            <p className="mt-1 font-mono text-[11px] text-err dark:text-red-400" id="password-error" role="alert">
               {errors.password}
             </p>
           ) : (
-            <p className="mt-1 text-xs text-gray-500" id="password-hint">
-              Min 8 characters, with uppercase, lowercase, and a digit
+            <p className="mt-1 font-mono text-[11px] text-[#001CE0]/40 dark:text-white/30" id="password-hint">
+              Min 8 chars · uppercase · lowercase · digit
             </p>
           )}
         </div>
 
-        {/* Confirm password field */}
         <div>
-          <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="confirmPassword" className={labelClass}>
             Confirm password
           </label>
-          <div className="mt-1">
+          <div className="mt-1.5">
             <input
               id="confirmPassword"
               name="confirmPassword"
@@ -253,49 +220,35 @@ export default function SignupPage() {
               required
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className={`appearance-none block w-full px-3 py-2 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-orange-500 focus:border-orange-500 sm:text-sm ${
-                errors.confirmPassword ? 'border-red-300' : 'border-gray-300'
-              }`}
+              className={`${inputBase} ${errors.confirmPassword ? inputBorderErr : inputBorder}`}
               placeholder="••••••••"
               aria-invalid={errors.confirmPassword ? 'true' : 'false'}
               aria-describedby={errors.confirmPassword ? 'confirmPassword-error' : undefined}
             />
           </div>
           {errors.confirmPassword && (
-            <p className="mt-1 text-sm text-red-600" id="confirmPassword-error" role="alert">
+            <p className="mt-1 font-mono text-[11px] text-err dark:text-red-400" id="confirmPassword-error" role="alert">
               {errors.confirmPassword}
             </p>
           )}
         </div>
 
-        {/* Submit button */}
         <div>
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-primary w-full justify-center"
           >
             {isLoading ? (
               <>
                 <svg
-                  className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                  className="animate-spin h-4 w-4"
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
                   viewBox="0 0 24 24"
                 >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
                 Creating account...
               </>
@@ -306,22 +259,20 @@ export default function SignupPage() {
         </div>
       </form>
 
-      {/* Sign in link */}
       <div className="mt-6">
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-300" />
+            <div className="w-full border-t border-[rgba(0,28,224,0.12)] dark:border-[rgba(255,255,255,0.12)]" />
           </div>
           <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-white text-gray-500">Already have an account?</span>
+            <span className="px-2 bg-white dark:bg-[#0f0f0f] font-mono text-[11px] tracking-wide text-[#001CE0]/40 dark:text-white/30">
+              Already have an account?
+            </span>
           </div>
         </div>
 
-        <div className="mt-6">
-          <Link
-            href="/login"
-            className="w-full flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500"
-          >
+        <div className="mt-4">
+          <Link href="/login" className="btn-ghost w-full justify-center">
             Sign in instead
           </Link>
         </div>
