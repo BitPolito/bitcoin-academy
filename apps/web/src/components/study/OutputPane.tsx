@@ -379,7 +379,11 @@ export function OutputPane({
                   <span className="font-mono text-[11px] opacity-60 truncate max-w-48">{msg.query}</span>
                 </div>
                 <div className="b-thin rounded-lg p-4">
-                  <StudyOutput result={msg.result} courseId={courseId} />
+                  <StudyOutput
+                    result={msg.result}
+                    courseId={courseId}
+                    onOralFollowUp={(query) => handleAction('oral', query)}
+                  />
                 </div>
 
                 {/* Suggested next actions — only on last result */}

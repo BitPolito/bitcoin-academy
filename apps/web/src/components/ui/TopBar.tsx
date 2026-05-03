@@ -43,6 +43,8 @@ export function TopBar() {
     ] : []),
   ];
 
+  const isDebug = !!courseId && pathname.includes('/debug');
+
   const name = (session?.user as any)?.name || (session?.user as any)?.email || '';
   const initials = name
     .split(/[\s@]/)
@@ -72,6 +74,19 @@ export function TopBar() {
             </Link>
           ))}
         </nav>
+
+        {process.env.NODE_ENV === 'development' && courseId && (
+          <Link
+            href={`/courses/${courseId}/debug`}
+            className={`px-3 h-8 rounded-md font-mono text-[11px] tracking-[0.14em] uppercase whitespace-nowrap transition-all inline-flex items-center ${
+              isDebug
+                ? 'bg-blue-dark text-white dark:bg-white dark:text-blue-dark'
+                : 'opacity-50 hover:opacity-100 hover:bg-blue-dark/5 dark:hover:bg-white/10'
+            }`}
+          >
+            Debug
+          </Link>
+        )}
 
         <div className="ml-auto flex items-center gap-2">
           {/* Search placeholder */}
