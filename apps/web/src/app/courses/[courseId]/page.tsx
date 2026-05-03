@@ -71,7 +71,7 @@ export default function CourseWorkspacePage() {
   const router = useRouter();
   const courseId = params.courseId as string;
   const { data: session } = useSession();
-  const accessToken = (session?.user as any)?.accessToken;
+  const accessToken = session?.user?.accessToken;
 
   const [course, setCourse] = useState<Course | null>(null);
   const [docs, setDocs] = useState<DocumentListRow[]>([]);
@@ -270,7 +270,7 @@ export default function CourseWorkspacePage() {
                   <div className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70 mb-1">Document detail</div>
                   <h3 className="font-medium leading-tight truncate">{selected.filename}</h3>
                   <div className="font-mono text-[11px] opacity-70 mt-1">
-                    {(selected as any).documentType || 'lecture'} · {formatSize(selected.size)}
+                    {selected.documentType || 'lecture'} · {formatSize(selected.size)}
                   </div>
                 </div>
                 <div className="p-5 space-y-5">
@@ -362,7 +362,7 @@ function DocRow({
         <div className="min-w-0">
           <div className="text-sm font-medium truncate">{doc.filename}</div>
           <div className="font-mono text-[10px] opacity-60 mt-0.5 uppercase">
-            {(doc as any).documentType || 'lecture'}
+            {doc.documentType || 'lecture'}
           </div>
         </div>
       </div>

@@ -17,7 +17,7 @@ export default function DashboardPage() {
 
     async function fetchCourses() {
       try {
-        const data = await getCourses(0, MVP_COURSES_LIMIT, (session?.user as any)?.accessToken);
+        const data = await getCourses(0, MVP_COURSES_LIMIT, session?.user?.accessToken);
         setCourses(data);
       } catch {
         // Non-critical — dashboard still usable without course count
@@ -69,7 +69,7 @@ export default function DashboardPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Welcome, {(session?.user as any)?.displayName || session?.user?.email}!
+            Welcome, {session?.user?.displayName || session?.user?.email}!
           </h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
@@ -84,13 +84,13 @@ export default function DashboardPage() {
                 <div>
                   <dt className="text-sm text-gray-500">Display Name</dt>
                   <dd className="text-sm font-medium text-gray-900">
-                    {(session?.user as any)?.displayName || 'Not set'}
+                    {session?.user?.displayName || 'Not set'}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-sm text-gray-500">Role</dt>
                   <dd className="text-sm font-medium text-gray-900 capitalize">
-                    {(session?.user as any)?.role || 'Student'}
+                    {session?.user?.role || 'Student'}
                   </dd>
                 </div>
               </dl>
@@ -112,11 +112,11 @@ export default function DashboardPage() {
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-600">Courses Completed</span>
-                  <span className="text-lg font-semibold text-green-600">0</span>
+                  <span className="text-lg font-semibold text-green-600">–</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-600">Certificates Earned</span>
-                  <span className="text-lg font-semibold text-blue-600">0</span>
+                  <span className="text-lg font-semibold text-blue-600">–</span>
                 </div>
               </div>
             </div>

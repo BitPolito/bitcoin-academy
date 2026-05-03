@@ -1,7 +1,7 @@
 """Documents API controller - upload, list, status, detail, preview, retry."""
 from typing import List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Path as PathParam, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Path as PathParam, Request, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -15,6 +15,7 @@ from app.schemas.document_schemas import (
     DocumentStatusResponse,
 )
 from app.core.errors import NotFoundError
+from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/api", tags=["Documents"])
 
@@ -35,7 +36,9 @@ def list_documents(
     response_model=DocumentListItem,
     status_code=201,
 )
+@limiter.limit("10/minute")
 def upload_document(
+    request: Request,
     background_tasks: BackgroundTasks,
     course_id: str = PathParam(..., description="Course ID"),
     file: UploadFile = File(...),

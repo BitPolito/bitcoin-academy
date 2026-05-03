@@ -45,7 +45,7 @@ export function TopBar() {
 
   const isDebug = !!courseId && pathname.includes('/debug');
 
-  const name = (session?.user as any)?.name || (session?.user as any)?.email || '';
+  const name = session?.user?.name || session?.user?.email || '';
   const initials = name
     .split(/[\s@]/)
     .filter(Boolean)
@@ -89,15 +89,6 @@ export function TopBar() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          {/* Search placeholder */}
-          <div className="hidden md:flex items-center gap-2 px-3 h-8 b-thin rounded-md w-56 opacity-60 cursor-not-allowed select-none">
-            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5"/>
-            </svg>
-            <span className="font-mono text-[11px]">Search…</span>
-            <span className="ml-auto mono text-[10px] b-thin px-1.5 rounded">⌘K</span>
-          </div>
-
           {/* Dark mode toggle */}
           <button
             onClick={toggleDark}

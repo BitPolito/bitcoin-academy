@@ -40,7 +40,7 @@ export default function CoursesPage() {
     if (status === 'unauthenticated') { router.push('/login'); return; }
     if (status !== 'authenticated') return;
 
-    const token = (session?.user as any)?.accessToken;
+    const token = session?.user?.accessToken;
 
     async function fetchAll() {
       try {

@@ -16,7 +16,7 @@ export default function DebugPage() {
   const router = useRouter();
   const courseId = params.courseId as string;
   const { data: session } = useSession();
-  const accessToken = (session?.user as any)?.accessToken;
+  const accessToken = session?.user?.accessToken;
 
   const [health, setHealth] = useState<PipelineHealth | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);

@@ -1,11 +1,12 @@
 """Chat API controller - RAG-backed Q&A endpoint."""
 from typing import List
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Request
 from pydantic import BaseModel, Field
 
 from app.middleware.auth import CurrentUser, get_current_user
 from app.services import chat_service
+from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/api", tags=["Chat"])
 
@@ -48,7 +49,9 @@ class ChatResponse(BaseModel):
         "Falls back to a plain message when the QVAC service is unavailable."
     ),
 )
+@limiter.limit("20/minute")
 async def chat(
+    request: Request,
     body: ChatRequest,
     course_id: str = Path(..., description="Course whose documents to search"),
     _current_user: CurrentUser = Depends(get_current_user),

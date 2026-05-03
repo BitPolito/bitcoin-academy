@@ -23,7 +23,7 @@ export default function StudyPage() {
   const searchParams = useSearchParams();
   const courseId = params.courseId as string;
   const { data: session } = useSession();
-  const accessToken = (session?.user as any)?.accessToken;
+  const accessToken = session?.user?.accessToken;
 
   const initialQuery = searchParams.get('q') ?? '';
   const initialAction = (searchParams.get('action') as StudyAction) || null;

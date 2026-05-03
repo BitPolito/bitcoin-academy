@@ -242,7 +242,7 @@ function PreviewContent() {
 
   const courseId = params.courseId as string;
   const documentId = params.documentId as string;
-  const accessToken = (session?.user as any)?.accessToken;
+  const accessToken = session?.user?.accessToken;
 
   const pageParam = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
 

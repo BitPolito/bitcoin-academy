@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 interface SplitPaneProps {
   left: ReactNode;
@@ -18,8 +18,18 @@ export function SplitPane({
   maxLeftPercent = 75,
 }: SplitPaneProps) {
   const [leftPercent, setLeftPercent] = useState(defaultLeftPercent);
+  const [isMobile, setIsMobile] = useState(false);
+  const [activeTab, setActiveTab] = useState<'left' | 'right'>('right');
   const containerRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    setIsMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -48,6 +58,40 @@ export function SplitPane({
     },
     [minLeftPercent, maxLeftPercent]
   );
+
+  if (isMobile) {
+    return (
+      <div className="flex flex-col h-full w-full overflow-hidden">
+        {/* Tab bar */}
+        <div className="flex-shrink-0 flex b-thin-b">
+          <button
+            onClick={() => setActiveTab('left')}
+            className={`flex-1 py-2 font-mono text-[11px] tracking-[0.14em] uppercase transition-colors ${
+              activeTab === 'left'
+                ? 'bg-blue-dark text-white dark:bg-white dark:text-blue-dark'
+                : 'hover:bg-blue-dark/5 dark:hover:bg-white/10'
+            }`}
+          >
+            Sources
+          </button>
+          <button
+            onClick={() => setActiveTab('right')}
+            className={`flex-1 py-2 font-mono text-[11px] tracking-[0.14em] uppercase transition-colors ${
+              activeTab === 'right'
+                ? 'bg-blue-dark text-white dark:bg-white dark:text-blue-dark'
+                : 'hover:bg-blue-dark/5 dark:hover:bg-white/10'
+            }`}
+          >
+            Study
+          </button>
+        </div>
+        {/* Active pane */}
+        <div className="flex-1 overflow-auto min-h-0">
+          {activeTab === 'left' ? left : right}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} className="flex h-full w-full overflow-hidden">
