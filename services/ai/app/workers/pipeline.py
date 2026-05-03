@@ -33,6 +33,7 @@ _MONOREPO_ROOT = _SERVICES_AI.parents[1] # bitcoin-academy/
 _INGESTER_SRC = _MONOREPO_ROOT / "workers" / "python-ingester" / "src"
 
 CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", str(_SERVICES_AI / "chroma_db"))
+CHROMA_COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "bitpolito_course")
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(_SERVICES_AI / "uploads")))
 
 # JSONL files are written here so the QVAC service can read them by absolute path.
@@ -226,7 +227,7 @@ def run(
                 settings=ChromaSettings(anonymized_telemetry=False),
             )
             collection = chroma_client.get_or_create_collection(
-                name="bitpolito_course",
+                name=CHROMA_COLLECTION_NAME,
                 metadata={"hnsw:space": "cosine"},
             )
 

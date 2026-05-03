@@ -14,6 +14,8 @@ interface SourcePaneProps {
   onSelectLesson: (lesson: Lesson) => void;
   onMarkComplete: (lesson: Lesson) => Promise<void>;
   loadingLessons?: boolean;
+  activeCitationDocIds?: Set<string>;
+  lastStudiedLessonId?: string | null;
 }
 
 export function SourcePane({
@@ -26,6 +28,8 @@ export function SourcePane({
   onSelectLesson,
   onMarkComplete,
   loadingLessons = false,
+  activeCitationDocIds,
+  lastStudiedLessonId,
 }: SourcePaneProps) {
   const isCompleted = selectedLesson
     ? completedLessons.has(String(selectedLesson.id))
@@ -49,6 +53,7 @@ export function SourcePane({
           completedLessons={completedLessons}
           onSelect={onSelectLesson}
           loading={loadingLessons}
+          studiedLessonId={lastStudiedLessonId}
         />
       </div>
 
@@ -67,7 +72,7 @@ export function SourcePane({
               </p>
             )}
 
-            <ContentChunks courseId={courseId} accessToken={accessToken} className="mt-2" />
+            <ContentChunks courseId={courseId} accessToken={accessToken} className="mt-2" activeCitationDocIds={activeCitationDocIds} />
 
             <div className="pt-2 b-thin-t">
               {isCompleted ? (

@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import type { StudyAction } from '@/lib/api/types';
+import type { ApiStudyResponse, StudyAction } from '@/lib/api/types';
 import { getCourse, getCourseLessons, type Course, type Lesson } from '@/lib/services/courses';
 import { getDocumentListRows } from '@/lib/api/documents';
 import {
@@ -36,6 +36,20 @@ export default function StudyPage() {
   const [newBadges, setNewBadges] = useState<Badge[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasIndexedDocs, setHasIndexedDocs] = useState(false);
+  const [lastActionResult, setLastActionResult] = useState<{ result: ApiStudyResponse; lesson: Lesson | null } | null>(null);
+
+  const activeCitationDocIds = useMemo(() => {
+    if (!lastActionResult) return new Set<string>();
+    return new Set(
+      lastActionResult.result.citations.map((c) => c.doc_id).filter(Boolean) as string[]
+    );
+  }, [lastActionResult]);
+
+  const lastStudiedLessonId = lastActionResult?.lesson ? String(lastActionResult.lesson.id) : null;
+
+  const handleActionResult = useCallback((result: ApiStudyResponse, lesson: Lesson | null) => {
+    setLastActionResult({ result, lesson });
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -145,6 +159,8 @@ export default function StudyPage() {
               completedLessons={completedLessons}
               onSelectLesson={setSelectedLesson}
               onMarkComplete={handleMarkComplete}
+              activeCitationDocIds={activeCitationDocIds}
+              lastStudiedLessonId={lastStudiedLessonId}
             />
           }
           right={
@@ -156,6 +172,7 @@ export default function StudyPage() {
                 hasIndexedDocs={hasIndexedDocs}
                 initialQuery={initialQuery}
                 initialAction={initialAction}
+                onActionResult={handleActionResult}
               />
             </ErrorBoundary>
           }

@@ -28,9 +28,10 @@ interface ContentChunksProps {
   courseId: string;
   accessToken?: string;
   className?: string;
+  activeCitationDocIds?: Set<string>;
 }
 
-export function ContentChunks({ courseId, accessToken, className }: ContentChunksProps) {
+export function ContentChunks({ courseId, accessToken, className, activeCitationDocIds }: ContentChunksProps) {
   const [contents, setContents] = useState<DocumentContent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -101,54 +102,54 @@ export function ContentChunks({ courseId, accessToken, className }: ContentChunk
 
   return (
     <div className={className}>
-      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+      <div className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70 mb-3">
         Course Material
-      </h4>
-      <div className="space-y-6">
-        {contents.map((doc) => (
-          <div key={doc.documentId}>
-            <p
-              className="text-xs font-medium text-gray-600 mb-2 truncate"
-              title={doc.filename}
-            >
-              {doc.filename}
-            </p>
+      </div>
+      <div className="space-y-5">
+        {contents.map((doc) => {
+          const isCited = activeCitationDocIds?.has(doc.documentId);
+          return (
+          <div
+            key={doc.documentId}
+            className={`rounded-md transition-colors ${isCited ? 'b-hard bg-blue-dark/5 dark:bg-blue-dark/20 p-2' : ''}`}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              {isCited && (
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-dark dark:bg-white flex-shrink-0" />
+              )}
+              <p className="font-mono text-[10px] tracking-wide truncate opacity-80" title={doc.filename}>
+                {doc.filename}
+              </p>
+            </div>
 
-            {/* Section chips — each named section from the parsed document */}
+            {/* Section chips */}
             {doc.sections.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-3">
+              <div className="flex flex-wrap gap-1.5 mb-2">
                 {doc.sections.map((section, i) => (
-                  <span
-                    key={i}
-                    className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200"
-                  >
+                  <span key={i} className="chip" style={{ border: '1px solid currentColor' }}>
                     {section.title ?? `Section ${i + 1}`}
                   </span>
                 ))}
               </div>
             )}
 
-            {/* Sample chunks — numbered excerpts from the document */}
-            <div className="space-y-2">
+            {/* Sample chunks */}
+            <div className="space-y-1.5">
               {doc.chunks.map((chunk, i) => (
-                <div
-                  key={i}
-                  className="rounded-md bg-white border border-gray-200 p-3 text-xs text-gray-700 leading-relaxed"
-                >
+                <div key={i} className="b-thin rounded-md p-2.5 text-[12px] leading-relaxed">
                   <div className="flex items-start gap-2">
-                    <span className="flex-shrink-0 inline-flex items-center justify-center h-4 w-4 rounded-full bg-gray-100 text-gray-500 text-[10px] font-semibold mt-0.5">
-                      {i + 1}
-                    </span>
-                    <p className="flex-1">{chunk.text}</p>
+                    <span className="flex-shrink-0 font-mono text-[10px] opacity-50 mt-0.5">{i + 1}</span>
+                    <p className="flex-1 opacity-90">{chunk.text}</p>
                   </div>
                   {chunk.section && (
-                    <p className="mt-1 text-[10px] text-gray-400 pl-6">§ {chunk.section}</p>
+                    <p className="mt-1 font-mono text-[10px] opacity-50 pl-5">§ {chunk.section}</p>
                   )}
                 </div>
               ))}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

@@ -34,6 +34,7 @@ interface OutputPaneProps {
   hasIndexedDocs?: boolean;
   initialQuery?: string;
   initialAction?: StudyAction | null;
+  onActionResult?: (result: ApiStudyResponse, lesson: Lesson | null) => void;
 }
 
 // ── Evidence Drawer ───────────────────────────────────────────────────────────
@@ -206,6 +207,7 @@ export function OutputPane({
   hasIndexedDocs = true,
   initialQuery = '',
   initialAction = null,
+  onActionResult,
 }: OutputPaneProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState(initialQuery);
@@ -259,6 +261,7 @@ export function OutputPane({
       const durationMs = Date.now() - t0;
       setMessages((prev) => [...prev, { role: 'action-result', action, query, result, durationMs }]);
       if (result.citations.length > 0) setShowEvidence(true);
+      onActionResult?.(result, selectedLesson ?? null);
     } catch (err) {
       setMessages((prev) => [
         ...prev,

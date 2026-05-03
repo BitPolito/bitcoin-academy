@@ -11,7 +11,9 @@ logger = logging.getLogger(__name__)
 _HERE = Path(__file__).resolve()
 _SERVICES_AI = _HERE.parents[2]
 _CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", str(_SERVICES_AI / "chroma_db"))
-_COLLECTION_NAME = "bitpolito_course"
+_COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "bitpolito_course")
+
+logger.info("ChromaDB path: %s | collection: %s", _CHROMA_DB_PATH, _COLLECTION_NAME)
 
 
 @lru_cache(maxsize=1)

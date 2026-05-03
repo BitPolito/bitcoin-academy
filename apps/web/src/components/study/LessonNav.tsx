@@ -8,6 +8,7 @@ interface LessonNavProps {
   completedLessons: Set<string>;
   onSelect: (lesson: Lesson) => void;
   loading?: boolean;
+  studiedLessonId?: string | null;
 }
 
 export function LessonNav({
@@ -16,6 +17,7 @@ export function LessonNav({
   completedLessons,
   onSelect,
   loading = false,
+  studiedLessonId,
 }: LessonNavProps) {
   if (loading) {
     return (
@@ -42,6 +44,7 @@ export function LessonNav({
           const lessonId = String(lesson.id);
           const isSelected = selectedLesson?.id === lesson.id;
           const isCompleted = completedLessons.has(lessonId);
+          const isStudied = studiedLessonId === lessonId && !isSelected;
 
           return (
             <li key={lesson.id}>
@@ -69,6 +72,9 @@ export function LessonNav({
                   )}
                 </span>
                 <span className="flex-1 min-w-0 font-medium truncate">{lesson.title}</span>
+                {isStudied && (
+                  <span className="flex-shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-blue-dark dark:bg-white opacity-60" title="Last studied" />
+                )}
                 {isCompleted && (
                   <span className="flex-shrink-0 font-mono text-[9px] tracking-[0.18em] uppercase opacity-60">done</span>
                 )}
