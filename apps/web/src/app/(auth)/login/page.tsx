@@ -23,7 +23,7 @@ const labelClass = 'block font-mono text-[11px] tracking-wide uppercase text-[#0
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+  const callbackUrl = searchParams.get('callbackUrl') || '/courses';
   const errorParam = searchParams.get('error');
 
   const [email, setEmail] = useState('');

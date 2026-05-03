@@ -96,13 +96,13 @@ export default function SignupPage() {
         email,
         password,
         redirect: false,
-        callbackUrl: '/dashboard',
+        callbackUrl: '/courses',
       });
 
       if (result?.error) {
         router.push('/login?message=Registration successful. Please log in.');
       } else if (result?.ok) {
-        router.push('/dashboard');
+        router.push('/courses');
         router.refresh();
       }
     } catch {
