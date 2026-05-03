@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
+import type { StudyAction } from '@/lib/api/types';
 import { getCourse, getCourseLessons, type Course, type Lesson } from '@/lib/services/courses';
 import { getDocumentListRows } from '@/lib/api/documents';
 import {
@@ -19,9 +20,13 @@ import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
 export default function StudyPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const courseId = params.courseId as string;
   const { data: session } = useSession();
   const accessToken = (session?.user as any)?.accessToken;
+
+  const initialQuery = searchParams.get('q') ?? '';
+  const initialAction = (searchParams.get('action') as StudyAction) || null;
 
   const [course, setCourse] = useState<Course | null>(null);
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -149,6 +154,8 @@ export default function StudyPage() {
                 accessToken={accessToken}
                 selectedLesson={selectedLesson}
                 hasIndexedDocs={hasIndexedDocs}
+                initialQuery={initialQuery}
+                initialAction={initialAction}
               />
             </ErrorBoundary>
           }

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
@@ -155,11 +156,18 @@ function ChunkBrowser({
   chunks,
   activeIndex,
   onSelect,
+  courseId,
 }: {
   chunks: ApiPreviewChunk[];
   activeIndex: number;
   onSelect: (i: number) => void;
+  courseId: string;
 }) {
+  const activeChunk = chunks[activeIndex];
+  const context = activeChunk?.section || activeChunk?.label || `part ${activeIndex + 1}`;
+  const explainUrl = `/courses/${courseId}/study?q=${encodeURIComponent(`Explain: ${context}`)}&action=explain`;
+  const quizUrl = `/courses/${courseId}/study?q=${encodeURIComponent(`Quiz on: ${context}`)}&action=quiz`;
+
   return (
     <div className="h-full flex flex-col b-thin-l">
       <div className="flex-shrink-0 px-4 py-3 b-thin-b flex items-center justify-between">
@@ -193,6 +201,31 @@ function ChunkBrowser({
               </button>
             );
           })}
+        </div>
+      )}
+
+      {/* Quick actions — navigate to study with this section pre-loaded */}
+      {chunks.length > 0 && (
+        <div className="flex-shrink-0 b-thin-t p-2 space-y-1">
+          <div className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-50 px-2 py-1">
+            Quick actions
+          </div>
+          <Link
+            href={explainUrl}
+            className="flex items-center gap-2 w-full text-left rounded-md px-3 py-2 font-mono text-[11px] b-thin hover:bg-blue-dark/5 dark:hover:bg-white/10 transition-colors"
+          >
+            <span className="opacity-60">∑</span>
+            <span className="flex-1 truncate opacity-80">{context}</span>
+            <span className="opacity-50 flex-shrink-0">explain →</span>
+          </Link>
+          <Link
+            href={quizUrl}
+            className="flex items-center gap-2 w-full text-left rounded-md px-3 py-2 font-mono text-[11px] b-thin hover:bg-blue-dark/5 dark:hover:bg-white/10 transition-colors"
+          >
+            <span className="opacity-60">▢</span>
+            <span className="flex-1 truncate opacity-80">{context}</span>
+            <span className="opacity-50 flex-shrink-0">quiz →</span>
+          </Link>
         </div>
       )}
     </div>
@@ -335,6 +368,7 @@ function PreviewContent() {
             chunks={chunks}
             activeIndex={activeIndex}
             onSelect={setActiveIndex}
+            courseId={courseId}
           />
         </div>
       </div>

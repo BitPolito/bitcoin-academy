@@ -17,10 +17,12 @@ from typing import List, Optional
 
 import httpx
 
+from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk, EvidencePack
 from app.schemas.study_schemas import (
     STUDY_ACTION_REGISTRY,
     StudyAction,
 )
+from app.services import evidence_pack_service
 
 logger = logging.getLogger(__name__)
 
@@ -132,14 +134,28 @@ class DispatchResult:
     answer: str
     citations: List[SourceChunk] = field(default_factory=list)
     retrieval_used: bool = False
+    # Structured retrieval context — available for debug/inspection, not exposed in HTTP response.
+    evidence_pack: Optional[EvidencePack] = None
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-async def _retrieve(question: str, course_id: str) -> tuple[str, List[SourceChunk]]:
-    """Call QVAC /query and return (raw_answer, sources)."""
+def _empty_pack(query: str, action: StudyAction) -> EvidencePack:
+    return EvidencePack(
+        query=query, action=action.value,
+        chunks=[], total_candidates=0, ordering=[], deduped_passages=[],
+    )
+
+
+async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple[str, EvidencePack]:
+    """Call QVAC /query, wrap response into a structured EvidencePack.
+
+    Returns (raw_answer, pack).  raw_answer is the QVAC-generated string
+    (used as fallback when the LLM is unavailable); pack is the canonical
+    interface for generation and citation display.
+    """
     try:
         resp = await _qvac_client.post(
             "/query",
@@ -147,23 +163,32 @@ async def _retrieve(question: str, course_id: str) -> tuple[str, List[SourceChun
         )
         resp.raise_for_status()
         data = resp.json()
-        raw_answer = data.get("answer", "")
-        sources = [
-            SourceChunk(
-                snippet=s.get("snippet", ""),
-                score=s.get("score", 0.0),
-                label=s.get("label", ""),
-                page=s.get("page", 0),
-                slide=s.get("slide", 0),
-                section=s.get("section", ""),
-                doc_id=s.get("doc_id", ""),
+        raw_answer: str = data.get("answer", "")
+
+        candidates: List[EvidenceChunk] = [
+            EvidenceChunk(
+                chunk_id=s.get("chunk_id") or f"qvac_{s.get('doc_id', 'unk')}_{i}",
+                text=s.get("snippet", ""),
+                score=float(s.get("score", 0.0)),
+                anchor=CitationAnchor(
+                    doc_id=str(s.get("doc_id", "")),
+                    doc_name=str(s.get("label", "")),
+                    section=s.get("section") or None,
+                    page=int(s["page"]) if s.get("page") else None,
+                    slide=int(s["slide"]) if s.get("slide") else None,
+                    chunk_id=s.get("chunk_id") or f"qvac_{s.get('doc_id', 'unk')}_{i}",
+                    chunk_type="paragraph",
+                ),
             )
-            for s in data.get("sources", [])
+            for i, s in enumerate(data.get("sources", []))
         ]
-        return raw_answer, sources
+
+        pack = evidence_pack_service.build_from_chunks(question, action.value, candidates)
+        return raw_answer, pack
+
     except (httpx.HTTPError, ValueError, KeyError) as exc:
         logger.warning("QVAC retrieval failed: %s", exc)
-        return "", []
+        return "", _empty_pack(question, action)
 
 
 async def _generate(action: StudyAction, question: str, context: str) -> Optional[str]:
@@ -202,29 +227,41 @@ async def _route(
 ) -> DispatchResult:
     meta = STUDY_ACTION_REGISTRY[action]
 
-    # Step 1 — Retrieval
+    # Step 1 — Retrieval → EvidencePack
     raw_answer = ""
-    sources: List[SourceChunk] = []
-    context = ""
+    pack = _empty_pack(question, action)
 
     if meta.retrieval_required:
         trace.retrieval_ran = True
-        raw_answer, sources = await _retrieve(question, course_id)
-        trace.chunks_found = len(sources)
-        context = "\n\n---\n\n".join(
-            f"[{i + 1}] {s.snippet}" for i, s in enumerate(sources)
-        )
+        raw_answer, pack = await _retrieve(question, course_id, action)
+        trace.chunks_found = len(pack.chunks)
 
-    # Step 2 — retrieve-only shortcut
+    # Derive SourceChunk list from pack (preserves existing DispatchResult/API shape)
+    sources: List[SourceChunk] = [
+        SourceChunk(
+            snippet=c.text,
+            score=c.score,
+            label=c.anchor.doc_name,
+            page=c.anchor.page or 0,
+            slide=c.anchor.slide or 0,
+            section=c.anchor.section or "",
+            doc_id=c.anchor.doc_id,
+        )
+        for c in pack.chunks
+    ]
+
+    # Step 2 — retrieve-only shortcut: return deduplicated passages directly
     if not meta.generation_required:
+        answer = pack.context_block() or raw_answer or "No relevant content found."
         return DispatchResult(
-            answer=raw_answer or "No relevant content found.",
+            answer=answer,
             citations=sources,
             retrieval_used=bool(sources),
+            evidence_pack=pack,
         )
 
-    # Step 3 — Generation
-    generated = await _generate(action, question, context)
+    # Step 3 — Generation using the pack's context block
+    generated = await _generate(action, question, pack.context_block())
     if generated is not None:
         trace.generation_ran = True
         answer = generated
@@ -232,7 +269,7 @@ async def _route(
         trace.fallback_used = True
         answer = raw_answer or "No relevant content found."
 
-    return DispatchResult(answer=answer, citations=sources, retrieval_used=bool(sources))
+    return DispatchResult(answer=answer, citations=sources, retrieval_used=bool(sources), evidence_pack=pack)
 
 
 # ---------------------------------------------------------------------------

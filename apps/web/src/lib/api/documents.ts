@@ -1,4 +1,10 @@
 import { apiFetch, ApiError } from '@/lib/api';
+
+const _API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  (process.env.NEXT_PUBLIC_API_URL
+    ? `${process.env.NEXT_PUBLIC_API_URL}/api`
+    : 'http://localhost:8000/api');
 import type {
   ApiDocumentListItem,
   ApiDocumentDetail,
@@ -81,6 +87,52 @@ export async function deleteDocument(
   return apiFetch<{ message: string }>(`/documents/${documentId}`, {
     method: 'DELETE',
     accessToken,
+  });
+}
+
+export function uploadDocumentWithProgress(
+  courseId: string,
+  file: File,
+  accessToken: string | undefined,
+  documentType: string,
+  onProgress: (pct: number) => void,
+): Promise<ApiDocumentListItem> {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('document_type', documentType);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${_API_BASE}/courses/${courseId}/documents`);
+    if (accessToken) xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as ApiDocumentListItem);
+        } catch {
+          reject(new Error('Invalid server response'));
+        }
+      } else {
+        let message = `Upload failed (${xhr.status})`;
+        try {
+          const body = JSON.parse(xhr.responseText) as { detail?: string };
+          if (body.detail) message = body.detail;
+        } catch {
+          /* use default message */
+        }
+        reject(new Error(message));
+      }
+    });
+
+    xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
+    xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+
+    xhr.send(formData);
   });
 }
 

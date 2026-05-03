@@ -32,6 +32,8 @@ interface OutputPaneProps {
   accessToken?: string;
   selectedLesson?: Lesson | null;
   hasIndexedDocs?: boolean;
+  initialQuery?: string;
+  initialAction?: StudyAction | null;
 }
 
 // ── Evidence Drawer ───────────────────────────────────────────────────────────
@@ -197,14 +199,22 @@ const NEXT_ACTIONS: Array<{ action: StudyAction; glyph: string; label: string }>
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function OutputPane({ courseId, accessToken, selectedLesson, hasIndexedDocs = true }: OutputPaneProps) {
+export function OutputPane({
+  courseId,
+  accessToken,
+  selectedLesson,
+  hasIndexedDocs = true,
+  initialQuery = '',
+  initialAction = null,
+}: OutputPaneProps) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(initialQuery);
   const [loading, setLoading] = useState(false);
   const [activeAction, setActiveAction] = useState<StudyAction | null>(null);
   const [showEvidence, setShowEvidence] = useState(false);
   const [showInspect, setShowInspect] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const didAutoFireRef = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -259,6 +269,16 @@ export function OutputPane({ courseId, accessToken, selectedLesson, hasIndexedDo
       setActiveAction(null);
     }
   }
+
+  // Auto-fire when arriving from preview quick actions (?q=...&action=...)
+  useEffect(() => {
+    if (didAutoFireRef.current || !initialQuery || !initialAction || !hasIndexedDocs || !accessToken) return;
+    didAutoFireRef.current = true;
+    handleAction(initialAction, initialQuery);
+  // handleAction is recreated each render — intentionally not listed to avoid loops.
+  // This effect re-evaluates only when auth/docs status changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasIndexedDocs, accessToken]);
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
