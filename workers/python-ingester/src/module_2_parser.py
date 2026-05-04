@@ -140,8 +140,16 @@ class StructuralParser:
             try:
                 return self._parse_with_docling()
             except Exception as e:
-                logger.warning(f"Docling failed ({e}), falling back to hybrid parser.")
-            
+                available_pages = len(pages) if pages is not None else 0
+                logger.warning(
+                    "Docling failed (%s), falling back to hybrid parser with %d available pages.",
+                    e,
+                    available_pages,
+                )
+                if not available_pages:
+                    logger.error("Fallback aborted: ingestor provided 0 pages — re-raising Docling exception.")
+                    raise
+
         blocks = []
         
         # --- PPTX HANDLING (Unchanged) ---

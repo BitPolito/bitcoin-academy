@@ -112,11 +112,12 @@ def _write_qvac_jsonl(chunks: list, document_id: str) -> Path:
     return out_path
 
 
-def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> None:
+def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> bool:
     """POST the JSONL path to the QVAC service for embedding + HyperDB indexing.
 
     Non-blocking best-effort: logs a warning on failure so the pipeline
     continues even when the QVAC Node.js service is not running.
+    Returns True on success, False on any error.
     """
     try:
         with httpx.Client(timeout=10) as client:
@@ -126,8 +127,10 @@ def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> Non
             )
             resp.raise_for_status()
             logger.info("QVAC ingest accepted — workspace '%s', status %d", workspace, resp.status_code)
+            return True
     except httpx.HTTPError as exc:
         logger.warning("QVAC service unavailable, skipping QVAC ingest: %s", exc)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +271,7 @@ def run(
             # Stage 3 — QVAC ingest (best-effort; pipeline succeeds even if skipped)
             # ------------------------------------------------------------------
             jsonl_path = _write_qvac_jsonl(para_chunks, document_id)
-            _qvac_ingest(jsonl_path, workspace=course_id, rebuild=False)
+            qvac_ok = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=False)
 
             # ------------------------------------------------------------------
             # Finalise DB record
@@ -277,17 +280,19 @@ def run(
             section_titles = sorted({
                 c.citation_section for c in para_chunks if c.citation_section
             })
+            sample_source = para_chunks[:5] or all_chunks[:5]
             sample = [
                 {
                     "text": c.text[:300],
                     "label": c.citation_label,
                     "section": c.citation_section,
                 }
-                for c in para_chunks[:5]
+                for c in sample_source
             ]
 
             doc.status = DocumentStatus.READY
             doc.processing_stage = DocumentProcessingStage.DONE
+            doc.indexing_status = "indexed" if qvac_ok else "failed"
             doc.chunk_count = len(para_chunks)
             doc.parser_used = nd.parser_used if nd else "unknown"
             doc.page_count = nd.page_count if nd else None

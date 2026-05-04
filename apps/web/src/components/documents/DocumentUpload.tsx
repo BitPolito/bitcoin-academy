@@ -8,11 +8,16 @@ import {
 } from '@/lib/api/documents';
 import { ApiError } from '@/lib/api';
 import type { MaterialType, ProcessingStage } from '@/lib/api/types';
+import { useToast } from '@/components/ui/Toast';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const MAX_CONCURRENT = 2;
-const ALLOWED_EXTS = ['.pdf', '.pptx', '.ppt', '.docx', '.doc', '.txt', '.md'];
+const ALLOWED_EXTS = ['.pdf', '.pptx'];
+const ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+]);
 const MAX_SIZE_BYTES = 50 * 1024 * 1024;
 
 const MATERIAL_TYPE_LABELS: Record<MaterialType, string> = {
@@ -56,9 +61,14 @@ interface DocumentUploadProps {
 
 // ── Validation ─────────────────────────────────────────────────────────────
 
-function validateFile(file: File): string | null {
+function isSupportedType(file: File): boolean {
   const ext = '.' + (file.name.split('.').pop() ?? '').toLowerCase();
-  if (!ALLOWED_EXTS.includes(ext)) return `Type not supported: ${ext}`;
+  if (!ALLOWED_EXTS.includes(ext)) return false;
+  // If the browser reports a MIME type it must match; empty string means undetected (trust extension)
+  return !file.type || ALLOWED_MIME_TYPES.has(file.type);
+}
+
+function validateFile(file: File): string | null {
   if (file.size > MAX_SIZE_BYTES) return 'File too large (max 50 MB)';
   return null;
 }
@@ -356,6 +366,7 @@ function JobRow({
 // ── DocumentUpload ─────────────────────────────────────────────────────────
 
 export function DocumentUpload({ courseId, accessToken, onUploadComplete }: DocumentUploadProps) {
+  const { showToast } = useToast();
   const [jobs, setJobs] = useState<UploadJob[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedType, setSelectedType] = useState<MaterialType>('lecture');
@@ -386,7 +397,18 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
       const fileArray = Array.from(files);
       if (fileArray.length === 0) return;
 
-      const newJobs: UploadJob[] = fileArray.map((file) => {
+      // Type-gate: reject unsupported formats with a toast, never create a job for them
+      const accepted: File[] = [];
+      for (const file of fileArray) {
+        if (!isSupportedType(file)) {
+          showToast('Unsupported format. Use PDF or PPTX.', 'err');
+          continue;
+        }
+        accepted.push(file);
+      }
+      if (accepted.length === 0) return;
+
+      const newJobs: UploadJob[] = accepted.map((file) => {
         const validationError = validateFile(file);
         return {
           id: crypto.randomUUID(),
@@ -422,7 +444,7 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
         });
       }
     },
-    [selectedType, courseId, accessToken, enqueue, release, onUploadComplete],
+    [selectedType, courseId, accessToken, enqueue, release, onUploadComplete, showToast],
   );
 
   const handleRetry = useCallback(
@@ -489,7 +511,7 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
           ref={inputRef}
           type="file"
           multiple
-          accept=".pdf,.pptx,.ppt,.doc,.docx,.txt,.md"
+          accept=".pdf,.pptx"
           className="sr-only"
           onChange={(e) => {
             if (e.target.files) handleFiles(e.target.files);
@@ -514,7 +536,7 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
           <span className="opacity-60"> or drag and drop</span>
         </p>
         <p className="mt-1 font-mono text-[10px] opacity-50">
-          PDF · PPTX · DOC · TXT · MD — max 50 MB — as {MATERIAL_TYPE_LABELS[selectedType]}
+          PDF · PPTX — max 50 MB — as {MATERIAL_TYPE_LABELS[selectedType]}
         </p>
       </div>
 
