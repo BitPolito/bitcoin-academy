@@ -74,6 +74,35 @@ def upload_document(
 
 
 @router.post(
+    "/documents/{document_id}/reindex",
+    response_model=DocumentStatusResponse,
+    summary="Retry QVAC ingest for a document with indexing_status=qvac_pending",
+)
+def reindex_document(
+    background_tasks: BackgroundTasks,
+    document_id: str = PathParam(..., description="Document ID"),
+    db: Session = Depends(get_db),
+) -> DocumentStatusResponse:
+    doc = document_service.get_document(db, document_id)
+    if doc is None:
+        raise NotFoundError(resource="Document", identifier=document_id)
+
+    jsonl_path = pipeline.QVAC_INGEST_DIR / f"{document_id}_contingency.jsonl"
+    if not jsonl_path.exists():
+        raise HTTPException(
+            status_code=400,
+            detail="JSONL index file not found. Re-upload the document to rebuild it.",
+        )
+
+    background_tasks.add_task(
+        pipeline.reindex_qvac,
+        document_id=document_id,
+        course_id=doc.course_id,
+    )
+    return document_service.get_document(db, document_id)
+
+
+@router.post(
     "/documents/{document_id}/retry",
     response_model=DocumentStatusResponse,
 )

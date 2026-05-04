@@ -36,8 +36,35 @@ class ChatResult:
 # Public API
 # ---------------------------------------------------------------------------
 
+def _chroma_chat_result(question: str, course_id: str) -> ChatResult:
+    """Query ChromaDB and return a ChatResult with raw snippets as answer."""
+    from app.services.chroma_retrieval import query_chroma  # lazy import
+    sources = query_chroma(question, course_id, top_k=_TOP_K)
+    citations = [
+        Citation(
+            snippet=s["snippet"],
+            score=s["score"],
+            label=s["label"],
+            page=s["page"],
+            slide=s["slide"],
+            section=s["section"],
+            doc_id=s["doc_id"],
+        )
+        for s in sources
+    ]
+    answer_text = (
+        "\n\n---\n\n".join(s["snippet"] for s in sources)
+        if sources
+        else "No relevant content found."
+    )
+    return ChatResult(answer=answer_text, citations=citations, retrieval_used=bool(citations))
+
+
 async def answer(question: str, course_id: str) -> ChatResult:
-    """Send the question to the QVAC /query endpoint and return a ChatResult."""
+    """Send the question to the QVAC /query endpoint and return a ChatResult.
+
+    Falls back to ChromaDB when QVAC is unavailable or returns zero sources.
+    """
     try:
         resp = await _client.post(
             "/query",
@@ -45,11 +72,8 @@ async def answer(question: str, course_id: str) -> ChatResult:
         )
         resp.raise_for_status()
     except httpx.HTTPError as exc:
-        logger.warning("QVAC service unavailable: %s", exc)
-        return ChatResult(
-            answer="The AI service is temporarily unavailable. Please try again later.",
-            retrieval_used=False,
-        )
+        logger.warning("QVAC service unavailable (%s) — trying ChromaDB fallback", exc)
+        return _chroma_chat_result(question, course_id)
 
     try:
         data = resp.json()
@@ -61,6 +85,14 @@ async def answer(question: str, course_id: str) -> ChatResult:
             answer="Received an unexpected response from the AI service.",
             retrieval_used=False,
         )
+
+    if not sources:
+        logger.info(
+            "QVAC returned 0 sources for course '%s', trying ChromaDB fallback", course_id
+        )
+        fallback = _chroma_chat_result(question, course_id)
+        if fallback.citations:
+            return fallback
 
     citations = [
         Citation(

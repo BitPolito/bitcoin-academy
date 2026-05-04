@@ -149,12 +149,36 @@ def _empty_pack(query: str, action: StudyAction) -> EvidencePack:
     )
 
 
+def _chroma_evidence(question: str, course_id: str) -> List[EvidenceChunk]:
+    """Query ChromaDB and return EvidenceChunk list (same shape as QVAC results)."""
+    from app.services.chroma_retrieval import query_chroma  # lazy — avoids circular import
+    return [
+        EvidenceChunk(
+            chunk_id=f"chroma_{s.get('doc_id', 'unk')}_{i}",
+            text=s["snippet"],
+            score=s["score"],
+            anchor=CitationAnchor(
+                doc_id=s["doc_id"],
+                doc_name=s["label"],
+                section=s["section"] or None,
+                page=int(s["page"]) if s.get("page") else None,
+                slide=int(s["slide"]) if s.get("slide") else None,
+                chunk_id=f"chroma_{s.get('doc_id', 'unk')}_{i}",
+                chunk_type="paragraph",
+            ),
+        )
+        for i, s in enumerate(query_chroma(question, course_id, top_k=_TOP_K))
+    ]
+
+
 async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple[str, EvidencePack]:
     """Call QVAC /query, wrap response into a structured EvidencePack.
 
     Returns (raw_answer, pack).  raw_answer is the QVAC-generated string
     (used as fallback when the LLM is unavailable); pack is the canonical
     interface for generation and citation display.
+
+    ChromaDB is queried as a fallback when QVAC returns zero chunks or fails.
     """
     try:
         resp = await _qvac_client.post(
@@ -183,12 +207,19 @@ async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple
             for i, s in enumerate(data.get("sources", []))
         ]
 
+        if not candidates:
+            logger.info(
+                "QVAC returned 0 chunks for course '%s', trying ChromaDB fallback", course_id
+            )
+            candidates = _chroma_evidence(question, course_id)
+
         pack = evidence_pack_service.build_from_chunks(question, action.value, candidates)
         return raw_answer, pack
 
     except (httpx.HTTPError, ValueError, KeyError) as exc:
-        logger.warning("QVAC retrieval failed: %s", exc)
-        return "", _empty_pack(question, action)
+        logger.warning("QVAC retrieval failed (%s) — trying ChromaDB fallback", exc)
+        candidates = _chroma_evidence(question, course_id)
+        return "", evidence_pack_service.build_from_chunks(question, action.value, candidates)
 
 
 async def _generate(action: StudyAction, question: str, context: str) -> Optional[str]:

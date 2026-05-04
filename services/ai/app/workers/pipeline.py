@@ -173,6 +173,16 @@ def run(
             logger.error("Document %s not found — aborting pipeline", document_id)
             return
 
+        # Guard: reject unsupported types before pdfplumber touches the file (P0-4)
+        _ext = os.path.splitext(filename.lower())[1]
+        if _ext not in {".pdf", ".pptx"}:
+            _mark_error(
+                doc,
+                f"Unsupported file type '{_ext}'. Only PDF and PPTX are accepted.",
+                db,
+            )
+            return
+
         try:
             # ------------------------------------------------------------------
             # Stage 1 — PARSING + CHUNKING
@@ -292,7 +302,7 @@ def run(
 
             doc.status = DocumentStatus.READY
             doc.processing_stage = DocumentProcessingStage.DONE
-            doc.indexing_status = "indexed" if qvac_ok else "failed"
+            doc.indexing_status = "indexed" if qvac_ok else "qvac_pending"
             doc.chunk_count = len(para_chunks)
             doc.parser_used = nd.parser_used if nd else "unknown"
             doc.page_count = nd.page_count if nd else None
@@ -314,3 +324,35 @@ def run(
         except Exception as exc:
             logger.exception("Pipeline failed for %s: %s", document_id, exc)
             _mark_error(doc, str(exc), db)
+
+
+# ---------------------------------------------------------------------------
+# QVAC-only reindex — retries the QVAC ingest step without re-parsing
+# ---------------------------------------------------------------------------
+
+def reindex_qvac(document_id: str, course_id: str) -> None:
+    """Retry QVAC ingest for a document whose indexing_status is 'qvac_pending'.
+
+    Reads the JSONL file produced during the original pipeline run and re-posts
+    it to the QVAC service.  Opens its own DB session so it is safe to run as a
+    FastAPI BackgroundTask.
+    """
+    jsonl_path = QVAC_INGEST_DIR / f"{document_id}_contingency.jsonl"
+    if not jsonl_path.exists():
+        logger.warning(
+            "Cannot reindex %s: JSONL not found at %s", document_id, jsonl_path
+        )
+        return
+
+    with get_db_context() as db:
+        doc = document_repo.get_by_id(db, document_id)
+        if doc is None:
+            logger.error("Document %s not found — aborting reindex", document_id)
+            return
+
+        qvac_ok = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=True)
+        doc.indexing_status = "indexed" if qvac_ok else "qvac_pending"
+        db.commit()
+        logger.info(
+            "Reindex QVAC for %s: indexing_status=%s", document_id, doc.indexing_status
+        )
