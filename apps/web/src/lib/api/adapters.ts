@@ -6,7 +6,6 @@ import type {
   DocumentDetailView,
   DocumentPreviewView,
   DocumentStatus,
-  ProcessingStage,
 } from './types';
 
 function mimeToLabel(mime: string | null, filename: string): string {
