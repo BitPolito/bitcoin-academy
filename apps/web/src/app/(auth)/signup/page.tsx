@@ -54,7 +54,7 @@ export default function SignupPage() {
       newErrors.password = 'Password must contain at least one lowercase letter';
     } else if (!/\d/.test(password)) {
       newErrors.password = 'Password must contain at least one digit';
-    } else if (!/[!@#$%^&*()\-_=+\[\]{};':"\\|,.<>/?`~]/.test(password)) {
+    } else if (!/[!@#$%^&*()\-_=+[\]{};':"\\|,.<>/?`~]/.test(password)) {
       newErrors.password = 'Password must contain at least one special character';
     }
 
