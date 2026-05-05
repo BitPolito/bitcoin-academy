@@ -66,7 +66,7 @@ export function DocumentList({
         setRefreshing(false);
       }
     },
-    [courseId, accessToken],
+    [courseId, accessToken]
   );
 
   useEffect(() => {
@@ -139,7 +139,9 @@ export function DocumentList({
           />
         </svg>
         <p className="mt-2 text-sm text-gray-500">No documents uploaded yet</p>
-        <p className="text-xs text-gray-400">Upload slides, notes, or reference material to get started</p>
+        <p className="text-xs text-gray-400">
+          Upload slides, notes, or reference material to get started
+        </p>
       </div>
     );
   }
@@ -193,7 +195,11 @@ export function DocumentList({
                     strokeWidth={2}
                     stroke="currentColor"
                   >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M8.25 4.5l7.5 7.5-7.5 7.5"
+                    />
                   </svg>
 
                   {/* File type badge */}

@@ -23,9 +23,7 @@ export function BadgeDisplay({ badge, size = 'md' }: BadgeDisplayProps) {
       </span>
       <div>
         <p className="text-xs font-semibold text-yellow-800">{badge.name}</p>
-        {size === 'md' && (
-          <p className="text-xs text-yellow-600">{badge.description}</p>
-        )}
+        {size === 'md' && <p className="text-xs text-yellow-600">{badge.description}</p>}
       </div>
     </div>
   );

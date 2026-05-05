@@ -78,15 +78,27 @@ export default function DocumentPreviewPage() {
           onClick={() => router.push(`/courses/${courseId}`)}
           className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
         >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={2}
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"
+            />
           </svg>
           Back
         </button>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold text-gray-900 truncate">{preview.filename}</h1>
           {preview.pageCount != null && (
-            <p className="text-sm text-gray-500">{preview.pageCount} page{preview.pageCount !== 1 ? 's' : ''}</p>
+            <p className="text-sm text-gray-500">
+              {preview.pageCount} page{preview.pageCount !== 1 ? 's' : ''}
+            </p>
           )}
         </div>
       </div>

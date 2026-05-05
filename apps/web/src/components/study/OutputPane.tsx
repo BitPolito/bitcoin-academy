@@ -1,11 +1,6 @@
 'use client';
 
-import {
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { sendChatMessage, type Citation } from '@/lib/services/chat';
 import type { Lesson } from '@/lib/services/courses';
 
@@ -80,12 +75,8 @@ export function OutputPane({ courseId, accessToken, selectedLesson }: OutputPane
     <div className="h-full flex flex-col bg-white">
       {/* Header */}
       <div className="flex-shrink-0 px-6 py-4 border-b border-gray-200">
-        <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">
-          AI Tutor
-        </h2>
-        <p className="mt-0.5 text-xs text-gray-500">
-          Ask questions about the course material
-        </p>
+        <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">AI Tutor</h2>
+        <p className="mt-0.5 text-xs text-gray-500">Ask questions about the course material</p>
       </div>
 
       {/* Message thread */}
@@ -107,54 +98,49 @@ export function OutputPane({ courseId, accessToken, selectedLesson }: OutputPane
                 />
               </svg>
               <p className="mt-3 text-sm text-gray-500">
-                Ask me anything about the course content. I will find relevant passages and explain them.
+                Ask me anything about the course content. I will find relevant passages and explain
+                them.
               </p>
             </div>
           </div>
         )}
 
         {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
+          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
               className={`max-w-[85%] rounded-xl px-4 py-3 ${
-                msg.role === 'user'
-                  ? 'bg-orange-600 text-white'
-                  : 'bg-gray-100 text-gray-900'
+                msg.role === 'user' ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-900'
               }`}
             >
               <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
 
-              {msg.role === 'assistant' &&
-                msg.citations &&
-                msg.citations.length > 0 && (
-                  <div className="mt-3 space-y-2 border-t border-gray-200 pt-2">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                      Sources
-                    </p>
-                    {msg.citations.map((citation, ci) => (
-                      <div
-                        key={ci}
-                        className="rounded-md bg-white border border-gray-200 px-3 py-2"
-                      >
-                        <p className="text-xs text-gray-700 line-clamp-3 leading-relaxed">
-                          &ldquo;{citation.snippet}&rdquo;
-                        </p>
-                        <p className="mt-1 text-xs text-gray-400">
-                          Relevance: {Math.round(citation.score * 100)}%
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              {msg.role === 'assistant' && msg.citations && msg.citations.length > 0 && (
+                <div className="mt-3 space-y-2 border-t border-gray-200 pt-2">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Sources
+                  </p>
+                  {msg.citations.map((citation, ci) => (
+                    <div key={ci} className="rounded-md bg-white border border-gray-200 px-3 py-2">
+                      <p className="text-xs text-gray-700 line-clamp-3 leading-relaxed">
+                        &ldquo;{citation.snippet}&rdquo;
+                      </p>
+                      <p className="mt-1 text-xs text-gray-400">
+                        Relevance: {Math.round(citation.score * 100)}%
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))}
 
         {loading && (
-          <div className="flex justify-start w-full" aria-label="Loading response" aria-live="polite">
+          <div
+            className="flex justify-start w-full"
+            aria-label="Loading response"
+            aria-live="polite"
+          >
             <div className="bg-gray-100 rounded-xl px-4 py-3 w-full max-w-[85%] space-y-2">
               <p className="text-xs text-gray-400 mb-1">Thinking…</p>
               <div className="h-3 rounded bg-gray-300 animate-pulse w-full" />
@@ -201,9 +187,7 @@ export function OutputPane({ courseId, accessToken, selectedLesson }: OutputPane
             </svg>
           </button>
         </div>
-        <p className="mt-1.5 text-xs text-gray-400">
-          Enter to send · Shift+Enter for a new line
-        </p>
+        <p className="mt-1.5 text-xs text-gray-400">Enter to send · Shift+Enter for a new line</p>
       </div>
     </div>
   );

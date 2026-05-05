@@ -29,9 +29,7 @@ export function LessonNav({
 
   if (lessons.length === 0) {
     return (
-      <div className="px-4 py-6 text-center text-sm text-gray-400">
-        No lessons available yet.
-      </div>
+      <div className="px-4 py-6 text-center text-sm text-gray-400">No lessons available yet.</div>
     );
   }
 
@@ -59,8 +57,8 @@ export function LessonNav({
                     isCompleted
                       ? 'bg-green-100 text-green-700'
                       : isSelected
-                      ? 'bg-orange-100 text-orange-700'
-                      : 'bg-gray-100 text-gray-500'
+                        ? 'bg-orange-100 text-orange-700'
+                        : 'bg-gray-100 text-gray-500'
                   }`}
                   aria-hidden="true"
                 >
@@ -72,15 +70,17 @@ export function LessonNav({
                       strokeWidth={2.5}
                       stroke="currentColor"
                     >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M4.5 12.75l6 6 9-13.5"
+                      />
                     </svg>
                   ) : (
                     index + 1
                   )}
                 </span>
-                <span className="flex-1 min-w-0 text-sm font-medium truncate">
-                  {lesson.title}
-                </span>
+                <span className="flex-1 min-w-0 text-sm font-medium truncate">{lesson.title}</span>
                 {isCompleted && (
                   <span className="flex-shrink-0 text-xs text-green-600 font-medium">Done</span>
                 )}

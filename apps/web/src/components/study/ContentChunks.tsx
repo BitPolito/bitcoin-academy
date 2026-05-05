@@ -107,10 +107,7 @@ export function ContentChunks({ courseId, accessToken, className }: ContentChunk
       <div className="space-y-6">
         {contents.map((doc) => (
           <div key={doc.documentId}>
-            <p
-              className="text-xs font-medium text-gray-600 mb-2 truncate"
-              title={doc.filename}
-            >
+            <p className="text-xs font-medium text-gray-600 mb-2 truncate" title={doc.filename}>
               {doc.filename}
             </p>
 
