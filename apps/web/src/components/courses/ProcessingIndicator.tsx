@@ -56,7 +56,7 @@ export function ProcessingIndicator({ status, stage, className = '' }: Processin
     >
       <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
       {config.label}
-      {stageLabel && status === 'processing' && (
+      {stageLabel && (
         <span className="opacity-75">· {stageLabel}</span>
       )}
     </span>
