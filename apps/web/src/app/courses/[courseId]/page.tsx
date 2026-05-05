@@ -13,7 +13,7 @@ export default function CourseWorkspacePage() {
   const router = useRouter();
   const courseId = params.courseId as string;
   const { data: session } = useSession();
-  const accessToken = (session?.user as any)?.accessToken;
+  const accessToken = session?.user?.accessToken;
 
   const [course, setCourse] = useState<Course | null>(null);
   const [lessons, setLessons] = useState<Lesson[]>([]);
