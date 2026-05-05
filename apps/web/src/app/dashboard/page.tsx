@@ -110,14 +110,6 @@ export default function DashboardPage() {
                     )}
                   </span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Courses Completed</span>
-                  <span className="text-lg font-semibold text-green-600">0</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Certificates Earned</span>
-                  <span className="text-lg font-semibold text-blue-600">0</span>
-                </div>
               </div>
             </div>
 
