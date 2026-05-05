@@ -62,7 +62,6 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
               updated[jobIndex] = { ...updated[jobIndex], progress: 'error', errorMessage: message };
             return updated;
           });
-          onUploadComplete?.();
         }
       }
     },
