@@ -43,17 +43,19 @@ export default function SignupPage() {
       newErrors.email = 'Please enter a valid email address';
     }
 
-    // Password validation
+    // Password validation — mirrors backend requirements in auth_schemas.py
     if (!password) {
       newErrors.password = 'Password is required';
-    } else if (password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters long';
+    } else if (password.length < 12) {
+      newErrors.password = 'Password must be at least 12 characters long';
     } else if (!/[A-Z]/.test(password)) {
       newErrors.password = 'Password must contain at least one uppercase letter';
     } else if (!/[a-z]/.test(password)) {
       newErrors.password = 'Password must contain at least one lowercase letter';
     } else if (!/\d/.test(password)) {
       newErrors.password = 'Password must contain at least one digit';
+    } else if (!/[!@#$%^&*()\-_=+\[\]{};':"\\|,.<>/?`~]/.test(password)) {
+      newErrors.password = 'Password must contain at least one special character';
     }
 
     // Confirm password validation
@@ -105,12 +107,17 @@ export default function SignupPage() {
       if (!registerResponse.ok) {
         const error = await registerResponse.json();
 
+        // FastAPI validation errors (422) return detail as an array of objects
+        const detail = Array.isArray(error.detail)
+          ? error.detail.map((e: { msg: string }) => e.msg).join('. ')
+          : (error.detail as string | undefined);
+
         if (registerResponse.status === 409) {
           setErrors({ email: 'A user with this email already exists' });
-        } else if (registerResponse.status === 400) {
-          setErrors({ general: error.detail || 'Invalid input data' });
+        } else if (registerResponse.status === 400 || registerResponse.status === 422) {
+          setErrors({ general: detail || 'Invalid input data' });
         } else {
-          setErrors({ general: error.detail || 'Registration failed' });
+          setErrors({ general: detail || 'Registration failed' });
         }
         return;
       }
@@ -234,7 +241,7 @@ export default function SignupPage() {
             </p>
           ) : (
             <p className="mt-1 text-xs text-gray-500" id="password-hint">
-              Min 8 characters, with uppercase, lowercase, and a digit
+              Min 12 characters, with uppercase, lowercase, a digit, and a special character
             </p>
           )}
         </div>

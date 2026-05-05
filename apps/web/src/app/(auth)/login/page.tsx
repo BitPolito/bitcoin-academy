@@ -20,6 +20,7 @@ export default function LoginPage() {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
   const errorParam = searchParams.get('error');
+  const messageParam = searchParams.get('message');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -77,7 +78,11 @@ export default function LoginPage() {
       });
 
       if (result?.error) {
-        setErrors({ general: result.error });
+        const friendlyError =
+          result.error === 'CredentialsSignin'
+            ? 'Invalid email or password. Please try again.'
+            : 'An unexpected error occurred. Please try again.';
+        setErrors({ general: friendlyError });
       } else if (result?.ok) {
         router.push(callbackUrl);
         router.refresh();
@@ -92,6 +97,13 @@ export default function LoginPage() {
   return (
     <div className="mt-8 bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
       <h2 className="text-center text-2xl font-bold text-gray-900 mb-6">Sign in to your account</h2>
+
+      {/* Info message (e.g. after successful registration) */}
+      {messageParam && (
+        <div className="mb-4 p-3 rounded bg-blue-50 border border-blue-200">
+          <p className="text-sm text-blue-800">{messageParam}</p>
+        </div>
+      )}
 
       {/* Session expired error */}
       {sessionError && (
