@@ -14,6 +14,11 @@ from services.ai.app.schemas.normalized_document import (
 )
 
 try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
+
+try:
     from docling.document_converter import DocumentConverter
 except ImportError:
     DocumentConverter = None
@@ -194,23 +199,39 @@ class StructuralParser:
                 except Exception:
                     pass
                         
-        # --- PDF HANDLING (Now with Regex Armor) ---
+        # --- PDF HANDLING ---
         else:
             for page in pages:
                 # Reset exclusion zone at each new page so content after the last
                 # "References" heading on a previous page is not silently discarded.
                 self.in_exclusion_zone = False
-                page_number = page.page_number
-                words = page.extract_words(extra_attrs=["size"], keep_blank_chars=True)
+
+                # fitz.Page: number is 0-indexed; add 1 for human-readable page numbers.
+                page_number = page.number + 1
+
+                # Extract word-like objects from fitz spans, preserving size per word.
+                words = []
+                for block in page.get_text("dict")["blocks"]:
+                    if block.get("type") != 0:  # skip image blocks
+                        continue
+                    for line in block["lines"]:
+                        for span in line["spans"]:
+                            span_text = span["text"]
+                            span_size = span["size"]
+                            span_top = span["bbox"][1]
+                            for token in span_text.split():
+                                if token:
+                                    words.append({"text": token, "top": span_top, "size": span_size})
+
                 if not words:
                     continue
 
-                sizes = [w['size'] for w in words if 'size' in w]
+                sizes = [w['size'] for w in words]
                 if not sizes:
                     continue
                 median_size = statistics.median(sizes)
 
-                lines_dict = {}
+                lines_dict: dict = {}
                 for word in words:
                     line_y = round(word['top'] / 2) * 2
                     if line_y not in lines_dict:

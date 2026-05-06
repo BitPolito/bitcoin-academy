@@ -27,11 +27,15 @@ from app.middleware.security import (
 
 logger = logging.getLogger(__name__)
 
-# Configure logging based on environment
+_log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
 logging.basicConfig(
-    level=logging.DEBUG if settings.ENVIRONMENT == "development" else logging.INFO,
+    level=_log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
 )
+# Keep third-party chatter out of the console unless LOG_LEVEL=DEBUG
+if _log_level > logging.DEBUG:
+    for _noisy in ("sqlalchemy.engine", "httpx", "httpcore", "chromadb", "fastembed", "hpack"):
+        logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 
 # Initialize database tables

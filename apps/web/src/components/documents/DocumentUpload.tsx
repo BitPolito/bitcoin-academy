@@ -98,7 +98,7 @@ async function runUpload(
     );
     patch({ docId: doc.id, status: 'processing', uploadPct: 100 });
 
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 120; i++) {
       try {
         const s = await fetchDocumentStatus(doc.id, accessToken);
         patch({ processingStage: s.processing_stage });
@@ -119,7 +119,7 @@ async function runUpload(
       } catch (err) {
         if (!(err instanceof ApiError && err.status >= 500)) throw err;
       }
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 5000));
     }
     patch({ status: 'failed', errorKind: 'timeout', errorMessage: 'Processing timed out' });
     onComplete?.();
@@ -163,7 +163,7 @@ async function runRetry(
   try {
     await retryDocument(docId, accessToken);
 
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 120; i++) {
       try {
         const s = await fetchDocumentStatus(docId, accessToken);
         patch({ processingStage: s.processing_stage });
@@ -184,7 +184,7 @@ async function runRetry(
       } catch (err) {
         if (!(err instanceof ApiError && err.status >= 500)) throw err;
       }
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 5000));
     }
     patch({ status: 'failed', errorKind: 'timeout', errorMessage: 'Processing timed out' });
     onComplete?.();

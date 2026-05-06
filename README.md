@@ -11,7 +11,8 @@ Open-source educational platform for Bitcoin study. Turns course materials (slid
 | Requirement | Version | Notes |
 |---|---|---|
 | Node.js | **≥ 22.17** | Required by `@qvac/sdk` (bare runtime shims) |
-| Python | 3.11 | FastAPI backend and ingestion pipeline |
+| Python | **3.11** | FastAPI backend and ingestion pipeline |
+| uv | latest | Recommended package manager — [install](https://docs.astral.sh/uv/getting-started/installation/) |
 | Disk | ~2 GB | QVAC embedding model (~670 MB, downloaded on first run) |
 | RAM | ≥ 8 GB | For local LLM inference (optional) |
 
@@ -24,7 +25,11 @@ chmod +x start-dev.sh
 ./start-dev.sh
 ```
 
-The script creates the Python virtualenv, installs all dependencies, waits for the backend and QVAC service to be healthy, seeds the database with test users, then starts the frontend.
+The script:
+- **With uv** (recommended): runs `uv sync` — near-instant when the lockfile is unchanged
+- **Without uv**: uses pip with a hash-check to skip installs when `requirements.txt` hasn't changed
+- Starts QVAC and backend in background, runs their health checks in parallel
+- Seeds the database with test users, then starts the Next.js frontend
 
 | Service | URL |
 |---|---|
@@ -46,11 +51,17 @@ The script creates the Python virtualenv, installs all dependencies, waits for t
 # Frontend
 cd apps/web && npm install && npm run dev
 
-# Backend
+# Backend (with uv — recommended)
+cd services/ai
+uv sync                            # creates .venv and installs deps from uv.lock
+uv run python -m app.db.init_db    # create DB and seed users
+uv run uvicorn app.main:app --reload --port 8000
+
+# Backend (with pip)
 cd services/ai
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-python -m app.db.init_db          # create DB and seed users
+python -m app.db.init_db
 python -m uvicorn app.main:app --reload --port 8000
 
 # QVAC service
@@ -115,7 +126,7 @@ bitcoin-academy/
 |---|---|
 | Frontend | Next.js 14 · TypeScript · Tailwind CSS · NextAuth.js 4 |
 | Design system | BitPolito blue `#001CE0` · JetBrains Mono · `darkMode: 'class'` |
-| Backend | FastAPI · SQLAlchemy 2 · Pydantic v2 · python-jose · slowapi |
+| Backend | FastAPI · SQLAlchemy 2 · Pydantic v2 · python-jose · slowapi · uv |
 | Vector store | ChromaDB (ingestion) + QVAC HyperDB (query) |
 | Embedding | fastembed `all-MiniLM-L6-v2` (pipeline) · QVAC `GTE_LARGE_FP16` (query) |
 | LLM | LangChain + OpenAI (optional) · QVAC raw answer as fallback |
@@ -133,7 +144,7 @@ Upload via UI
 pipeline.py (BackgroundTask)
   │
   ├─ RamSafeIngestor      → RAM-safe batch reader (PDF/PPTX)
-  ├─ StructuralParser     → pdfplumber + Docling ML → normalized blocks
+  ├─ StructuralParser     → PyMuPDF (fast path) + Docling ML (--docling flag) → normalized blocks
   ├─ Chunker              → 3 levels: section / paragraph / micro
   ├─ fastembed + ChromaDB → paragraph chunks → persistent vector store
   ├─ Write *_contingency.jsonl to QVAC_INGEST_DIR
@@ -203,6 +214,7 @@ LLM_TIMEOUT_SECONDS=30
 
 OPENAI_API_KEY=          # optional — enables LLM generation
 DEBUG_MODE=false
+LOG_LEVEL=INFO           # DEBUG for verbose output (sqlalchemy, httpx, etc.)
 ```
 
 **Frontend** (`apps/web/.env.local`):
