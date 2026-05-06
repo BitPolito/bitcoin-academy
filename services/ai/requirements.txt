@@ -16,6 +16,9 @@ psycopg2-binary==2.9.9
 zxcvbn==4.4.28
 bleach>=6.1.0
 slowapi==0.1.9
+# Task queue
+arq>=0.26
+redis>=5.0
 # RAG — document ingestion and vector search
 PyMuPDF>=1.24.0
 pymupdf4llm>=0.0.17

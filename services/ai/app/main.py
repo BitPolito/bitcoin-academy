@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 import os
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -41,10 +42,28 @@ if _log_level > logging.DEBUG:
 # Initialize database tables
 init_db()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    redis_url = os.getenv("REDIS_URL")
+    if redis_url:
+        from arq.connections import create_pool, RedisSettings
+        app.state.arq_pool = await create_pool(RedisSettings.from_dsn(redis_url))
+        logger.info("ARQ pool connected to %s", redis_url)
+    else:
+        app.state.arq_pool = None
+        logger.warning("REDIS_URL not set — document ingestion runs as BackgroundTask (no ARQ)")
+    yield
+    pool = getattr(app.state, "arq_pool", None)
+    if pool is not None:
+        await pool.close()
+
+
 app = FastAPI(
     title="Bitcoin Academy API",
     version="1.0.0",
     description="AI-Tutor API for Bitcoin Academy platform",
+    lifespan=lifespan,
     # Disable docs in production for security
     docs_url="/docs" if settings.ENVIRONMENT != "production" else None,
     redoc_url="/redoc" if settings.ENVIRONMENT != "production" else None,

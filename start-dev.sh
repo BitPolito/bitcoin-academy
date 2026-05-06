@@ -88,6 +88,51 @@ if [ ! -f "$WEB_DIR/.env.local" ] && [ -f "$WEB_DIR/.env.example" ]; then
     warn "Created apps/web/.env.local from example"
 fi
 
+# ── PostgreSQL check (skipped if using SQLite) ────────────────────────────────
+_db_url() { grep -E '^DATABASE_URL=' "$AI_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'"; }
+_pg_running() { nc -z localhost 5432 &>/dev/null 2>&1 || pg_isready -q 2>/dev/null; }
+
+_DB_URL="$(_db_url)"
+if echo "$_DB_URL" | grep -q "^sqlite"; then
+    ok "Database: SQLite (no PostgreSQL needed)"
+elif ! _pg_running; then
+    warn "PostgreSQL not responding on :5432"
+    # 1. Try Homebrew
+    if command -v brew &>/dev/null; then
+        brew services start postgresql   2>/dev/null || \
+        brew services start postgresql@17 2>/dev/null || \
+        brew services start postgresql@16 2>/dev/null || \
+        brew services start postgresql@15 2>/dev/null || true
+        sleep 3
+    fi
+    # 2. Try Docker (starts only the postgres container)
+    if ! _pg_running && command -v docker &>/dev/null; then
+        warn "Trying Docker postgres container..."
+        docker compose -f "$PROJECT_DIR/docker-compose.yml" up -d postgres 2>/dev/null || true
+        sleep 5
+    fi
+    if ! _pg_running; then
+        die "PostgreSQL is not running. Options:\n  Set DATABASE_URL=sqlite:///./bitcoin_academy.db in services/ai/.env\n  brew install postgresql@17 && brew services start postgresql@17\n  docker compose up -d postgres"
+    fi
+    ok "PostgreSQL ready"
+fi
+
+# ── Redis (optional — enables ARQ task queue) ─────────────────────────────────
+REDIS_PID=""
+ARQ_PID=""
+if command -v redis-server &>/dev/null; then
+    if ! redis-cli ping &>/dev/null 2>&1; then
+        redis-server --daemonize no --loglevel warning > "$PROJECT_DIR/redis.log" 2>&1 &
+        REDIS_PID=$!
+        sleep 1
+        ok "Redis started (PID $REDIS_PID)"
+    else
+        ok "Redis already running"
+    fi
+else
+    warn "redis-server not found — ARQ worker disabled (install: brew install redis)"
+fi
+
 # ── Start services ────────────────────────────────────────────────────────────
 echo "  [3/3] Starting servers"
 echo ""
@@ -95,6 +140,7 @@ echo "  Backend   →  http://localhost:8000"
 echo "  API docs  →  http://localhost:8000/docs"
 echo "  QVAC      →  http://localhost:3001"
 echo "  Frontend  →  http://localhost:3000"
+[ -n "$REDIS_PID" ] && echo "  Redis     →  localhost:6379"
 echo ""
 
 cd "$QVAC_DIR"
@@ -106,21 +152,33 @@ PIP_ACTIVATE
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 > "$AI_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!
 
-trap "kill $BACKEND_PID $QVAC_PID 2>/dev/null; exit" EXIT INT TERM
+# Start ARQ worker only if Redis is available
+if redis-cli ping &>/dev/null 2>&1; then
+    REDIS_URL=redis://localhost:6379/0 arq app.workers.arq_worker.WorkerSettings > "$AI_DIR/arq_worker.log" 2>&1 &
+    ARQ_PID=$!
+    ok "ARQ worker started (PID $ARQ_PID)"
+fi
 
-# ── Health checks (parallel) ─────────────────────────────────────────────────
+trap "kill $BACKEND_PID $QVAC_PID ${ARQ_PID:-} ${REDIS_PID:-} 2>/dev/null; exit" EXIT INT TERM
+
+# ── Health checks ─────────────────────────────────────────────────────────────
 _wait_http() {
     local url="$1" label="$2" max="${3:-20}"
     for i in $(seq 1 "$max"); do
         curl -sf "$url" >/dev/null 2>&1 && { ok "$label ready"; return 0; }
         sleep 1
     done
-    warn "$label did not respond — check logs"
+    warn "$label did not respond after ${max}s — check logs"
 }
 
-_wait_http "http://localhost:8000/api/health" "Backend"  20 &
-_wait_http "http://localhost:3001/health"      "QVAC"     15 &
-wait
+# Backend: wait synchronously (frontend needs it).
+_wait_http "http://localhost:8000/api/health" "Backend" 30
+
+# QVAC: runs in background — first load of GTE_LARGE_FP16 (670MB) can take
+# several minutes. The frontend works immediately; QVAC becomes available
+# once the model finishes loading.
+echo "  QVAC loading embedding model (first run may take 2-5 min)..."
+_wait_http "http://localhost:3001/health" "QVAC" 300 &
 
 # ── DB seed ──────────────────────────────────────────────────────────────────
 cd "$AI_DIR"

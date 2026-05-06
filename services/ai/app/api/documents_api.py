@@ -37,7 +37,7 @@ def list_documents(
     status_code=201,
 )
 @limiter.limit("10/minute")
-def upload_document(
+async def upload_document(
     request: Request,
     background_tasks: BackgroundTasks,
     course_id: str = PathParam(..., description="Course ID"),
@@ -62,14 +62,25 @@ def upload_document(
     file_path = upload_path / f"{doc.id}_{filename}"
     file_path.write_bytes(content)
 
-    background_tasks.add_task(
-        pipeline.run,
-        document_id=doc.id,
-        course_id=course_id,
-        filename=filename,
-        file_path=str(file_path),
-        material_type=document_type,
-    )
+    arq_pool = getattr(request.app.state, "arq_pool", None)
+    if arq_pool is not None:
+        await arq_pool.enqueue_job(
+            "ingest_document",
+            document_id=doc.id,
+            course_id=course_id,
+            filename=filename,
+            file_path=str(file_path),
+            material_type=document_type,
+        )
+    else:
+        background_tasks.add_task(
+            pipeline.run,
+            document_id=doc.id,
+            course_id=course_id,
+            filename=filename,
+            file_path=str(file_path),
+            material_type=document_type,
+        )
     return doc
 
 
@@ -78,7 +89,8 @@ def upload_document(
     response_model=DocumentStatusResponse,
     summary="Retry QVAC ingest for a document with indexing_status=qvac_pending",
 )
-def reindex_document(
+async def reindex_document(
+    request: Request,
     background_tasks: BackgroundTasks,
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
@@ -94,11 +106,19 @@ def reindex_document(
             detail="JSONL index file not found. Re-upload the document to rebuild it.",
         )
 
-    background_tasks.add_task(
-        pipeline.reindex_qvac,
-        document_id=document_id,
-        course_id=doc.course_id,
-    )
+    arq_pool = getattr(request.app.state, "arq_pool", None)
+    if arq_pool is not None:
+        await arq_pool.enqueue_job(
+            "reindex_document_qvac",
+            document_id=document_id,
+            course_id=doc.course_id,
+        )
+    else:
+        background_tasks.add_task(
+            pipeline.reindex_qvac,
+            document_id=document_id,
+            course_id=doc.course_id,
+        )
     return document_service.get_document(db, document_id)
 
 
@@ -106,7 +126,8 @@ def reindex_document(
     "/documents/{document_id}/retry",
     response_model=DocumentStatusResponse,
 )
-def retry_document(
+async def retry_document(
+    request: Request,
     background_tasks: BackgroundTasks,
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
@@ -124,14 +145,25 @@ def retry_document(
 
     document_service.reset_status(db, document_id)
 
-    background_tasks.add_task(
-        pipeline.run,
-        document_id=doc.id,
-        course_id=doc.course_id,
-        filename=doc.filename,
-        file_path=str(file_path),
-        material_type=doc.document_type,
-    )
+    arq_pool = getattr(request.app.state, "arq_pool", None)
+    if arq_pool is not None:
+        await arq_pool.enqueue_job(
+            "ingest_document",
+            document_id=doc.id,
+            course_id=doc.course_id,
+            filename=doc.filename,
+            file_path=str(file_path),
+            material_type=doc.document_type,
+        )
+    else:
+        background_tasks.add_task(
+            pipeline.run,
+            document_id=doc.id,
+            course_id=doc.course_id,
+            filename=doc.filename,
+            file_path=str(file_path),
+            material_type=doc.document_type,
+        )
     return document_service.get_document(db, document_id)
 
 

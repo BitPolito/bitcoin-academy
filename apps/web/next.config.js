@@ -1,10 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
-  experimental: {
-    typedRoutes: true,
-  },
+  // transpilePackages: needed by webpack (next build) for ESM-only react-markdown deps.
+  // Turbopack (next dev --turbopack) handles ESM natively and ignores this list.
   transpilePackages: [
     'react-markdown',
     'unified',
