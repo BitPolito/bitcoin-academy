@@ -1,6 +1,6 @@
-"""Document ingestion pipeline — QVAC-primary.
+"""Document ingestion pipeline — QVAC-primary, structure-aware chunking.
 
-Flow: parse → chunk → JSONL → QVAC /ingest
+Flow: parse (page-by-page) → clean → chunk (structure-aware) → filter → JSONL → QVAC /ingest
 ChromaDB is not written during ingestion. It remains as a passive fallback
 at query time in chat_service.py if QVAC is unreachable.
 """
@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+from collections import Counter
 from pathlib import Path
 
 import httpx
@@ -25,32 +26,72 @@ CHROMA_COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "bitpolito_course")
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(_SERVICES_AI / "uploads")))
 QVAC_INGEST_DIR = Path(os.getenv("QVAC_INGEST_DIR", str(_SERVICES_AI / "qvac_ingest")))
 QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
-# Set SKIP_CHROMA_INDEX=true to skip in-process embedding and ChromaDB write.
-# Keep false only if you need the ChromaDB fallback populated for new documents.
 SKIP_CHROMA_INDEX = os.getenv("SKIP_CHROMA_INDEX", "false").lower() == "true"
 
 from app.db.models import CourseDocument, DocumentProcessingStage, DocumentStatus  # noqa: E402
 from app.db.session import get_db_context                                           # noqa: E402
 from app.repositories import document_repo                                          # noqa: E402
 
+# ---------------------------------------------------------------------------
+# Chunking parameters
+# ---------------------------------------------------------------------------
+_MAX_WORDS = 400        # soft cap per chunk normale (≈ 512 token)
+_MIN_WORDS = 25         # soglia paragrafi: chunk più corti vengono scartati
+_MIN_WORDS_TABLE = 4    # soglia tabelle: basta una riga dati (celle corte)
 
 # ---------------------------------------------------------------------------
-# Parsers
+# Helpers
 # ---------------------------------------------------------------------------
 
-def parse_pdf(file_path: str) -> tuple[str, int]:
-    """pymupdf4llm → structured Markdown + page count."""
+def _word_count(text: str) -> int:
+    return len(text.split())
+
+
+_FIGURE_CAPTION_RE = re.compile(r'_Figure\s+[\d][\d.-]*[^_]*_', re.IGNORECASE)
+
+# Patterns da rimuovere da ogni pagina
+_STRIP_PATTERNS = [
+    re.compile(r'www\.\S+\.ir\b[^\S\n]*', re.IGNORECASE),       # watermark EBooksWorld e simili
+    re.compile(r'www\.\S+\.com/?\s*\n', re.IGNORECASE),          # altri watermark URL inline
+    re.compile(r'^\s*\d+\s*\|\s*Chapter[^\n]*', re.MULTILINE),   # "8 | Chapter 1: Introduction"
+    re.compile(r'[­​‌‍﻿]'),                                         # unicode invisibili (soft-hyphen, ZWS, ecc.)
+]
+
+# Regex per sentence splitting (fine frase + inizio maiuscola)
+_SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?])\s+(?=[A-Z\"])')
+
+
+# ---------------------------------------------------------------------------
+# Stage 1 — Parsers (page-by-page)
+# ---------------------------------------------------------------------------
+
+def parse_pdf_pages(file_path: str) -> tuple[list[dict], int]:
+    """pymupdf4llm page_chunks=True → [{page, text}] + page count.
+
+    Ogni elemento corrisponde a una pagina PDF con il suo numero (1-indexed).
+    """
     import pymupdf4llm
     import fitz
-    text = pymupdf4llm.to_markdown(file_path)
+
+    raw = pymupdf4llm.to_markdown(file_path, page_chunks=True)
+    pages = []
+    for p in raw:
+        meta = p.get("metadata", {}) if isinstance(p, dict) else {}
+        # get_metadata in pymupdf4llm sets page = pno + 1 (already 1-indexed)
+        page_num = meta.get("page", 0)
+        text = p.get("text", "") if isinstance(p, dict) else str(p)
+        pages.append({"page": page_num, "text": text})
+
     with fitz.open(file_path) as pdf:
         page_count = pdf.page_count
-    return text, page_count
+
+    return pages, page_count
 
 
-def parse_pptx(file_path: str) -> tuple[str, int]:
-    """python-pptx → Markdown-like text with per-slide headings."""
+def parse_pptx_pages(file_path: str) -> tuple[list[dict], int]:
+    """python-pptx → [{page=slide_num, text}] per ogni slide."""
     from pptx import Presentation
+
     prs = Presentation(file_path)
     slides = []
     for i, slide in enumerate(prs.slides, 1):
@@ -77,13 +118,15 @@ def parse_pptx(file_path: str) -> tuple[str, int]:
             parts.append(body)
         if notes:
             parts.append(f"*Notes: {notes}*")
-        slides.append("\n\n".join(parts))
-    return "\n\n---\n\n".join(slides), len(prs.slides)
+        slides.append({"page": i, "text": "\n\n".join(parts)})
+
+    return slides, len(prs.slides)
 
 
-def parse_docx(file_path: str) -> tuple[str, int]:
-    """python-docx → Markdown-like text with heading levels."""
+def parse_docx_pages(file_path: str) -> tuple[list[dict], int]:
+    """python-docx → singola entry [{page=1, text}] (nessun page count affidabile)."""
     from docx import Document
+
     doc = Document(file_path)
     lines = []
     for para in doc.paragraphs:
@@ -98,31 +141,239 @@ def parse_docx(file_path: str) -> tuple[str, int]:
             lines.append(f"{'#' * level} {para.text.strip()}")
         else:
             lines.append(para.text.strip())
-    return "\n\n".join(lines), 0  # DOCX has no reliable page count
+
+    return [{"page": 1, "text": "\n\n".join(lines)}], 0
 
 
 # ---------------------------------------------------------------------------
-# Chunker
+# Stage 2 — Cleaner
 # ---------------------------------------------------------------------------
 
-def chunk_text(text: str, doc_id: str) -> list[dict]:
-    """chonkie TokenChunker → paragraph chunks as plain dicts."""
-    from chonkie import TokenChunker
-    chunker = TokenChunker(chunk_size=512, chunk_overlap=64)
-    raw_chunks = chunker(text)
-    return [
-        {
-            "id": f"{doc_id}_{i:04d}",
-            "text": c.text,
-            "chunk_type": "paragraph",
-            "citation_label": f"chunk {i + 1}",
-            "citation_page": 0,
-            "citation_slide": 0,
-            "citation_section": "",
-            "doc_id": doc_id,
-        }
-        for i, c in enumerate(raw_chunks)
-    ]
+def detect_boilerplate(pages: list[dict], min_freq: float = 0.3) -> set[str]:
+    """Identifica righe che compaiono in >= min_freq delle pagine (header/footer).
+
+    Ritorna un set di stringhe stripped da rimuovere durante il cleaning.
+    Ignorato per documenti con < 5 pagine (troppo poco campione).
+    """
+    if len(pages) < 5:
+        return set()
+
+    line_counts: Counter = Counter()
+    for p in pages:
+        seen_on_page: set[str] = set()
+        for line in p["text"].splitlines():
+            s = line.strip()
+            if s and len(s) > 3:
+                seen_on_page.add(s)
+        line_counts.update(seen_on_page)
+
+    threshold = len(pages) * min_freq
+    return {line for line, count in line_counts.items() if count >= threshold}
+
+
+def clean_page(text: str, boilerplate: set[str]) -> str:
+    """Rimuove watermark, boilerplate ripetuti e unicode invisibili da una pagina."""
+    # Rimuovi pattern fissi
+    for pat in _STRIP_PATTERNS:
+        text = pat.sub("", text)
+
+    # Rimuovi righe di boilerplate rilevate automaticamente
+    if boilerplate:
+        lines = []
+        for line in text.splitlines():
+            if line.strip() not in boilerplate:
+                lines.append(line)
+        text = "\n".join(lines)
+
+    # Comprimi newline multipli
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
+# ---------------------------------------------------------------------------
+# Stage 3 — Structure-aware chunker
+# ---------------------------------------------------------------------------
+
+def _split_into_blocks(text: str) -> list[dict]:
+    """Segmenta il testo in blocchi tipizzati: heading | table | paragraph.
+
+    Le tabelle markdown (righe con |) vengono preservate come blocco atomico.
+    """
+    blocks: list[dict] = []
+    current_type: str = "paragraph"
+    current_lines: list[str] = []
+
+    def flush() -> None:
+        if current_lines:
+            t = "".join(current_lines).strip()
+            if t:
+                blocks.append({"type": current_type, "text": t})
+            current_lines.clear()
+
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+
+        if re.match(r'^#{1,4}\s+\S', stripped):
+            flush()
+            blocks.append({"type": "heading", "text": stripped})
+        elif stripped.startswith("|"):
+            if current_type != "table":
+                flush()
+                current_type = "table"
+            current_lines.append(line)
+        else:
+            if current_type == "table":
+                # Una riga vuota o non-tabella chiude la tabella
+                if not stripped:
+                    flush()
+                    current_type = "paragraph"
+                else:
+                    # Riga di testo subito dopo tabella (es. nota): chiudi tabella
+                    flush()
+                    current_type = "paragraph"
+                    current_lines.append(line)
+            else:
+                current_type = "paragraph"
+                current_lines.append(line)
+
+    flush()
+    return blocks
+
+
+def _split_paragraph(text: str, max_words: int) -> list[str]:
+    """Divide un paragrafo lungo in sub-chunk ancorati a fine frase.
+
+    Nessun overlap: ogni sub-chunk è autonomo e inizia a inizio frase.
+    """
+    if _word_count(text) <= max_words:
+        return [text]
+
+    sentences = _SENTENCE_SPLIT_RE.split(text)
+    result: list[str] = []
+    current: list[str] = []
+    current_words = 0
+
+    for sent in sentences:
+        sent_words = _word_count(sent)
+        if current_words + sent_words > max_words and current:
+            result.append(" ".join(current))
+            current, current_words = [], 0
+        current.append(sent)
+        current_words += sent_words
+
+    if current:
+        result.append(" ".join(current))
+
+    return result
+
+
+def _make_chunk(
+    doc_id: str,
+    page: int,
+    idx: int,
+    text: str,
+    chunk_type: str,
+    section: str,
+) -> dict:
+    return {
+        "id": f"{doc_id}_{page:04d}_{idx:04d}",
+        "text": text,
+        "chunk_type": chunk_type,
+        "citation_label": f"p. {page}",
+        "citation_page": page,
+        "citation_slide": 0,
+        "citation_section": section,
+        "doc_id": doc_id,
+    }
+
+
+def chunk_pages(pages: list[dict], doc_id: str) -> list[dict]:
+    """Chunking structure-aware: heading → table → paragraph con sentence split.
+
+    Ogni chunk porta il numero di pagina e la sezione corrente.
+    Nessun overlap: la sezione corrente è già contesto sufficiente.
+    """
+    chunks: list[dict] = []
+    current_section = ""
+    chunk_idx = 0
+
+    for page_data in pages:
+        page_num = page_data["page"]
+        text = page_data["text"]
+
+        if not text.strip():
+            continue
+
+        blocks = _split_into_blocks(text)
+        pending_heading = ""
+
+        for block in blocks:
+            btype = block["type"]
+            btext = block["text"].strip()
+
+            if not btext:
+                continue
+
+            if btype == "heading":
+                # Accumula heading; la sezione viene aggiornata al primo paragrafo/tabella seguente
+                heading_text = re.sub(r'^#{1,4}\s+', '', btext).strip()
+                current_section = heading_text
+                pending_heading = btext
+                continue
+
+            if btype == "table":
+                # Prepend heading se in attesa
+                full_text = f"{pending_heading}\n\n{btext}" if pending_heading else btext
+                pending_heading = ""
+                if _word_count(full_text) >= _MIN_WORDS_TABLE:
+                    chunks.append(_make_chunk(doc_id, page_num, chunk_idx, full_text, "table", current_section))
+                    chunk_idx += 1
+                continue
+
+            # Paragrafo — eventualmente prepend heading
+            full_text = f"{pending_heading}\n\n{btext}" if pending_heading else btext
+            pending_heading = ""
+
+            for sub in _split_paragraph(full_text, _MAX_WORDS):
+                sub = sub.strip()
+                if _word_count(sub) >= _MIN_WORDS:
+                    chunks.append(_make_chunk(doc_id, page_num, chunk_idx, sub, "paragraph", current_section))
+                    chunk_idx += 1
+
+        # Heading rimasto senza corpo (ultima riga della pagina): ignoralo,
+        # la sezione corrente è già aggiornata per la pagina seguente.
+
+    return chunks
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 — Quality filter
+# ---------------------------------------------------------------------------
+
+def filter_chunks(chunks: list[dict]) -> list[dict]:
+    """Scarta chunk di qualità insufficiente.
+
+    Criteri di scarto:
+    - Paragrafi con meno di _MIN_WORDS parole
+    - Tabelle con meno di _MIN_WORDS_TABLE parole
+    - Chunk dominati da caption figura (> 60% dei caratteri)
+    """
+    result = []
+    for c in chunks:
+        text = c["text"]
+        is_table = c.get("chunk_type") == "table"
+        threshold = _MIN_WORDS_TABLE if is_table else _MIN_WORDS
+
+        if _word_count(text) < threshold:
+            continue
+
+        caption_chars = sum(len(m.group()) for m in _FIGURE_CAPTION_RE.finditer(text))
+        if len(text) > 0 and caption_chars / len(text) > 0.6:
+            continue
+
+        result.append(c)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +432,7 @@ def _mark_error(doc: CourseDocument, message: str, db) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Public entry point — runs as a FastAPI BackgroundTask
+# Public entry point
 # ---------------------------------------------------------------------------
 
 def run(
@@ -202,38 +453,57 @@ def run(
 
         ext = Path(filename).suffix.lower()
         if ext not in {".pdf", ".pptx", ".docx"}:
-            _mark_error(
-                doc,
-                f"Unsupported file type '{ext}'. Accepted: PDF, PPTX, DOCX.",
-                db,
-            )
+            _mark_error(doc, f"Unsupported file type '{ext}'. Accepted: PDF, PPTX, DOCX.", db)
             return
 
         try:
             # ------------------------------------------------------------------
-            # Stage 1 — PARSING
+            # Stage 1 — PARSING (page-by-page)
             # ------------------------------------------------------------------
             _set_stage(doc, DocumentProcessingStage.PARSING, db)
 
             if ext == ".pdf":
-                text, page_count = parse_pdf(file_path)
-                parser_used = "pymupdf4llm"
+                pages, page_count = parse_pdf_pages(file_path)
+                parser_used = "pymupdf4llm-page-chunks"
             elif ext == ".pptx":
-                text, page_count = parse_pptx(file_path)
+                pages, page_count = parse_pptx_pages(file_path)
                 parser_used = "python-pptx"
             else:
-                text, page_count = parse_docx(file_path)
+                pages, page_count = parse_docx_pages(file_path)
                 parser_used = "python-docx"
 
-            # ------------------------------------------------------------------
-            # Stage 2 — CHUNKING
-            # ------------------------------------------------------------------
-            _set_stage(doc, DocumentProcessingStage.CHUNKING, db)
-            chunks = chunk_text(text, document_id)
-            logger.info("Chunked %d paragraph chunks for %s", len(chunks), document_id)
+            logger.info("Parsed %d pages for %s", len(pages), document_id)
 
             # ------------------------------------------------------------------
-            # Stage 3 — INDEXING (ChromaDB — skipped when SKIP_CHROMA_INDEX=true)
+            # Stage 2 — CLEANING (PDF only; PPTX/DOCX are already clean)
+            # ------------------------------------------------------------------
+            if ext == ".pdf":
+                boilerplate = detect_boilerplate(pages)
+                if boilerplate:
+                    logger.info("Detected %d boilerplate lines for %s", len(boilerplate), document_id)
+                pages = [
+                    {"page": p["page"], "text": clean_page(p["text"], boilerplate)}
+                    for p in pages
+                ]
+
+            # ------------------------------------------------------------------
+            # Stage 3 — CHUNKING (structure-aware)
+            # ------------------------------------------------------------------
+            _set_stage(doc, DocumentProcessingStage.CHUNKING, db)
+            raw_chunks = chunk_pages(pages, document_id)
+
+            # ------------------------------------------------------------------
+            # Stage 4 — QUALITY FILTER
+            # ------------------------------------------------------------------
+            chunks = filter_chunks(raw_chunks)
+            dropped = len(raw_chunks) - len(chunks)
+            logger.info(
+                "Chunks for %s: %d raw → %d after filter (%d dropped)",
+                document_id, len(raw_chunks), len(chunks), dropped,
+            )
+
+            # ------------------------------------------------------------------
+            # Stage 5 — INDEXING (ChromaDB — skipped when SKIP_CHROMA_INDEX=true)
             # ------------------------------------------------------------------
             _set_stage(doc, DocumentProcessingStage.INDEXING, db)
 
@@ -281,7 +551,7 @@ def run(
                 logger.info("SKIP_CHROMA_INDEX=true — skipping ChromaDB embedding for %s", document_id)
 
             # ------------------------------------------------------------------
-            # Stage 4 — QVAC ingest
+            # Stage 6 — QVAC ingest
             # ------------------------------------------------------------------
             jsonl_path = _write_jsonl(chunks, document_id)
             qvac_ok = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=False)
@@ -289,7 +559,10 @@ def run(
             # ------------------------------------------------------------------
             # Finalise DB record
             # ------------------------------------------------------------------
-            sections = re.findall(r"^#{1,6}\s+(.+)$", text, re.MULTILINE)[:20]
+            full_text = "\n\n".join(p["text"] for p in pages)
+            sections = list(dict.fromkeys(          # dedup preserving order
+                c["citation_section"] for c in chunks if c["citation_section"]
+            ))[:20]
             sample = [
                 {
                     "text": c["text"][:300],
@@ -305,7 +578,7 @@ def run(
             doc.chunk_count = len(chunks)
             doc.parser_used = parser_used
             doc.page_count = page_count if page_count else None
-            doc.extracted_text_preview = text[:500]
+            doc.extracted_text_preview = full_text[:500]
             doc.sections_json = json.dumps(sections)
             doc.sample_chunks_json = json.dumps(sample)
             db.commit()
@@ -334,9 +607,7 @@ def reindex_qvac(document_id: str, course_id: str) -> None:
     """Retry QVAC ingest for a document whose indexing_status is 'qvac_pending'."""
     jsonl_path = QVAC_INGEST_DIR / f"{document_id}_contingency.jsonl"
     if not jsonl_path.exists():
-        logger.warning(
-            "Cannot reindex %s: JSONL not found at %s", document_id, jsonl_path
-        )
+        logger.warning("Cannot reindex %s: JSONL not found at %s", document_id, jsonl_path)
         return
 
     with get_db_context() as db:
@@ -348,6 +619,4 @@ def reindex_qvac(document_id: str, course_id: str) -> None:
         qvac_ok = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=True)
         doc.indexing_status = "indexed" if qvac_ok else "qvac_pending"
         db.commit()
-        logger.info(
-            "Reindex QVAC for %s: indexing_status=%s", document_id, doc.indexing_status
-        )
+        logger.info("Reindex QVAC for %s: indexing_status=%s", document_id, doc.indexing_status)
