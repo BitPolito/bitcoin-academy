@@ -13,6 +13,7 @@ Open-source educational platform for Bitcoin study. Turns course materials (slid
 | Node.js | **≥ 22.17** | Required by `@qvac/sdk` (bare runtime shims) |
 | Python | **3.11** | FastAPI backend and ingestion pipeline |
 | uv | latest | Recommended package manager — [install](https://docs.astral.sh/uv/getting-started/installation/) |
+| Redis | **≥ 7** | Optional — enables async ARQ task queue (`brew install redis`) |
 | Disk | ~2 GB | QVAC embedding model (~670 MB, downloaded on first run) |
 | RAM | ≥ 8 GB | For local LLM inference (optional) |
 
@@ -28,8 +29,9 @@ chmod +x start-dev.sh
 The script:
 - **With uv** (recommended): runs `uv sync` — near-instant when the lockfile is unchanged
 - **Without uv**: uses pip with a hash-check to skip installs when `requirements.txt` hasn't changed
-- Starts QVAC and backend in background, runs their health checks in parallel
-- Seeds the database with test users, then starts the Next.js frontend
+- Auto-starts Redis if `redis-server` is found, then launches the ARQ worker
+- Backend health check is synchronous (30 s); QVAC health check runs in background (up to 300 s — first model load takes 2-5 min)
+- Seeds the database with test users, then starts the Next.js frontend (Turbopack)
 
 | Service | URL |
 |---|---|
@@ -63,6 +65,10 @@ python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 python -m app.db.init_db
 python -m uvicorn app.main:app --reload --port 8000
+
+# ARQ worker (optional — requires Redis)
+redis-server --daemonize yes
+cd services/ai && REDIS_URL=redis://localhost:6379/0 arq app.workers.arq_worker.WorkerSettings
 
 # QVAC service
 cd workers/qvac-service && npm install && node src/server.js
@@ -99,7 +105,8 @@ bitcoin-academy/
 ├── services/ai/                     # FastAPI backend
 │   └── app/
 │       ├── api/                     # auth, chat, courses, documents, study, debug, progress
-│       ├── workers/pipeline.py      # parse → chunk → JSONL → QVAC /ingest (BackgroundTask)
+│       ├── workers/pipeline.py      # 4-stage: parse_pdf_pages → clean/boilerplate → structure-aware chunk → QVAC /ingest
+│       ├── workers/arq_worker.py    # ARQ job definitions (ingest_document, reindex_document_qvac) + WorkerSettings
 │       ├── services/
 │       │   ├── study_service.py     # dispatch 8 actions, DispatchTrace, QVAC /query
 │       │   └── chat_service.py      # free chat → QVAC /query, ChromaDB fallback
@@ -126,8 +133,9 @@ bitcoin-academy/
 | Frontend | Next.js 14 · TypeScript · Tailwind CSS · NextAuth.js 4 |
 | Design system | BitPolito blue `#001CE0` · JetBrains Mono · `darkMode: 'class'` |
 | Backend | FastAPI · SQLAlchemy 2 · Pydantic v2 · python-jose · slowapi · uv |
-| Parsing | `pymupdf4llm` (PDF) · `python-pptx` (PPTX) · `python-docx` (DOCX) |
-| Chunking | `chonkie` TokenChunker (512 tokens, 64 overlap) |
+| Parsing | `pymupdf4llm` (PDF, page-level) · `python-pptx` (PPTX) · `python-docx` (DOCX) |
+| Chunking | Structure-aware: heading → atomic table → sentence-split paragraph (≤ 400 words, no overlap) |
+| Task queue | `arq` + Redis 7 (async ingestion jobs; falls back to FastAPI `BackgroundTasks` without Redis) |
 | Vector store | QVAC HyperDB (primary) · ChromaDB (passive fallback at query time) |
 | Embedding | QVAC `GTE_LARGE_FP16` 1024-dim (ingestion + query) · fastembed `all-MiniLM-L6-v2` (ChromaDB fallback only) |
 | LLM | LangChain + OpenAI (optional) · QVAC raw answer as fallback |
@@ -142,14 +150,31 @@ bitcoin-academy/
 Upload PDF / PPTX / DOCX via UI
         │
         ▼
-pipeline.py (BackgroundTask)
+documents_api.py
+  ├─ [Redis available]  → arq_pool.enqueue_job("ingest_document", ...)  → ARQ worker
+  └─ [no Redis]         → BackgroundTasks.add_task(pipeline.run, ...)
+
+pipeline.py — 4 stages:
   │
-  ├─ parse_pdf()    → pymupdf4llm.to_markdown() → structured Markdown
-  ├─ parse_pptx()   → python-pptx → Markdown with per-slide headings
-  ├─ parse_docx()   → python-docx → Markdown with heading levels
-  ├─ chunk_text()   → chonkie TokenChunker (512 tok, 64 overlap) → paragraph chunks
-  ├─ _write_jsonl() → writes {doc_id}_contingency.jsonl to QVAC_INGEST_DIR
-  └─ POST :3001/ingest (timeout 300s) → QVAC GTE_LARGE_FP16 → HyperDB workspace
+  ├─ Stage 1 – parse_pdf_pages()
+  │     pymupdf4llm.to_markdown(page_chunks=True) → [{page, text}, …] per page
+  │     (PPTX / DOCX: parse_pptx / parse_docx → same page-dict format)
+  │
+  ├─ Stage 2 – clean / boilerplate detection
+  │     detect_boilerplate() → lines on ≥ 30% of pages → boilerplate set
+  │     clean_page()         → strip watermarks, zero-width chars, boilerplate lines
+  │
+  ├─ Stage 3 – chunk_pages() — structure-aware
+  │     headings  → section marker (not a chunk)
+  │     tables    → atomic chunk (≥ 4 words, no split)
+  │     paragraphs → sentence-split at ≤ 400 words
+  │     chunk id: "{doc_id}_{page:04d}_{idx:04d}" · citation_label: "p. {page}"
+  │
+  ├─ Stage 4 – filter_chunks()
+  │     drop paragraphs < 25 words, tables < 4 words, chunks > 60% figure captions
+  │
+  ├─ _write_jsonl() → {doc_id}_contingency.jsonl → QVAC_INGEST_DIR
+  └─ POST :3001/ingest (timeout 300 s) → QVAC GTE_LARGE_FP16 → HyperDB workspace
 ```
 
 **ChromaDB** is not written during ingestion (`SKIP_CHROMA_INDEX=true`).  
@@ -207,6 +232,8 @@ UPLOADS_DIR=./uploads
 CHROMA_DB_PATH=./chroma_db
 CHROMA_COLLECTION_NAME=bitpolito_course
 SKIP_CHROMA_INDEX=true       # skip in-process embedding; QVAC is the sole index
+
+REDIS_URL=redis://localhost:6379/0  # optional — enables ARQ async ingestion queue
 
 RAG_TOP_K=5
 RAG_MAX_EVIDENCE=6
