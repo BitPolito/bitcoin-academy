@@ -99,16 +99,15 @@ bitcoin-academy/
 ├── services/ai/                     # FastAPI backend
 │   └── app/
 │       ├── api/                     # auth, chat, courses, documents, study, debug, progress
-│       ├── workers/pipeline.py      # parse → chunk → ChromaDB + QVAC (BackgroundTask)
+│       ├── workers/pipeline.py      # parse → chunk → JSONL → QVAC /ingest (BackgroundTask)
 │       ├── services/
 │       │   ├── study_service.py     # dispatch 8 actions, DispatchTrace, QVAC /query
-│       │   └── chat_service.py      # free chat → QVAC /query
+│       │   └── chat_service.py      # free chat → QVAC /query, ChromaDB fallback
 │       ├── schemas/study_schemas.py # StudyAction enum (8), ActionMeta, STUDY_ACTION_REGISTRY
 │       ├── core/rate_limit.py       # slowapi Limiter singleton
 │       └── db/                      # SQLAlchemy models, session, init_db
 ├── workers/
-│   ├── python-ingester/src/         # RamSafeIngestor, StructuralParser, Chunker (used by pipeline.py)
-│   │                                # + main_ingester_pipeline.py (CLI ingestion path)
+│   ├── python-ingester/src/         # legacy — RamSafeIngestor, StructuralParser, Chunker (no longer used by pipeline.py)
 │   └── qvac-service/src/            # Node.js — POST /ingest, POST /query, GET /health
 ├── docs/
 │   ├── qvac-integration.md
@@ -127,8 +126,10 @@ bitcoin-academy/
 | Frontend | Next.js 14 · TypeScript · Tailwind CSS · NextAuth.js 4 |
 | Design system | BitPolito blue `#001CE0` · JetBrains Mono · `darkMode: 'class'` |
 | Backend | FastAPI · SQLAlchemy 2 · Pydantic v2 · python-jose · slowapi · uv |
-| Vector store | ChromaDB (ingestion) + QVAC HyperDB (query) |
-| Embedding | fastembed `all-MiniLM-L6-v2` (pipeline) · QVAC `GTE_LARGE_FP16` (query) |
+| Parsing | `pymupdf4llm` (PDF) · `python-pptx` (PPTX) · `python-docx` (DOCX) |
+| Chunking | `chonkie` TokenChunker (512 tokens, 64 overlap) |
+| Vector store | QVAC HyperDB (primary) · ChromaDB (passive fallback at query time) |
+| Embedding | QVAC `GTE_LARGE_FP16` 1024-dim (ingestion + query) · fastembed `all-MiniLM-L6-v2` (ChromaDB fallback only) |
 | LLM | LangChain + OpenAI (optional) · QVAC raw answer as fallback |
 | QVAC service | Node.js 22.17+ · `@qvac/sdk` |
 | Database | SQLite (dev) · PostgreSQL (prod) |
@@ -138,24 +139,21 @@ bitcoin-academy/
 ## Ingestion flow
 
 ```
-Upload via UI
+Upload PDF / PPTX / DOCX via UI
         │
         ▼
 pipeline.py (BackgroundTask)
   │
-  ├─ RamSafeIngestor      → RAM-safe batch reader (PDF/PPTX)
-  ├─ StructuralParser     → PyMuPDF (fast path) + Docling ML (--docling flag) → normalized blocks
-  ├─ Chunker              → 3 levels: section / paragraph / micro
-  ├─ fastembed + ChromaDB → paragraph chunks → persistent vector store
-  ├─ Write *_contingency.jsonl to QVAC_INGEST_DIR
-  └─ POST :3001/ingest    → QVAC ragIngest → HyperDB workspace
-
-CLI path: workers/python-ingester/src/main_ingester_pipeline.py
+  ├─ parse_pdf()    → pymupdf4llm.to_markdown() → structured Markdown
+  ├─ parse_pptx()   → python-pptx → Markdown with per-slide headings
+  ├─ parse_docx()   → python-docx → Markdown with heading levels
+  ├─ chunk_text()   → chonkie TokenChunker (512 tok, 64 overlap) → paragraph chunks
+  ├─ _write_jsonl() → writes {doc_id}_contingency.jsonl to QVAC_INGEST_DIR
+  └─ POST :3001/ingest (timeout 300s) → QVAC GTE_LARGE_FP16 → HyperDB workspace
 ```
 
-Documents are indexed in **both** systems:
-- **ChromaDB** — used by debug endpoints (`/api/debug/*`)
-- **QVAC HyperDB** — used by `/api/courses/{id}/study` and `/api/courses/{id}/chat`
+**ChromaDB** is not written during ingestion (`SKIP_CHROMA_INDEX=true`).  
+It remains as a passive fallback in `chat_service.py` if QVAC is unreachable.
 
 ## Study flow
 
@@ -204,9 +202,11 @@ CORS_ORIGINS=http://localhost:3000
 
 QVAC_SERVICE_URL=http://localhost:3001
 QVAC_INGEST_DIR=./qvac_ingest
+QVAC_INGEST_TIMEOUT=300      # seconds to wait for QVAC embedding (large PDFs need ~3-5 min)
 UPLOADS_DIR=./uploads
 CHROMA_DB_PATH=./chroma_db
 CHROMA_COLLECTION_NAME=bitpolito_course
+SKIP_CHROMA_INDEX=true       # skip in-process embedding; QVAC is the sole index
 
 RAG_TOP_K=5
 RAG_MAX_EVIDENCE=6

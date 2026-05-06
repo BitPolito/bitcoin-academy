@@ -18,7 +18,10 @@ bleach>=6.1.0
 slowapi==0.1.9
 # RAG — document ingestion and vector search
 PyMuPDF>=1.24.0
+pymupdf4llm>=0.0.17
 python-pptx>=0.6.23
+python-docx>=1.1
+chonkie>=0.4
 fastembed>=0.2.6
 chromadb>=1.0.0
 # LLM generation

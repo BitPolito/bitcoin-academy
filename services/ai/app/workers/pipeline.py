@@ -1,23 +1,13 @@
-"""Document processing pipeline — stages: PARSING → CHUNKING → INDEXING → DONE.
+"""Document ingestion pipeline — QVAC-primary.
 
-Bridges the FastAPI backend with the standalone ingester modules in
-workers/python-ingester/src/ without duplicating their logic.
-
-Import-conflict guard: registers 'services.ai.app.schemas.normalized_document'
-in sys.modules as an alias for the already-loaded 'app.schemas.normalized_document'
-so that ingester modules that use the longer import path get the *same* class
-objects as the rest of the FastAPI app.
-
-QVAC integration: after chunking, paragraph chunks are written to a JSONL file
-and posted to the QVAC Node.js service for embedding + HyperDB indexing.
-If the QVAC service is not running the pipeline still completes — ChromaDB
-remains the active query path until chat_service.py is switched over.
+Flow: parse → chunk → JSONL → QVAC /ingest
+ChromaDB is not written during ingestion. It remains as a passive fallback
+at query time in chat_service.py if QVAC is unreachable.
 """
 import json
 import logging
 import os
-import sys
-import types
+import re
 from pathlib import Path
 
 import httpx
@@ -25,102 +15,143 @@ import httpx
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Monorepo path constants
+# Path and env constants
 # ---------------------------------------------------------------------------
 _HERE = Path(__file__).resolve()
 _SERVICES_AI = _HERE.parents[2]          # services/ai/
-_MONOREPO_ROOT = _SERVICES_AI.parents[1] # bitcoin-academy/
-_INGESTER_SRC = _MONOREPO_ROOT / "workers" / "python-ingester" / "src"
 
 CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", str(_SERVICES_AI / "chroma_db"))
 CHROMA_COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "bitpolito_course")
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(_SERVICES_AI / "uploads")))
-
-# JSONL files are written here so the QVAC service can read them by absolute path.
 QVAC_INGEST_DIR = Path(os.getenv("QVAC_INGEST_DIR", str(_SERVICES_AI / "qvac_ingest")))
 QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
+# Set SKIP_CHROMA_INDEX=true to skip in-process embedding and ChromaDB write.
+# Keep false only if you need the ChromaDB fallback populated for new documents.
+SKIP_CHROMA_INDEX = os.getenv("SKIP_CHROMA_INDEX", "false").lower() == "true"
+
+from app.db.models import CourseDocument, DocumentProcessingStage, DocumentStatus  # noqa: E402
+from app.db.session import get_db_context                                           # noqa: E402
+from app.repositories import document_repo                                          # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# sys.modules aliasing — must run before any ingester import
+# Parsers
 # ---------------------------------------------------------------------------
-def _alias_schema_module() -> None:
-    """Alias app.schemas.normalized_document under the services.ai.app.* path.
 
-    Ingester modules use 'from services.ai.app.schemas.normalized_document import …'
-    while FastAPI uses 'from app.schemas.normalized_document import …'.
-    Without aliasing these would be different module objects, causing Pydantic
-    isinstance checks to fail silently.
-    """
-    import importlib
-    nd = importlib.import_module("app.schemas.normalized_document")
+def parse_pdf(file_path: str) -> tuple[str, int]:
+    """pymupdf4llm → structured Markdown + page count."""
+    import pymupdf4llm
+    import fitz
+    text = pymupdf4llm.to_markdown(file_path)
+    with fitz.open(file_path) as pdf:
+        page_count = pdf.page_count
+    return text, page_count
 
-    chain = [
-        "services",
-        "services.ai",
-        "services.ai.app",
-        "services.ai.app.schemas",
+
+def parse_pptx(file_path: str) -> tuple[str, int]:
+    """python-pptx → Markdown-like text with per-slide headings."""
+    from pptx import Presentation
+    prs = Presentation(file_path)
+    slides = []
+    for i, slide in enumerate(prs.slides, 1):
+        title = (
+            slide.shapes.title.text.strip()
+            if slide.shapes.title and slide.shapes.title.has_text_frame
+            else f"Slide {i}"
+        )
+        body_parts = []
+        for shape in slide.placeholders:
+            if (
+                shape.has_text_frame
+                and shape.placeholder_format is not None
+                and shape.placeholder_format.idx != 0
+            ):
+                body_parts.append(shape.text_frame.text.strip())  # type: ignore[union-attr]
+        body = "\n".join(p for p in body_parts if p)
+        notes = ""
+        if slide.has_notes_slide:
+            nf = slide.notes_slide.notes_text_frame
+            notes = nf.text.strip() if nf else ""
+        parts = [f"## {title}"]
+        if body:
+            parts.append(body)
+        if notes:
+            parts.append(f"*Notes: {notes}*")
+        slides.append("\n\n".join(parts))
+    return "\n\n---\n\n".join(slides), len(prs.slides)
+
+
+def parse_docx(file_path: str) -> tuple[str, int]:
+    """python-docx → Markdown-like text with heading levels."""
+    from docx import Document
+    doc = Document(file_path)
+    lines = []
+    for para in doc.paragraphs:
+        if not para.text.strip():
+            continue
+        style_name = (para.style.name or "") if para.style is not None else ""
+        if style_name.startswith("Heading"):
+            try:
+                level = int(style_name.split()[-1])
+            except ValueError:
+                level = 2
+            lines.append(f"{'#' * level} {para.text.strip()}")
+        else:
+            lines.append(para.text.strip())
+    return "\n\n".join(lines), 0  # DOCX has no reliable page count
+
+
+# ---------------------------------------------------------------------------
+# Chunker
+# ---------------------------------------------------------------------------
+
+def chunk_text(text: str, doc_id: str) -> list[dict]:
+    """chonkie TokenChunker → paragraph chunks as plain dicts."""
+    from chonkie import TokenChunker
+    chunker = TokenChunker(chunk_size=512, chunk_overlap=64)
+    raw_chunks = chunker(text)
+    return [
+        {
+            "id": f"{doc_id}_{i:04d}",
+            "text": c.text,
+            "chunk_type": "paragraph",
+            "citation_label": f"chunk {i + 1}",
+            "citation_page": 0,
+            "citation_slide": 0,
+            "citation_section": "",
+            "doc_id": doc_id,
+        }
+        for i, c in enumerate(raw_chunks)
     ]
-    for name in chain:
-        if name not in sys.modules:
-            pkg = types.ModuleType(name)
-            pkg.__path__ = []
-            pkg.__package__ = name
-            parent, _, child = name.rpartition(".")
-            if parent and parent in sys.modules:
-                setattr(sys.modules[parent], child, pkg)
-            sys.modules[name] = pkg
-
-    sys.modules["services.ai.app.schemas.normalized_document"] = nd
-
-
-_alias_schema_module()
-
-# Add ingester src to path so module_*.py / retrieval_*.py can be imported
-if str(_INGESTER_SRC) not in sys.path:
-    sys.path.insert(0, str(_INGESTER_SRC))
-
-# ---------------------------------------------------------------------------
-# Lazy ingester imports (after path + alias setup)
-# ---------------------------------------------------------------------------
-from module_1_ingestor import RamSafeIngestor       # noqa: E402
-from module_2_parser import StructuralParser         # noqa: E402
-from module_3_micro_chunker import Chunker  # noqa: E402
-
-from app.db.models import CourseDocument, DocumentProcessingStage, DocumentStatus
-from app.db.session import get_db_context
-from app.repositories import document_repo
-from app.schemas.normalized_document import ChunkType, DocumentType
 
 
 # ---------------------------------------------------------------------------
-# QVAC helpers
+# JSONL helpers
 # ---------------------------------------------------------------------------
 
-def _write_qvac_jsonl(chunks: list, document_id: str) -> Path:
-    """Serialize paragraph chunks to a JSONL file readable by the QVAC service.
-
-    Uses course_id as workspace identifier, matching the convention in ingest.js.
-    Returns the absolute path written.
-    """
+def _write_jsonl(chunks: list[dict], document_id: str) -> Path:
     QVAC_INGEST_DIR.mkdir(parents=True, exist_ok=True)
     out_path = QVAC_INGEST_DIR / f"{document_id}_contingency.jsonl"
     with out_path.open("w", encoding="utf-8") as f:
         for chunk in chunks:
-            f.write(json.dumps(chunk.model_dump(mode="json")) + "\n")
+            f.write(json.dumps(chunk) + "\n")
     logger.debug("Wrote %d chunks to %s", len(chunks), out_path)
     return out_path
 
 
-def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> bool:
-    """POST the JSONL path to the QVAC service for embedding + HyperDB indexing.
+# ---------------------------------------------------------------------------
+# QVAC ingest
+# ---------------------------------------------------------------------------
 
-    Non-blocking best-effort: logs a warning on failure so the pipeline
-    continues even when the QVAC Node.js service is not running.
-    Returns True on success, False on any error.
+def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> bool:
+    """POST the JSONL path to QVAC for embedding + HyperDB indexing.
+
+    Returns True on success, False on any network/HTTP error.
+    Timeout configurable via QVAC_INGEST_TIMEOUT env (default 300s).
     """
     try:
-        with httpx.Client(timeout=10) as client:
+        timeout = float(os.getenv("QVAC_INGEST_TIMEOUT", "300"))
+        with httpx.Client(timeout=timeout) as client:
             resp = client.post(
                 f"{QVAC_SERVICE_URL}/ingest",
                 json={"jsonlPath": str(jsonl_path), "workspace": workspace, "rebuild": rebuild},
@@ -160,11 +191,7 @@ def run(
     file_path: str,
     material_type: str = "lecture",
 ) -> None:
-    """Execute the full ingestion pipeline for an uploaded document.
-
-    Opens its own DB session so it is safe to run after the request session
-    has been closed by FastAPI.
-    """
+    """Execute the full ingestion pipeline for an uploaded document."""
     logger.info("Pipeline starting for document %s (%s)", document_id, filename)
 
     with get_db_context() as db:
@@ -173,151 +200,124 @@ def run(
             logger.error("Document %s not found — aborting pipeline", document_id)
             return
 
-        # Guard: reject unsupported types before pdfplumber touches the file (P0-4)
-        _ext = os.path.splitext(filename.lower())[1]
-        if _ext not in {".pdf", ".pptx"}:
+        ext = Path(filename).suffix.lower()
+        if ext not in {".pdf", ".pptx", ".docx"}:
             _mark_error(
                 doc,
-                f"Unsupported file type '{_ext}'. Only PDF and PPTX are accepted.",
+                f"Unsupported file type '{ext}'. Accepted: PDF, PPTX, DOCX.",
                 db,
             )
             return
 
         try:
             # ------------------------------------------------------------------
-            # Stage 1 — PARSING + CHUNKING
+            # Stage 1 — PARSING
             # ------------------------------------------------------------------
             _set_stage(doc, DocumentProcessingStage.PARSING, db)
 
-            is_pptx = filename.lower().endswith(".pptx")
-            doc_type = DocumentType.LECTURE_SLIDES if is_pptx else DocumentType.TEXTBOOK_EXCERPT
-            doc_title = os.path.splitext(filename)[0]
-
-            ingestor = RamSafeIngestor(file_path=file_path, chunk_size=100)
-            parser = StructuralParser(
-                file_path=file_path,
-                use_advanced_parser=False,
-                course_id=course_id,
-                document_id=document_id,
-                document_type=doc_type,
-                title=doc_title,
-                source_filename=filename,
-                lecture_id=document_id,
-            )
-            chunker = Chunker(max_char_limit=1500)
-
-            all_chunks: list = []
-            last_normalized_doc = None
-
-            def _process_batch(pages) -> None:
-                nonlocal last_normalized_doc
-                normalized = parser.parse_pages(pages, ingestor.total_pages)
-                last_normalized_doc = normalized
-                all_chunks.extend(chunker.process_document(normalized))
-
-            ingestor.process_in_batches(_process_batch)
-
-            _set_stage(doc, DocumentProcessingStage.CHUNKING, db)
-            para_chunks = [c for c in all_chunks if c.chunk_type == ChunkType.PARAGRAPH]
-            logger.info(
-                "Parsed %d total chunks (%d paragraph) for %s",
-                len(all_chunks), len(para_chunks), document_id,
-            )
+            if ext == ".pdf":
+                text, page_count = parse_pdf(file_path)
+                parser_used = "pymupdf4llm"
+            elif ext == ".pptx":
+                text, page_count = parse_pptx(file_path)
+                parser_used = "python-pptx"
+            else:
+                text, page_count = parse_docx(file_path)
+                parser_used = "python-docx"
 
             # ------------------------------------------------------------------
-            # Stage 2 — EMBEDDING + INDEXING
+            # Stage 2 — CHUNKING
+            # ------------------------------------------------------------------
+            _set_stage(doc, DocumentProcessingStage.CHUNKING, db)
+            chunks = chunk_text(text, document_id)
+            logger.info("Chunked %d paragraph chunks for %s", len(chunks), document_id)
+
+            # ------------------------------------------------------------------
+            # Stage 3 — INDEXING (ChromaDB — skipped when SKIP_CHROMA_INDEX=true)
             # ------------------------------------------------------------------
             _set_stage(doc, DocumentProcessingStage.INDEXING, db)
 
-            # Import here so server startup does not fail if deps are missing
-            from fastembed import TextEmbedding  # noqa: PLC0415
-            import chromadb                      # noqa: PLC0415
-            from chromadb.config import Settings as ChromaSettings  # noqa: PLC0415
+            if not SKIP_CHROMA_INDEX:
+                from fastembed import TextEmbedding  # noqa: PLC0415
+                import chromadb                      # noqa: PLC0415
+                from chromadb.config import Settings as ChromaSettings  # noqa: PLC0415
 
-            os.makedirs(CHROMA_DB_PATH, exist_ok=True)
-            chroma_client = chromadb.PersistentClient(
-                path=CHROMA_DB_PATH,
-                settings=ChromaSettings(anonymized_telemetry=False),
-            )
-            collection = chroma_client.get_or_create_collection(
-                name=CHROMA_COLLECTION_NAME,
-                metadata={"hnsw:space": "cosine"},
-            )
-
-            embedding_model = TextEmbedding("sentence-transformers/all-MiniLM-L6-v2")
-            texts = [c.text for c in para_chunks]
-            embeddings = [v.tolist() for v in embedding_model.embed(texts)]
-            ids = [c.chunk_id for c in para_chunks]
-            metadatas = [
-                {
-                    "doc_id": c.doc_id,
-                    "filename": filename,
-                    "course_id": c.course_id,
-                    "lecture_id": c.lecture_id or c.doc_id,
-                    "document_type": c.document_type.value,
-                    "material_type": material_type,
-                    "label": c.citation_label,
-                    "section": c.citation_section or "",
-                    "page": c.citation_page or 0,
-                    "slide": c.citation_slide or 0,
-                    "chunk_type": c.chunk_type.value,
-                    "parent_chunk_id": c.parent_chunk_id or "",
-                    "tags": ",".join(c.tags),
-                    "prerequisites": ",".join(c.prerequisites),
-                }
-                for c in para_chunks
-            ]
-
-            if ids:
-                collection.add(  # type: ignore[arg-type]
-                    ids=ids,
-                    embeddings=embeddings,
-                    documents=texts,
-                    metadatas=metadatas,
+                os.makedirs(CHROMA_DB_PATH, exist_ok=True)
+                chroma_client = chromadb.PersistentClient(
+                    path=CHROMA_DB_PATH,
+                    settings=ChromaSettings(anonymized_telemetry=False),
                 )
-                logger.info("Indexed %d vectors into ChromaDB at %s", len(ids), CHROMA_DB_PATH)
+                collection = chroma_client.get_or_create_collection(
+                    name=CHROMA_COLLECTION_NAME,
+                    metadata={"hnsw:space": "cosine"},
+                )
+                embedding_model = TextEmbedding("sentence-transformers/all-MiniLM-L6-v2")
+                texts = [c["text"] for c in chunks]
+                embeddings = [v.tolist() for v in embedding_model.embed(texts)]
+                ids = [c["id"] for c in chunks]
+                metadatas = [
+                    {
+                        "doc_id": c["doc_id"],
+                        "filename": filename,
+                        "course_id": course_id,
+                        "material_type": material_type,
+                        "label": c["citation_label"],
+                        "section": c["citation_section"],
+                        "page": c["citation_page"],
+                        "slide": c["citation_slide"],
+                        "chunk_type": c["chunk_type"],
+                    }
+                    for c in chunks
+                ]
+                if ids:
+                    collection.add(
+                        ids=ids,
+                        embeddings=embeddings,
+                        documents=texts,
+                        metadatas=metadatas,  # type: ignore[arg-type]
+                    )
+                    logger.info("Indexed %d vectors into ChromaDB at %s", len(ids), CHROMA_DB_PATH)
+            else:
+                logger.info("SKIP_CHROMA_INDEX=true — skipping ChromaDB embedding for %s", document_id)
 
             # ------------------------------------------------------------------
-            # Stage 3 — QVAC ingest (best-effort; pipeline succeeds even if skipped)
+            # Stage 4 — QVAC ingest
             # ------------------------------------------------------------------
-            jsonl_path = _write_qvac_jsonl(para_chunks, document_id)
+            jsonl_path = _write_jsonl(chunks, document_id)
             qvac_ok = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=False)
 
             # ------------------------------------------------------------------
             # Finalise DB record
             # ------------------------------------------------------------------
-            nd = last_normalized_doc
-            section_titles = sorted({
-                c.citation_section for c in para_chunks if c.citation_section
-            })
-            sample_source = para_chunks[:5] or all_chunks[:5]
+            sections = re.findall(r"^#{1,6}\s+(.+)$", text, re.MULTILINE)[:20]
             sample = [
                 {
-                    "text": c.text[:300],
-                    "label": c.citation_label,
-                    "section": c.citation_section,
+                    "text": c["text"][:300],
+                    "label": c["citation_label"],
+                    "section": c["citation_section"],
                 }
-                for c in sample_source
+                for c in chunks[:5]
             ]
 
             doc.status = DocumentStatus.READY
             doc.processing_stage = DocumentProcessingStage.DONE
             doc.indexing_status = "indexed" if qvac_ok else "qvac_pending"
-            doc.chunk_count = len(para_chunks)
-            doc.parser_used = nd.parser_used if nd else "unknown"
-            doc.page_count = nd.page_count if nd else None
-            doc.extracted_text_preview = nd.blocks[0].text[:500] if nd and nd.blocks else ""
-            doc.sections_json = json.dumps(section_titles)
+            doc.chunk_count = len(chunks)
+            doc.parser_used = parser_used
+            doc.page_count = page_count if page_count else None
+            doc.extracted_text_preview = text[:500]
+            doc.sections_json = json.dumps(sections)
             doc.sample_chunks_json = json.dumps(sample)
             db.commit()
 
-            logger.info("Pipeline done for %s — %d paragraph chunks indexed", document_id, len(para_chunks))
+            logger.info(
+                "Pipeline done for %s — %d chunks, parser=%s, qvac_ok=%s",
+                document_id, len(chunks), parser_used, qvac_ok,
+            )
 
-            # Only clean up on success so the file is available for retry on failure.
             try:
                 if os.path.exists(file_path):
                     os.remove(file_path)
-                    logger.debug("Cleaned up temp file: %s", file_path)
             except OSError:
                 pass
 
@@ -331,12 +331,7 @@ def run(
 # ---------------------------------------------------------------------------
 
 def reindex_qvac(document_id: str, course_id: str) -> None:
-    """Retry QVAC ingest for a document whose indexing_status is 'qvac_pending'.
-
-    Reads the JSONL file produced during the original pipeline run and re-posts
-    it to the QVAC service.  Opens its own DB session so it is safe to run as a
-    FastAPI BackgroundTask.
-    """
+    """Retry QVAC ingest for a document whose indexing_status is 'qvac_pending'."""
     jsonl_path = QVAC_INGEST_DIR / f"{document_id}_contingency.jsonl"
     if not jsonl_path.exists():
         logger.warning(
