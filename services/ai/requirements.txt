@@ -31,3 +31,5 @@ chromadb>=1.0.0
 langchain>=0.3.0
 langchain-openai>=0.2.0
 langchain-text-splitters>=0.3.0
+# Cross-encoder reranking (model: cross-encoder/ms-marco-MiniLM-L-6-v2)
+sentence-transformers>=2.7.0
