@@ -7,7 +7,7 @@ export async function sendStudyAction(
   courseId: string,
   action: StudyAction,
   query: string,
-  accessToken?: string,
+  accessToken?: string
 ): Promise<ApiStudyResponse> {
   const body: ApiStudyRequest = { action, query };
   return apiFetch<ApiStudyResponse>(`/courses/${courseId}/study`, {

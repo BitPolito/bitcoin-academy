@@ -86,9 +86,7 @@ export function SplitPane({
           </button>
         </div>
         {/* Active pane */}
-        <div className="flex-1 overflow-auto min-h-0">
-          {activeTab === 'left' ? left : right}
-        </div>
+        <div className="flex-1 overflow-auto min-h-0">{activeTab === 'left' ? left : right}</div>
       </div>
     );
   }

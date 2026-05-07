@@ -21,7 +21,8 @@ const inputBase =
 const inputBorder = 'border-[rgba(0,28,224,0.18)] dark:border-[rgba(255,255,255,0.22)]';
 const inputBorderErr = 'border-err dark:border-red-400';
 
-const labelClass = 'block font-mono text-[11px] tracking-wide uppercase text-[#001CE0]/70 dark:text-white/60';
+const labelClass =
+  'block font-mono text-[11px] tracking-wide uppercase text-[#001CE0]/70 dark:text-white/60';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -44,14 +45,16 @@ export default function SignupPage() {
 
     if (!password) {
       newErrors.password = 'Password is required';
-    } else if (password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters long';
+    } else if (password.length < 12) {
+      newErrors.password = 'Password must be at least 12 characters long';
     } else if (!/[A-Z]/.test(password)) {
       newErrors.password = 'Password must contain at least one uppercase letter';
     } else if (!/[a-z]/.test(password)) {
       newErrors.password = 'Password must contain at least one lowercase letter';
     } else if (!/\d/.test(password)) {
       newErrors.password = 'Password must contain at least one digit';
+    } else if (!/[!@#$%^&*()\-_=+[\]{};':"\\|,.<>/?`~]/.test(password)) {
+      newErrors.password = 'Password must contain at least one special character';
     }
 
     if (!confirmPassword) {
@@ -82,12 +85,18 @@ export default function SignupPage() {
 
       if (!registerResponse.ok) {
         const error = await registerResponse.json();
+
+        // FastAPI validation errors (422) return detail as an array of objects
+        const detail = Array.isArray(error.detail)
+          ? error.detail.map((e: { msg: string }) => e.msg).join('. ')
+          : (error.detail as string | undefined);
+
         if (registerResponse.status === 409) {
           setErrors({ email: 'A user with this email already exists' });
-        } else if (registerResponse.status === 400) {
-          setErrors({ general: error.detail || 'Invalid input data' });
+        } else if (registerResponse.status === 400 || registerResponse.status === 422) {
+          setErrors({ general: detail || 'Invalid input data' });
         } else {
-          setErrors({ general: error.detail || 'Registration failed' });
+          setErrors({ general: detail || 'Registration failed' });
         }
         return;
       }
@@ -119,7 +128,10 @@ export default function SignupPage() {
       </h2>
 
       {errors.general && (
-        <div className="mb-4 p-3 rounded bg-red-50 dark:bg-[rgba(255,0,0,0.06)] border border-red-200 dark:border-red-700/40" role="alert">
+        <div
+          className="mb-4 p-3 rounded bg-red-50 dark:bg-[rgba(255,0,0,0.06)] border border-red-200 dark:border-red-700/40"
+          role="alert"
+        >
           <p className="text-sm text-red-600 dark:text-red-400">{errors.general}</p>
         </div>
       )}
@@ -128,7 +140,9 @@ export default function SignupPage() {
         <div>
           <label htmlFor="displayName" className={labelClass}>
             Display name{' '}
-            <span className="normal-case text-[#001CE0]/35 dark:text-white/30 tracking-normal">(optional)</span>
+            <span className="normal-case text-[#001CE0]/35 dark:text-white/30 tracking-normal">
+              (optional)
+            </span>
           </label>
           <div className="mt-1.5">
             <input
@@ -145,7 +159,11 @@ export default function SignupPage() {
             />
           </div>
           {errors.displayName && (
-            <p className="mt-1 font-mono text-[11px] text-err dark:text-red-400" id="displayName-error" role="alert">
+            <p
+              className="mt-1 font-mono text-[11px] text-err dark:text-red-400"
+              id="displayName-error"
+              role="alert"
+            >
               {errors.displayName}
             </p>
           )}
@@ -171,7 +189,11 @@ export default function SignupPage() {
             />
           </div>
           {errors.email && (
-            <p className="mt-1 font-mono text-[11px] text-err dark:text-red-400" id="email-error" role="alert">
+            <p
+              className="mt-1 font-mono text-[11px] text-err dark:text-red-400"
+              id="email-error"
+              role="alert"
+            >
               {errors.email}
             </p>
           )}
@@ -197,12 +219,19 @@ export default function SignupPage() {
             />
           </div>
           {errors.password ? (
-            <p className="mt-1 font-mono text-[11px] text-err dark:text-red-400" id="password-error" role="alert">
+            <p
+              className="mt-1 font-mono text-[11px] text-err dark:text-red-400"
+              id="password-error"
+              role="alert"
+            >
               {errors.password}
             </p>
           ) : (
-            <p className="mt-1 font-mono text-[11px] text-[#001CE0]/40 dark:text-white/30" id="password-hint">
-              Min 8 chars · uppercase · lowercase · digit
+            <p
+              className="mt-1 font-mono text-[11px] text-[#001CE0]/40 dark:text-white/30"
+              id="password-hint"
+            >
+              Min 12 chars · uppercase · lowercase · digit · special char
             </p>
           )}
         </div>
@@ -227,18 +256,18 @@ export default function SignupPage() {
             />
           </div>
           {errors.confirmPassword && (
-            <p className="mt-1 font-mono text-[11px] text-err dark:text-red-400" id="confirmPassword-error" role="alert">
+            <p
+              className="mt-1 font-mono text-[11px] text-err dark:text-red-400"
+              id="confirmPassword-error"
+              role="alert"
+            >
               {errors.confirmPassword}
             </p>
           )}
         </div>
 
         <div>
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="btn-primary w-full justify-center"
-          >
+          <button type="submit" disabled={isLoading} className="btn-primary w-full justify-center">
             {isLoading ? (
               <>
                 <svg
@@ -247,8 +276,19 @@ export default function SignupPage() {
                   fill="none"
                   viewBox="0 0 24 24"
                 >
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
                 </svg>
                 Creating account...
               </>

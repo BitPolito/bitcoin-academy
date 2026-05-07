@@ -8,7 +8,10 @@ interface ProcessingIndicatorProps {
   className?: string;
 }
 
-const STATUS_CONFIG: Record<DocumentStatus, { label: string; bg: string; text: string; dot: string }> = {
+const STATUS_CONFIG: Record<
+  DocumentStatus,
+  { label: string; bg: string; text: string; dot: string }
+> = {
   uploading: {
     label: 'Uploading',
     bg: 'bg-blue-50',
@@ -56,9 +59,7 @@ export function ProcessingIndicator({ status, stage, className = '' }: Processin
     >
       <span className={`h-1.5 w-1.5 rounded-full ${config.dot}`} />
       {config.label}
-      {stageLabel && status === 'processing' && (
-        <span className="opacity-75">· {stageLabel}</span>
-      )}
+      {stageLabel && <span className="opacity-75">· {stageLabel}</span>}
     </span>
   );
 }

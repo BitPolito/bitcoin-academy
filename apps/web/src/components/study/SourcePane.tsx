@@ -31,18 +31,14 @@ export function SourcePane({
   activeCitationDocIds,
   lastStudiedLessonId,
 }: SourcePaneProps) {
-  const isCompleted = selectedLesson
-    ? completedLessons.has(String(selectedLesson.id))
-    : false;
+  const isCompleted = selectedLesson ? completedLessons.has(String(selectedLesson.id)) : false;
 
   return (
     <div className="h-full flex flex-col bg-white dark:bg-blue-dark/30">
       {/* Header */}
       <div className="flex-shrink-0 px-5 py-3 b-thin-b flex items-center gap-3">
         <span className="mono text-[10px] tracking-[0.22em] uppercase opacity-70">Source</span>
-        {courseTitle && (
-          <span className="font-medium text-sm truncate">{courseTitle}</span>
-        )}
+        {courseTitle && <span className="font-medium text-sm truncate">{courseTitle}</span>}
       </div>
 
       {/* Lesson nav */}
@@ -72,12 +68,26 @@ export function SourcePane({
               </p>
             )}
 
-            <ContentChunks courseId={courseId} accessToken={accessToken} className="mt-2" activeCitationDocIds={activeCitationDocIds} />
+            <ContentChunks
+              courseId={courseId}
+              accessToken={accessToken}
+              className="mt-2"
+              activeCitationDocIds={activeCitationDocIds}
+            />
 
             <div className="pt-2 b-thin-t">
               {isCompleted ? (
-                <div className="flex items-center gap-2 font-mono text-[11px]" style={{ color: '#1a7f3a' }}>
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                <div
+                  className="flex items-center gap-2 font-mono text-[11px]"
+                  style={{ color: '#1a7f3a' }}
+                >
+                  <svg
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2.5}
+                    stroke="currentColor"
+                  >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                   </svg>
                   Lesson completed

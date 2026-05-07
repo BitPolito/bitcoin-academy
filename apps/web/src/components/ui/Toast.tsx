@@ -27,8 +27,8 @@ export function useToast() {
 // ── Style map ─────────────────────────────────────────────────────────────────
 
 const TYPE_CONFIG: Record<ToastType, { bg: string; icon: string }> = {
-  ok:   { bg: '#1a7f3a', icon: '✓' },
-  err:  { bg: '#b3261e', icon: '✕' },
+  ok: { bg: '#1a7f3a', icon: '✓' },
+  err: { bg: '#b3261e', icon: '✕' },
   warn: { bg: '#a55a00', icon: '!' },
 };
 

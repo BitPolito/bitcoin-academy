@@ -36,7 +36,10 @@ export default function StudyPage() {
   const [newBadges, setNewBadges] = useState<Badge[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasIndexedDocs, setHasIndexedDocs] = useState(false);
-  const [lastActionResult, setLastActionResult] = useState<{ result: ApiStudyResponse; lesson: Lesson | null } | null>(null);
+  const [lastActionResult, setLastActionResult] = useState<{
+    result: ApiStudyResponse;
+    lesson: Lesson | null;
+  } | null>(null);
 
   const activeCitationDocIds = useMemo(() => {
     if (!lastActionResult) return new Set<string>();
@@ -78,10 +81,15 @@ export default function StudyPage() {
         if (p.completedLessonIds.length > 0) {
           setCompletedLessons(new Set(p.completedLessonIds));
         }
-      } catch { /* non-critical */ }
+      } catch {
+        /* non-critical */
+      }
     }
 
-    if (courseId) { load(); loadProgress(); }
+    if (courseId) {
+      load();
+      loadProgress();
+    }
   }, [courseId, accessToken]);
 
   const handleMarkComplete = useCallback(
@@ -96,7 +104,9 @@ export default function StudyPage() {
           setNewBadges(result.newBadges);
           setTimeout(() => setNewBadges([]), 5000);
         }
-      } catch { /* non-critical */ }
+      } catch {
+        /* non-critical */
+      }
     },
     [courseId, accessToken]
   );

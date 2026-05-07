@@ -7,16 +7,16 @@ import { getCourse, type Course } from '@/lib/services/courses';
 import { DocumentUpload } from '@/components/documents/DocumentUpload';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { getDocumentListRows } from '@/lib/api/documents';
-import type { DocumentListRow, MaterialType } from '@/lib/api/types';
+import type { DocumentListRow } from '@/lib/api/types';
 import { DocumentProcessingPanel } from '@/components/documents/DocumentProcessingPanel';
 
 type DocFilter = 'all' | 'ready' | 'processing' | 'error';
 
 const FILTER_OPTIONS: { id: DocFilter; label: string }[] = [
-  { id: 'all',        label: 'All' },
-  { id: 'ready',      label: 'Indexed' },
+  { id: 'all', label: 'All' },
+  { id: 'ready', label: 'Indexed' },
   { id: 'processing', label: 'Processing' },
-  { id: 'error',      label: 'Failed' },
+  { id: 'error', label: 'Failed' },
 ];
 
 function formatSize(bytes: number) {
@@ -26,17 +26,17 @@ function formatSize(bytes: number) {
 }
 
 const STATE_DOT: Record<string, string> = {
-  ready:      '#1a7f3a',
+  ready: '#1a7f3a',
   processing: '#a55a00',
-  uploading:  '#a55a00',
-  error:      '#b3261e',
+  uploading: '#a55a00',
+  error: '#b3261e',
 };
 
 const LIFECYCLE_STAGES = ['uploading', 'processing', 'ready'] as const;
 
 function Lifecycle({ status }: { status: string }) {
   const failed = status === 'error';
-  const idx = failed ? -1 : LIFECYCLE_STAGES.indexOf(status as any);
+  const idx = failed ? -1 : (LIFECYCLE_STAGES as readonly string[]).indexOf(status);
   return (
     <div className="flex items-center gap-1.5">
       {LIFECYCLE_STAGES.map((s, i) => {
@@ -46,9 +46,11 @@ function Lifecycle({ status }: { status: string }) {
           <div key={s} className="flex items-center gap-1.5 flex-1">
             <div
               className={`flex-1 h-7 b-thin rounded-sm flex items-center justify-center font-mono text-[10px] tracking-[0.16em] uppercase ${
-                done ? 'bg-blue-dark text-white dark:bg-white dark:text-blue-dark'
-                     : here ? 'bg-blue-dark/10'
-                     : 'opacity-40'
+                done
+                  ? 'bg-blue-dark text-white dark:bg-white dark:text-blue-dark'
+                  : here
+                    ? 'bg-blue-dark/10'
+                    : 'opacity-40'
               }`}
             >
               {s}
@@ -60,7 +62,9 @@ function Lifecycle({ status }: { status: string }) {
         );
       })}
       {failed && (
-        <span className="ml-2 chip" style={{ color: '#b3261e', border: '1px solid #b3261e' }}>FAILED</span>
+        <span className="ml-2 chip" style={{ color: '#b3261e', border: '1px solid #b3261e' }}>
+          FAILED
+        </span>
       )}
     </div>
   );
@@ -134,23 +138,33 @@ export default function CourseWorkspacePage() {
   if (error || !course) {
     return (
       <main className="max-w-8xl mx-auto px-6 py-6">
-        <div className="b-hard rounded-lg p-6 text-center" style={{ borderColor: '#b3261e', color: '#b3261e' }}>
+        <div
+          className="b-hard rounded-lg p-6 text-center"
+          style={{ borderColor: '#b3261e', color: '#b3261e' }}
+        >
           <p className="text-sm">{error || 'Course not found'}</p>
-          <button onClick={() => window.location.reload()} className="mt-3 text-sm font-medium underline">Retry</button>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-3 text-sm font-medium underline"
+          >
+            Retry
+          </button>
         </div>
       </main>
     );
   }
 
-  const indexed    = docs.filter((d) => d.status === 'ready').length;
-  const processing = docs.filter((d) => d.status === 'processing' || d.status === 'uploading').length;
-  const failed     = docs.filter((d) => d.status === 'error').length;
+  const indexed = docs.filter((d) => d.status === 'ready').length;
+  const processing = docs.filter(
+    (d) => d.status === 'processing' || d.status === 'uploading'
+  ).length;
+  const failed = docs.filter((d) => d.status === 'error').length;
 
   const filtered = docs.filter((d) => {
-    if (filter === 'all')        return true;
-    if (filter === 'ready')      return d.status === 'ready';
+    if (filter === 'all') return true;
+    if (filter === 'ready') return d.status === 'ready';
     if (filter === 'processing') return d.status === 'processing' || d.status === 'uploading';
-    if (filter === 'error')      return d.status === 'error';
+    if (filter === 'error') return d.status === 'error';
     return true;
   });
 
@@ -175,16 +189,18 @@ export default function CourseWorkspacePage() {
         </div>
 
         <div className="flex items-center gap-6 b-thin-l pl-6">
-          <Stat2 n={docs.length}  k="documents" />
-          <Stat2 n={indexed}      k="indexed" />
-          <Stat2 n={processing}   k="processing" warn={processing > 0} />
-          <Stat2 n={failed}       k="failed"     err={failed > 0} />
+          <Stat2 n={docs.length} k="documents" />
+          <Stat2 n={indexed} k="indexed" />
+          <Stat2 n={processing} k="processing" warn={processing > 0} />
+          <Stat2 n={failed} k="failed" err={failed > 0} />
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             className="btn-ghost"
-            onClick={() => selected && router.push(`/courses/${courseId}/documents/${selected.id}/preview`)}
+            onClick={() =>
+              selected && router.push(`/courses/${courseId}/documents/${selected.id}/preview`)
+            }
             disabled={!selected}
           >
             Open viewer
@@ -202,11 +218,19 @@ export default function CourseWorkspacePage() {
           {/* Upload zone */}
           <div className="b-hard rounded-lg p-5 bg-white dark:bg-blue-dark/30">
             <div className="flex items-end justify-between b-thin-b pb-1.5 mb-3">
-              <span className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70">Upload · drop or click</span>
-              <span className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-60">PDF · PPTX · MD · TXT · ≤ 50 MB</span>
+              <span className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70">
+                Upload · drop or click
+              </span>
+              <span className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-60">
+                PDF · PPTX · MD · TXT · ≤ 50 MB
+              </span>
             </div>
             <ErrorBoundary>
-              <DocumentUpload courseId={courseId} accessToken={accessToken} onUploadComplete={refreshDocuments} />
+              <DocumentUpload
+                courseId={courseId}
+                accessToken={accessToken}
+                onUploadComplete={refreshDocuments}
+              />
             </ErrorBoundary>
           </div>
 
@@ -225,7 +249,9 @@ export default function CourseWorkspacePage() {
                 {f.label}
               </button>
             ))}
-            <span className="ml-auto font-mono text-[11px] opacity-60">{filtered.length} shown</span>
+            <span className="ml-auto font-mono text-[11px] opacity-60">
+              {filtered.length} shown
+            </span>
           </div>
 
           {/* Document list */}
@@ -267,7 +293,9 @@ export default function CourseWorkspacePage() {
             {selected ? (
               <>
                 <div className="px-5 py-4 b-thin-b">
-                  <div className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70 mb-1">Document detail</div>
+                  <div className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70 mb-1">
+                    Document detail
+                  </div>
                   <h3 className="font-medium leading-tight truncate">{selected.filename}</h3>
                   <div className="font-mono text-[11px] opacity-70 mt-1">
                     {selected.documentType || 'lecture'} · {formatSize(selected.size)}
@@ -276,18 +304,29 @@ export default function CourseWorkspacePage() {
                 <div className="p-5 space-y-5">
                   <div>
                     <div className="flex items-end justify-between b-thin-b pb-1.5 mb-3">
-                      <span className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70">Lifecycle</span>
+                      <span className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70">
+                        Lifecycle
+                      </span>
                     </div>
                     <Lifecycle status={selected.status} />
                     {selected.processingStage && (
-                      <div className="font-mono text-[11px] opacity-70 mt-2">stage · {selected.processingStage}</div>
+                      <div className="font-mono text-[11px] opacity-70 mt-2">
+                        stage · {selected.processingStage}
+                      </div>
                     )}
                   </div>
 
                   {selected.status === 'error' && selected.errorMessage && (
-                    <div className="b-hard-1 rounded-md p-3" style={{ borderColor: '#b3261e', color: '#b3261e' }}>
-                      <div className="font-mono text-[10px] tracking-[0.2em] uppercase mb-1">Error</div>
-                      <div className="font-mono text-[12px] leading-relaxed">{selected.errorMessage}</div>
+                    <div
+                      className="b-hard-1 rounded-md p-3"
+                      style={{ borderColor: '#b3261e', color: '#b3261e' }}
+                    >
+                      <div className="font-mono text-[10px] tracking-[0.2em] uppercase mb-1">
+                        Error
+                      </div>
+                      <div className="font-mono text-[12px] leading-relaxed">
+                        {selected.errorMessage}
+                      </div>
                     </div>
                   )}
 
@@ -295,28 +334,41 @@ export default function CourseWorkspacePage() {
                     <DocumentProcessingPanel
                       documentId={selected.id}
                       accessToken={accessToken}
-                      onViewPreview={() => router.push(`/courses/${courseId}/documents/${selected.id}/preview`)}
+                      onViewPreview={() =>
+                        router.push(`/courses/${courseId}/documents/${selected.id}/preview`)
+                      }
                     />
                   </ErrorBoundary>
 
                   <div className="flex items-center gap-2 b-thin-t pt-4">
                     <button
                       className="btn-ghost"
-                      onClick={() => router.push(`/courses/${courseId}/documents/${selected.id}/preview`)}
+                      onClick={() =>
+                        router.push(`/courses/${courseId}/documents/${selected.id}/preview`)
+                      }
                     >
                       Open in viewer →
                     </button>
-                    <button className="btn-primary" onClick={() => router.push(`/courses/${courseId}/study`)}>
+                    <button
+                      className="btn-primary"
+                      onClick={() => router.push(`/courses/${courseId}/study`)}
+                    >
                       Use in study
                     </button>
-                    <span className="ml-auto font-mono text-[10px] opacity-60 truncate">id · {selected.id.slice(0, 8)}</span>
+                    <span className="ml-auto font-mono text-[10px] opacity-60 truncate">
+                      id · {selected.id.slice(0, 8)}
+                    </span>
                   </div>
                 </div>
               </>
             ) : (
               <div className="p-10 text-center">
-                <div className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70 mb-1">Document detail</div>
-                <div className="font-mono text-[11px] opacity-50 mt-3">Select a document to inspect it.</div>
+                <div className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70 mb-1">
+                  Document detail
+                </div>
+                <div className="font-mono text-[11px] opacity-50 mt-3">
+                  Select a document to inspect it.
+                </div>
               </div>
             )}
           </div>
@@ -380,7 +432,10 @@ function DocRow({
       </div>
 
       <button
-        onClick={(e) => { e.stopPropagation(); onOpen(); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen();
+        }}
         className="font-mono text-sm opacity-60 hover:opacity-100"
       >
         →

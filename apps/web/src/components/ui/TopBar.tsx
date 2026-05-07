@@ -36,23 +36,31 @@ export function TopBar() {
   const isCourses = !courseId;
 
   const tabs = [
-    { id: 'courses',   label: 'Courses',   href: '/courses',                        active: isCourses },
-    ...(courseId ? [
-      { id: 'workspace', label: 'Workspace', href: `/courses/${courseId}`,            active: isWorkspace },
-      { id: 'study',     label: 'Study',     href: `/courses/${courseId}/study`,      active: isStudy },
-    ] : []),
+    { id: 'courses', label: 'Courses', href: '/courses', active: isCourses },
+    ...(courseId
+      ? [
+          {
+            id: 'workspace',
+            label: 'Workspace',
+            href: `/courses/${courseId}`,
+            active: isWorkspace,
+          },
+          { id: 'study', label: 'Study', href: `/courses/${courseId}/study`, active: isStudy },
+        ]
+      : []),
   ];
 
   const isDebug = !!courseId && pathname.includes('/debug');
 
   const name = session?.user?.name || session?.user?.email || '';
-  const initials = name
-    .split(/[\s@]/)
-    .filter(Boolean)
-    .map((p: string) => p[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase() || 'U';
+  const initials =
+    name
+      .split(/[\s@]/)
+      .filter(Boolean)
+      .map((p: string) => p[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase() || 'U';
 
   return (
     <header className="sticky top-0 z-40 bg-surface dark:bg-blue-dark b-thin-b">
@@ -99,22 +107,22 @@ export function TopBar() {
             {dark ? (
               /* Sun icon */
               <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="currentColor">
-                <circle cx="12" cy="12" r="4"/>
+                <circle cx="12" cy="12" r="4" />
                 <g stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <line x1="12" y1="2"  x2="12" y2="5"/>
-                  <line x1="12" y1="19" x2="12" y2="22"/>
-                  <line x1="2"  y1="12" x2="5"  y2="12"/>
-                  <line x1="19" y1="12" x2="22" y2="12"/>
-                  <line x1="4.5"  y1="4.5"  x2="6.5"  y2="6.5"/>
-                  <line x1="17.5" y1="17.5" x2="19.5" y2="19.5"/>
-                  <line x1="4.5"  y1="19.5" x2="6.5"  y2="17.5"/>
-                  <line x1="17.5" y1="6.5"  x2="19.5" y2="4.5"/>
+                  <line x1="12" y1="2" x2="12" y2="5" />
+                  <line x1="12" y1="19" x2="12" y2="22" />
+                  <line x1="2" y1="12" x2="5" y2="12" />
+                  <line x1="19" y1="12" x2="22" y2="12" />
+                  <line x1="4.5" y1="4.5" x2="6.5" y2="6.5" />
+                  <line x1="17.5" y1="17.5" x2="19.5" y2="19.5" />
+                  <line x1="4.5" y1="19.5" x2="6.5" y2="17.5" />
+                  <line x1="17.5" y1="6.5" x2="19.5" y2="4.5" />
                 </g>
               </svg>
             ) : (
               /* Moon icon */
               <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="currentColor">
-                <path d="M21 12.8A9 9 0 0 1 11.2 3a7 7 0 1 0 9.8 9.8z"/>
+                <path d="M21 12.8A9 9 0 0 1 11.2 3a7 7 0 1 0 9.8 9.8z" />
               </svg>
             )}
           </button>

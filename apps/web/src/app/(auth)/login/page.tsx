@@ -1,10 +1,9 @@
 'use client';
 
-import { Suspense } from 'react';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { FormEvent, useState } from 'react';
+import { FormEvent, Suspense, useState } from 'react';
 
 interface FormErrors {
   email?: string;
@@ -18,13 +17,15 @@ const inputBase =
 const inputBorder = 'border-[rgba(0,28,224,0.18)] dark:border-[rgba(255,255,255,0.22)]';
 const inputBorderErr = 'border-err dark:border-red-400';
 
-const labelClass = 'block font-mono text-[11px] tracking-wide uppercase text-[#001CE0]/70 dark:text-white/60';
+const labelClass =
+  'block font-mono text-[11px] tracking-wide uppercase text-[#001CE0]/70 dark:text-white/60';
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/courses';
   const errorParam = searchParams.get('error');
+  const messageParam = searchParams.get('message');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -61,7 +62,11 @@ function LoginForm() {
         callbackUrl,
       });
       if (result?.error) {
-        setErrors({ general: result.error });
+        const friendlyError =
+          result.error === 'CredentialsSignin'
+            ? 'Invalid email or password. Please try again.'
+            : 'An unexpected error occurred. Please try again.';
+        setErrors({ general: friendlyError });
       } else if (result?.ok) {
         router.push(callbackUrl);
         router.refresh();
@@ -78,6 +83,12 @@ function LoginForm() {
       <h2 className="text-center text-xl font-bold ink dark:text-white mb-6 font-mono tracking-tight">
         Sign in
       </h2>
+
+      {messageParam && (
+        <div className="mb-4 p-3 rounded bg-blue-50 dark:bg-[rgba(0,28,224,0.07)] border border-blue-200 dark:border-blue-600/30">
+          <p className="text-sm text-blue-800 dark:text-blue-300">{messageParam}</p>
+        </div>
+      )}
 
       {sessionError && (
         <div className="mb-4 p-3 rounded bg-amber-50 dark:bg-[rgba(255,180,0,0.07)] border border-amber-200 dark:border-amber-600/30">
@@ -112,7 +123,11 @@ function LoginForm() {
             />
           </div>
           {errors.email && (
-            <p className="mt-1 font-mono text-[11px] text-err dark:text-red-400" id="email-error" role="alert">
+            <p
+              className="mt-1 font-mono text-[11px] text-err dark:text-red-400"
+              id="email-error"
+              role="alert"
+            >
               {errors.email}
             </p>
           )}
@@ -138,18 +153,18 @@ function LoginForm() {
             />
           </div>
           {errors.password && (
-            <p className="mt-1 font-mono text-[11px] text-err dark:text-red-400" id="password-error" role="alert">
+            <p
+              className="mt-1 font-mono text-[11px] text-err dark:text-red-400"
+              id="password-error"
+              role="alert"
+            >
               {errors.password}
             </p>
           )}
         </div>
 
         <div>
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="btn-primary w-full justify-center"
-          >
+          <button type="submit" disabled={isLoading} className="btn-primary w-full justify-center">
             {isLoading ? (
               <>
                 <svg
@@ -158,8 +173,19 @@ function LoginForm() {
                   fill="none"
                   viewBox="0 0 24 24"
                 >
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
                 </svg>
                 Signing in...
               </>
@@ -194,7 +220,11 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="mt-8 bg-white dark:bg-[#0f0f0f] py-8 px-4 b-thin sm:rounded-lg sm:px-10 min-h-[320px]" />}>
+    <Suspense
+      fallback={
+        <div className="mt-8 bg-white dark:bg-[#0f0f0f] py-8 px-4 b-thin sm:rounded-lg sm:px-10 min-h-[320px]" />
+      }
+    >
       <LoginForm />
     </Suspense>
   );

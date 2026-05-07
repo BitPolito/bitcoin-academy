@@ -25,19 +25,25 @@ export default function CoursesPage() {
   const [globalStats, setGlobalStats] = useState({ docs: 0, indexed: 0, processing: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter] = useState<Filter>('all');
+  const [_filter] = useState<Filter>('all');
   const [showCreate, setShowCreate] = useState(false);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'n') { e.preventDefault(); setShowCreate(true); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+        e.preventDefault();
+        setShowCreate(true);
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   useEffect(() => {
-    if (status === 'unauthenticated') { router.push('/login'); return; }
+    if (status === 'unauthenticated') {
+      router.push('/login');
+      return;
+    }
     if (status !== 'authenticated') return;
 
     const token = session?.user?.accessToken;
@@ -52,15 +58,18 @@ export default function CoursesPage() {
         );
 
         const statsMap: Record<string | number, DocStats> = {};
-        let totalDocs = 0, totalIndexed = 0, totalProcessing = 0;
+        let totalDocs = 0,
+          totalIndexed = 0,
+          totalProcessing = 0;
         docsResults.forEach((r, i) => {
           if (r.status === 'fulfilled') {
             const docs = r.value;
             const stats: DocStats = {
               total: docs.length,
-              ready: docs.filter(d => d.status === 'ready').length,
-              processing: docs.filter(d => d.status === 'processing' || d.status === 'uploading').length,
-              error: docs.filter(d => d.status === 'error').length,
+              ready: docs.filter((d) => d.status === 'ready').length,
+              processing: docs.filter((d) => d.status === 'processing' || d.status === 'uploading')
+                .length,
+              error: docs.filter((d) => d.status === 'error').length,
             };
             statsMap[data[i].id] = stats;
             totalDocs += stats.total;
@@ -115,15 +124,17 @@ export default function CoursesPage() {
             <span className="font-semibold opacity-100">Courses</span>
           </div>
           <h1 className="text-5xl lg:text-6xl font-medium tracking-tight leading-[1.05] mb-5">
-            Study, grounded in your<br className="hidden lg:block" /> own course material.
+            Study, grounded in your
+            <br className="hidden lg:block" /> own course material.
           </h1>
           <p className="text-lg leading-relaxed max-w-[58ch] opacity-80">
-            Each course is an isolated workspace. Drop in slides, notes and past exams —
-            Academy indexes everything and keeps every answer anchored to its source.
+            Each course is an isolated workspace. Drop in slides, notes and past exams — Academy
+            indexes everything and keeps every answer anchored to its source.
           </p>
           <div className="flex items-center gap-3 mt-6">
             <span className="font-mono text-[11px] opacity-60">
-              {courses.length} {courses.length === 1 ? 'course' : 'courses'} · {globalStats.docs} documents · {globalStats.indexed} indexed
+              {courses.length} {courses.length === 1 ? 'course' : 'courses'} · {globalStats.docs}{' '}
+              documents · {globalStats.indexed} indexed
             </span>
           </div>
         </div>
@@ -132,17 +143,27 @@ export default function CoursesPage() {
         <div className="col-span-12 lg:col-span-4">
           <div className="b-hard rounded-lg p-5 bg-white dark:bg-blue-dark/40 tick-corners">
             <div className="flex items-end justify-between b-thin-b pb-1.5 mb-3">
-              <span className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70">Local index · QVAC</span>
-              <span className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-60">v0.1 MVP</span>
+              <span className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70">
+                Local index · QVAC
+              </span>
+              <span className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-60">
+                v0.1 MVP
+              </span>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <StatBox n={String(courses.length)} k="courses" />
               <StatBox n={String(globalStats.docs)} k="documents" />
               <StatBox n={String(globalStats.indexed)} k="indexed" />
-              <StatBox n={String(globalStats.processing)} k="processing" warn={globalStats.processing > 0} />
+              <StatBox
+                n={String(globalStats.processing)}
+                k="processing"
+                warn={globalStats.processing > 0}
+              />
             </div>
             <div className="mt-4 pt-4 b-thin-t flex items-center justify-between">
-              <span className="font-mono text-[11px] opacity-70">Local-first · all data on device</span>
+              <span className="font-mono text-[11px] opacity-70">
+                Local-first · all data on device
+              </span>
               <span className="font-mono text-[10px] tracking-[0.2em] uppercase">v0.1</span>
             </div>
           </div>
@@ -151,34 +172,40 @@ export default function CoursesPage() {
 
       {/* Filter rail */}
       <div className="flex items-center gap-2 mb-4">
-        <button
-          className="font-mono text-[11px] tracking-[0.18em] uppercase px-3 h-8 rounded-md bg-blue-dark text-white dark:bg-white dark:text-blue-dark"
-        >
+        <button className="font-mono text-[11px] tracking-[0.18em] uppercase px-3 h-8 rounded-md bg-blue-dark text-white dark:bg-white dark:text-blue-dark">
           All <span className="opacity-60 ml-1">{courses.length}</span>
         </button>
         <div className="ml-auto font-mono text-[11px] opacity-60">sorted · last updated</div>
       </div>
 
       {error ? (
-        <div className="b-hard rounded-lg p-6 text-center" style={{ borderColor: '#b3261e', color: '#b3261e' }}>
+        <div
+          className="b-hard rounded-lg p-6 text-center"
+          style={{ borderColor: '#b3261e', color: '#b3261e' }}
+        >
           <p className="text-sm">{error}</p>
-          <button onClick={() => window.location.reload()} className="mt-3 text-sm font-medium underline">Retry</button>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-3 text-sm font-medium underline"
+          >
+            Retry
+          </button>
         </div>
       ) : courses.length === 0 ? (
         <div className="b-hard rounded-lg p-10 text-center bg-white dark:bg-blue-dark">
           <div className="mx-auto w-10 h-10 b-thin rounded-md mb-4 stripes" />
           <div className="font-medium text-lg">No courses yet</div>
-          <div className="opacity-70 text-sm mt-1 mb-5">Create your first course to get started.</div>
-          <button className="btn-primary" onClick={() => setShowCreate(true)}>Create workspace →</button>
+          <div className="opacity-70 text-sm mt-1 mb-5">
+            Create your first course to get started.
+          </div>
+          <button className="btn-primary" onClick={() => setShowCreate(true)}>
+            Create workspace →
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {courses.map((course) => (
-            <CourseCard
-              key={course.id}
-              course={course}
-              stats={docStats[course.id] ?? null}
-            />
+            <CourseCard key={course.id} course={course} stats={docStats[course.id] ?? null} />
           ))}
           {/* Create course card */}
           <button
@@ -202,7 +229,10 @@ export default function CoursesPage() {
 function StatBox({ n, k, warn }: { n: string; k: string; warn?: boolean }) {
   return (
     <div className="b-thin rounded-md p-3">
-      <div className={`text-2xl font-medium tnum ${warn ? '' : ''}`} style={warn ? { color: '#a55a00' } : {}}>
+      <div
+        className={`text-2xl font-medium tnum ${warn ? '' : ''}`}
+        style={warn ? { color: '#a55a00' } : {}}
+      >
         {n}
       </div>
       <div className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-70 mt-1">{k}</div>

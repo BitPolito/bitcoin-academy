@@ -39,12 +39,14 @@ function OutlinePane({
   activeChunkIndex: number;
   onSelect: (i: number) => void;
 }) {
-  const activeSection = [...sections].reverse().find(s => s.firstIndex <= activeChunkIndex);
+  const activeSection = [...sections].reverse().find((s) => s.firstIndex <= activeChunkIndex);
 
   return (
     <div className="h-full flex flex-col b-thin-r">
       <div className="flex-shrink-0 px-4 py-3 b-thin-b">
-        <span className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70">Outline</span>
+        <span className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70">
+          Outline
+        </span>
       </div>
       {sections.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
@@ -121,7 +123,13 @@ function ViewerPane({
         return (
           <div
             key={i}
-            ref={isActive ? (el) => { activeRef.current = el; } : undefined}
+            ref={
+              isActive
+                ? (el) => {
+                    activeRef.current = el;
+                  }
+                : undefined
+            }
             className={`rounded-lg px-4 py-3 transition-all ${
               isActive
                 ? 'bg-blue-dark/10 b-thin ring-1 ring-blue-dark/40 dark:ring-white/30'
@@ -192,7 +200,9 @@ function ChunkBrowser({
                     : 'b-thin hover:bg-blue-dark/5 dark:hover:bg-white/10'
                 }`}
               >
-                <div className={`font-mono text-[10px] mb-0.5 truncate ${isActive ? 'opacity-80' : 'opacity-60'}`}>
+                <div
+                  className={`font-mono text-[10px] mb-0.5 truncate ${isActive ? 'opacity-80' : 'opacity-60'}`}
+                >
                   {chunk.label ?? `Chunk ${i + 1}`}
                 </div>
                 <p className={`text-[11px] line-clamp-2 ${isActive ? 'opacity-90' : 'opacity-70'}`}>
@@ -265,7 +275,9 @@ function PreviewContent() {
     }
   }, [documentId, accessToken]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   // Sync ?page= to activeIndex once chunks are loaded
   useEffect(() => {
@@ -281,9 +293,13 @@ function PreviewContent() {
     return (
       <div className="h-[calc(100vh-48px)] flex items-center justify-center p-8">
         <div className="b-thin rounded-lg p-6 text-center max-w-sm w-full">
-          <p className="font-mono text-[11px] opacity-70 mb-4">{error ?? 'Preview not available'}</p>
+          <p className="font-mono text-[11px] opacity-70 mb-4">
+            {error ?? 'Preview not available'}
+          </p>
           <div className="flex items-center justify-center gap-4">
-            <button onClick={load} className="btn-ghost text-sm">Retry</button>
+            <button onClick={load} className="btn-ghost text-sm">
+              Retry
+            </button>
             <button
               onClick={() => router.push(`/courses/${courseId}`)}
               className="font-mono text-[11px] opacity-60 hover:opacity-100 transition-opacity"
@@ -307,8 +323,18 @@ function PreviewContent() {
           onClick={() => router.push(`/courses/${courseId}`)}
           className="flex items-center gap-1.5 font-mono text-[11px] opacity-60 hover:opacity-100 transition-opacity flex-shrink-0"
         >
-          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+          <svg
+            className="h-3.5 w-3.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={2.5}
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"
+            />
           </svg>
           Back
         </button>
@@ -327,16 +353,18 @@ function PreviewContent() {
         {chunks.length > 0 && (
           <div className="flex items-center gap-1 font-mono text-[11px] opacity-60 flex-shrink-0">
             <button
-              onClick={() => setActiveIndex(i => Math.max(0, i - 1))}
+              onClick={() => setActiveIndex((i) => Math.max(0, i - 1))}
               disabled={activeIndex === 0}
               className="px-2 py-1 rounded b-thin disabled:opacity-30 hover:bg-blue-dark/5 transition-colors"
               aria-label="Previous chunk"
             >
               ‹
             </button>
-            <span className="px-2 tabular-nums">{activeIndex + 1} / {chunks.length}</span>
+            <span className="px-2 tabular-nums">
+              {activeIndex + 1} / {chunks.length}
+            </span>
             <button
-              onClick={() => setActiveIndex(i => Math.min(chunks.length - 1, i + 1))}
+              onClick={() => setActiveIndex((i) => Math.min(chunks.length - 1, i + 1))}
               disabled={activeIndex === chunks.length - 1}
               className="px-2 py-1 rounded b-thin disabled:opacity-30 hover:bg-blue-dark/5 transition-colors"
               aria-label="Next chunk"

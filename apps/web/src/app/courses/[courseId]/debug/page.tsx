@@ -73,29 +73,50 @@ export default function DebugPage() {
           onClick={() => router.push(`/courses/${courseId}`)}
           className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
         >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={2}
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"
+            />
           </svg>
           Back
         </button>
         <h1 className="text-xl font-bold text-gray-900">Debug Inspector</h1>
-        <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-800 rounded font-medium">DEV ONLY</span>
+        <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-800 rounded font-medium">
+          DEV ONLY
+        </span>
       </div>
 
       {/* Pipeline health */}
       <section className="bg-white rounded-lg shadow">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <h2 className="text-base font-semibold text-gray-900">Pipeline Health</h2>
-          <button onClick={loadHealth} className="text-xs text-gray-500 hover:text-gray-700 underline">Refresh</button>
+          <button
+            onClick={loadHealth}
+            className="text-xs text-gray-500 hover:text-gray-700 underline"
+          >
+            Refresh
+          </button>
         </div>
         <div className="p-6">
           {healthError && <p className="text-sm text-red-600">{healthError}</p>}
           {health && (
             <div className="space-y-3 text-sm">
               <div className="flex items-center gap-2">
-                <span className={`h-2 w-2 rounded-full ${health.chroma_status === 'ok' ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span
+                  className={`h-2 w-2 rounded-full ${health.chroma_status === 'ok' ? 'bg-green-500' : 'bg-red-500'}`}
+                />
                 <span className="font-medium">ChromaDB:</span>
-                <span className="text-gray-600">{health.chroma_status} · {health.chroma_db_path}</span>
+                <span className="text-gray-600">
+                  {health.chroma_status} · {health.chroma_db_path}
+                </span>
               </div>
               <div>
                 <span className="font-medium">Collections:</span>
@@ -116,7 +137,9 @@ export default function DebugPage() {
               </div>
             </div>
           )}
-          {!health && !healthError && <p className="text-sm text-gray-400 animate-pulse">Loading…</p>}
+          {!health && !healthError && (
+            <p className="text-sm text-gray-400 animate-pulse">Loading…</p>
+          )}
         </div>
       </section>
 
@@ -140,7 +163,9 @@ export default function DebugPage() {
               className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:outline-none"
             >
               {['explain', 'summarize', 'retrieve', 'open_questions', 'quiz', 'oral'].map((a) => (
-                <option key={a} value={a}>{a}</option>
+                <option key={a} value={a}>
+                  {a}
+                </option>
               ))}
             </select>
           </div>
@@ -163,7 +188,9 @@ export default function DebugPage() {
 
           {retrievalResult && (
             <div>
-              <p className="text-xs font-medium text-gray-500 mb-2">Raw candidates ({(retrievalResult as any).total ?? 0}):</p>
+              <p className="text-xs font-medium text-gray-500 mb-2">
+                Raw candidates ({(retrievalResult as any).total ?? 0}):
+              </p>
               <pre className="bg-gray-50 rounded-md p-4 text-xs text-gray-700 overflow-auto max-h-80">
                 {JSON.stringify(retrievalResult, null, 2)}
               </pre>
@@ -173,18 +200,33 @@ export default function DebugPage() {
           {evidencePack && (
             <div>
               <p className="text-xs font-medium text-gray-500 mb-2">
-                Evidence pack · {evidencePack.chunks.length} chunks (from {evidencePack.total_candidates} candidates):
+                Evidence pack · {evidencePack.chunks.length} chunks (from{' '}
+                {evidencePack.total_candidates} candidates):
               </p>
               <div className="space-y-2">
                 {evidencePack.chunks.map((chunk, i) => (
-                  <div key={chunk.chunk_id} className="rounded-md border border-gray-200 p-3 text-xs">
+                  <div
+                    key={chunk.chunk_id}
+                    className="rounded-md border border-gray-200 p-3 text-xs"
+                  >
                     <div className="flex justify-between mb-1">
-                      <span className="font-medium text-gray-700">[{i + 1}] {chunk.anchor.doc_name}</span>
-                      <span className="text-orange-600 font-medium">{Math.round(chunk.score * 100)}%</span>
+                      <span className="font-medium text-gray-700">
+                        [{i + 1}] {chunk.anchor.doc_name}
+                      </span>
+                      <span className="text-orange-600 font-medium">
+                        {Math.round(chunk.score * 100)}%
+                      </span>
                     </div>
-                    {chunk.anchor.section && <p className="text-gray-500 mb-1">{chunk.anchor.section}</p>}
-                    <p className="text-gray-700">{chunk.text.slice(0, 300)}{chunk.text.length > 300 ? '…' : ''}</p>
-                    <p className="mt-1 text-gray-400">{chunk.chunk_id} · {chunk.anchor.chunk_type}</p>
+                    {chunk.anchor.section && (
+                      <p className="text-gray-500 mb-1">{chunk.anchor.section}</p>
+                    )}
+                    <p className="text-gray-700">
+                      {chunk.text.slice(0, 300)}
+                      {chunk.text.length > 300 ? '…' : ''}
+                    </p>
+                    <p className="mt-1 text-gray-400">
+                      {chunk.chunk_id} · {chunk.anchor.chunk_type}
+                    </p>
                   </div>
                 ))}
               </div>

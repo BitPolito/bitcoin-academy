@@ -64,8 +64,18 @@ export function LessonNav({
                   aria-hidden="true"
                 >
                   {isCompleted ? (
-                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    <svg
+                      className="h-3 w-3"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={2.5}
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M4.5 12.75l6 6 9-13.5"
+                      />
                     </svg>
                   ) : (
                     index + 1
@@ -73,10 +83,15 @@ export function LessonNav({
                 </span>
                 <span className="flex-1 min-w-0 font-medium truncate">{lesson.title}</span>
                 {isStudied && (
-                  <span className="flex-shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-blue-dark dark:bg-white opacity-60" title="Last studied" />
+                  <span
+                    className="flex-shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-blue-dark dark:bg-white opacity-60"
+                    title="Last studied"
+                  />
                 )}
                 {isCompleted && (
-                  <span className="flex-shrink-0 font-mono text-[9px] tracking-[0.18em] uppercase opacity-60">done</span>
+                  <span className="flex-shrink-0 font-mono text-[9px] tracking-[0.18em] uppercase opacity-60">
+                    done
+                  </span>
                 )}
               </button>
             </li>

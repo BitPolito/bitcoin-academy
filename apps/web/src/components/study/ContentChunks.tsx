@@ -31,7 +31,12 @@ interface ContentChunksProps {
   activeCitationDocIds?: Set<string>;
 }
 
-export function ContentChunks({ courseId, accessToken, className, activeCitationDocIds }: ContentChunksProps) {
+export function ContentChunks({
+  courseId,
+  accessToken,
+  className,
+  activeCitationDocIds,
+}: ContentChunksProps) {
   const [contents, setContents] = useState<DocumentContent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -109,45 +114,52 @@ export function ContentChunks({ courseId, accessToken, className, activeCitation
         {contents.map((doc) => {
           const isCited = activeCitationDocIds?.has(doc.documentId);
           return (
-          <div
-            key={doc.documentId}
-            className={`rounded-md transition-colors ${isCited ? 'b-hard bg-blue-dark/5 dark:bg-blue-dark/20 p-2' : ''}`}
-          >
-            <div className="flex items-center gap-2 mb-2">
-              {isCited && (
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-dark dark:bg-white flex-shrink-0" />
-              )}
-              <p className="font-mono text-[10px] tracking-wide truncate opacity-80" title={doc.filename}>
-                {doc.filename}
-              </p>
-            </div>
+            <div
+              key={doc.documentId}
+              className={`rounded-md transition-colors ${isCited ? 'b-hard bg-blue-dark/5 dark:bg-blue-dark/20 p-2' : ''}`}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                {isCited && (
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-dark dark:bg-white flex-shrink-0" />
+                )}
+                <p
+                  className="font-mono text-[10px] tracking-wide truncate opacity-80"
+                  title={doc.filename}
+                >
+                  {doc.filename}
+                </p>
+              </div>
 
-            {/* Section chips */}
-            {doc.sections.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {doc.sections.map((section, i) => (
-                  <span key={i} className="chip" style={{ border: '1px solid currentColor' }}>
-                    {section.title ?? `Section ${i + 1}`}
-                  </span>
+              {/* Section chips */}
+              {doc.sections.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {doc.sections.map((section, i) => (
+                    <span key={i} className="chip" style={{ border: '1px solid currentColor' }}>
+                      {section.title ?? `Section ${i + 1}`}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Sample chunks */}
+              <div className="space-y-1.5">
+                {doc.chunks.map((chunk, i) => (
+                  <div key={i} className="b-thin rounded-md p-2.5 text-[12px] leading-relaxed">
+                    <div className="flex items-start gap-2">
+                      <span className="flex-shrink-0 font-mono text-[10px] opacity-50 mt-0.5">
+                        {i + 1}
+                      </span>
+                      <p className="flex-1 opacity-90">{chunk.text}</p>
+                    </div>
+                    {chunk.section && (
+                      <p className="mt-1 font-mono text-[10px] opacity-50 pl-5">
+                        § {chunk.section}
+                      </p>
+                    )}
+                  </div>
                 ))}
               </div>
-            )}
-
-            {/* Sample chunks */}
-            <div className="space-y-1.5">
-              {doc.chunks.map((chunk, i) => (
-                <div key={i} className="b-thin rounded-md p-2.5 text-[12px] leading-relaxed">
-                  <div className="flex items-start gap-2">
-                    <span className="flex-shrink-0 font-mono text-[10px] opacity-50 mt-0.5">{i + 1}</span>
-                    <p className="flex-1 opacity-90">{chunk.text}</p>
-                  </div>
-                  {chunk.section && (
-                    <p className="mt-1 font-mono text-[10px] opacity-50 pl-5">§ {chunk.section}</p>
-                  )}
-                </div>
-              ))}
             </div>
-          </div>
           );
         })}
       </div>

@@ -20,11 +20,16 @@ export function StudyOutput({ result, courseId, onOralFollowUp }: StudyOutputPro
   return (
     <div className="space-y-4">
       {!hasOutput && !hasCitations && (
-        <p className="font-mono text-[11px] opacity-50 italic">No results found in course materials.</p>
+        <p className="font-mono text-[11px] opacity-50 italic">
+          No results found in course materials.
+        </p>
       )}
 
       {!hasOutput && hasCitations && result.action !== 'retrieve' && (
-        <div className="b-thin rounded-md px-4 py-3 text-sm" style={{ borderColor: '#a55a00', color: '#a55a00' }}>
+        <div
+          className="b-thin rounded-md px-4 py-3 text-sm"
+          style={{ borderColor: '#a55a00', color: '#a55a00' }}
+        >
           LLM generation unavailable (OPENAI_API_KEY not configured). Showing source passages below.
         </div>
       )}
@@ -48,11 +53,15 @@ export function StudyOutput({ result, courseId, onOralFollowUp }: StudyOutputPro
           >
             <svg
               className={`h-3 w-3 transition-transform ${showSources ? 'rotate-90' : ''}`}
-              fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2.5}
+              stroke="currentColor"
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
             </svg>
-            {showSources ? 'Hide' : 'Show'} {result.citations.length} source{result.citations.length !== 1 ? 's' : ''}
+            {showSources ? 'Hide' : 'Show'} {result.citations.length} source
+            {result.citations.length !== 1 ? 's' : ''}
           </button>
           {showSources && (
             <div className="mt-2 space-y-2">
@@ -85,13 +94,20 @@ interface ParsedQuestion {
 }
 
 function parseQuizQuestion(raw: string): ParsedQuestion {
-  const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean);
+  const lines = raw
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
   const qLine = lines.find((l) => /^Q\d*[:.]/i.test(l));
   const question = qLine ? qLine.replace(/^Q\d*[:.]\s*/i, '') : raw.trim();
   const options = lines.filter((l) => /^[A-D][).]\s/.test(l));
   const answerLine = lines.find((l) => /^Answer:/i.test(l));
   const correctLetter = answerLine
-    ? answerLine.replace(/^Answer:\s*/i, '').trim().charAt(0).toUpperCase()
+    ? answerLine
+        .replace(/^Answer:\s*/i, '')
+        .trim()
+        .charAt(0)
+        .toUpperCase()
     : '';
   return { question, options, correctLetter };
 }
@@ -103,7 +119,9 @@ function QuizQuestion({ raw, index }: { raw: string; index: number }) {
 
   return (
     <div className="b-thin rounded-lg p-4 bg-white dark:bg-blue-dark/20">
-      <p className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-50 mb-2">Q{index + 1}</p>
+      <p className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-50 mb-2">
+        Q{index + 1}
+      </p>
       <p className="text-[13.5px] font-medium leading-snug mb-3">{question}</p>
 
       {options.length > 0 ? (
@@ -121,17 +139,17 @@ function QuizQuestion({ raw, index }: { raw: string; index: number }) {
                   revealed && isCorrect
                     ? 'bg-[rgba(26,127,58,0.08)] dark:bg-[rgba(26,127,58,0.15)]'
                     : revealed && isSelected && !isCorrect
-                    ? 'bg-[rgba(179,38,30,0.08)] dark:bg-[rgba(179,38,30,0.15)]'
-                    : isSelected
-                    ? 'bg-blue-dark text-white'
-                    : 'hover:bg-blue-dark/5 dark:hover:bg-white/5'
+                      ? 'bg-[rgba(179,38,30,0.08)] dark:bg-[rgba(179,38,30,0.15)]'
+                      : isSelected
+                        ? 'bg-blue-dark text-white'
+                        : 'hover:bg-blue-dark/5 dark:hover:bg-white/5'
                 }`}
                 style={
                   revealed && isCorrect
                     ? { borderColor: '#1a7f3a' }
                     : revealed && isSelected && !isCorrect
-                    ? { borderColor: '#b3261e' }
-                    : {}
+                      ? { borderColor: '#b3261e' }
+                      : {}
                 }
               >
                 {opt}
@@ -146,7 +164,10 @@ function QuizQuestion({ raw, index }: { raw: string; index: number }) {
               </button>
             )}
             {revealed && (
-              <p className="font-mono text-[11px]" style={{ color: selected === correctLetter ? '#1a7f3a' : '#b3261e' }}>
+              <p
+                className="font-mono text-[11px]"
+                style={{ color: selected === correctLetter ? '#1a7f3a' : '#b3261e' }}
+              >
                 {selected === correctLetter ? '✓ Correct' : `✗ Correct: ${correctLetter}`}
               </p>
             )}
@@ -162,8 +183,13 @@ function QuizQuestion({ raw, index }: { raw: string; index: number }) {
             {revealed ? 'Hide answer' : 'Reveal answer'}
           </button>
           {revealed && correctLetter && (
-            <div className="mt-2 b-thin rounded-md px-3 py-2" style={{ borderColor: '#1a7f3a', background: 'rgba(26,127,58,0.06)' }}>
-              <p className="font-mono text-[12px]" style={{ color: '#1a7f3a' }}>Answer: {correctLetter}</p>
+            <div
+              className="mt-2 b-thin rounded-md px-3 py-2"
+              style={{ borderColor: '#1a7f3a', background: 'rgba(26,127,58,0.06)' }}
+            >
+              <p className="font-mono text-[12px]" style={{ color: '#1a7f3a' }}>
+                Answer: {correctLetter}
+              </p>
             </div>
           )}
         </div>
@@ -175,7 +201,9 @@ function QuizQuestion({ raw, index }: { raw: string; index: number }) {
 function QuizOutput({ text }: { text: string }) {
   const questions = text.split(/\n(?=Q:)/g).filter((s) => s.trim());
   if (questions.length === 0) {
-    return <pre className="whitespace-pre-wrap font-sans text-[13.5px] leading-relaxed">{text}</pre>;
+    return (
+      <pre className="whitespace-pre-wrap font-sans text-[13.5px] leading-relaxed">{text}</pre>
+    );
   }
   return (
     <div className="space-y-4">
@@ -245,7 +273,9 @@ function QuestionsOutput({ text }: { text: string }) {
   return (
     <div className="space-y-2">
       {lines.map((line, i) => (
-        <p key={i} className="text-[13.5px] leading-relaxed">{line}</p>
+        <p key={i} className="text-[13.5px] leading-relaxed">
+          {line}
+        </p>
       ))}
     </div>
   );

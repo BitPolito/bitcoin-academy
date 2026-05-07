@@ -15,11 +15,12 @@ export function CitationCard({ citation, courseId, index }: CitationCardProps) {
   const locationLabel = citation.page
     ? `p.${citation.page}`
     : citation.slide
-    ? `slide ${citation.slide}`
-    : null;
+      ? `slide ${citation.slide}`
+      : null;
 
   const label = [citation.label || null, locationLabel].filter(Boolean).join(' · ') || 'Source';
-  const snippet = citation.snippet.length > 180 ? citation.snippet.slice(0, 180) + '…' : citation.snippet;
+  const snippet =
+    citation.snippet.length > 180 ? citation.snippet.slice(0, 180) + '…' : citation.snippet;
 
   function handleClick() {
     if (!citation.doc_id) return;
@@ -27,7 +28,9 @@ export function CitationCard({ citation, courseId, index }: CitationCardProps) {
     if (citation.page) params.set('page', String(citation.page));
     else if (citation.slide) params.set('slide', String(citation.slide));
     const query = params.toString();
-    router.push(`/courses/${courseId}/documents/${citation.doc_id}/preview${query ? `?${query}` : ''}`);
+    router.push(
+      `/courses/${courseId}/documents/${citation.doc_id}/preview${query ? `?${query}` : ''}`
+    );
   }
 
   return (

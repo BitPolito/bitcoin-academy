@@ -83,18 +83,14 @@ async function runUpload(
   accessToken: string | undefined,
   setJobs: React.Dispatch<React.SetStateAction<UploadJob[]>>,
   onRelease: () => void,
-  onComplete?: () => void,
+  onComplete?: () => void
 ): Promise<void> {
   const patch = (p: Partial<UploadJob>) =>
     setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, ...p } : j)));
 
   try {
-    const doc = await uploadDocumentWithProgress(
-      courseId,
-      file,
-      accessToken,
-      documentType,
-      (pct) => patch({ uploadPct: pct }),
+    const doc = await uploadDocumentWithProgress(courseId, file, accessToken, documentType, (pct) =>
+      patch({ uploadPct: pct })
     );
     patch({ docId: doc.id, status: 'processing', uploadPct: 100 });
 
@@ -129,7 +125,6 @@ async function runUpload(
       errorKind: 'upload',
       errorMessage: err instanceof Error ? err.message : 'Upload failed',
     });
-    onComplete?.();
   } finally {
     onRelease();
   }
@@ -140,7 +135,7 @@ async function runRetry(
   docId: string,
   accessToken: string | undefined,
   setJobs: React.Dispatch<React.SetStateAction<UploadJob[]>>,
-  onComplete?: () => void,
+  onComplete?: () => void
 ): Promise<void> {
   setJobs((prev) =>
     prev.map((j) =>
@@ -153,8 +148,8 @@ async function runRetry(
             errorMessage: undefined,
             retryCount: j.retryCount + 1,
           }
-        : j,
-    ),
+        : j
+    )
   );
 
   const patch = (p: Partial<UploadJob>) =>
@@ -217,7 +212,9 @@ function JobRow({
     job.status === 'uploading'
       ? `${job.uploadPct}%`
       : job.status === 'processing'
-        ? (job.processingStage ? (STAGE_LABELS[job.processingStage] ?? job.processingStage) : 'Processing')
+        ? job.processingStage
+          ? (STAGE_LABELS[job.processingStage] ?? job.processingStage)
+          : 'Processing'
         : job.status === 'indexed'
           ? 'Indexed'
           : job.status === 'queued'
@@ -428,9 +425,7 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
         if (job.status === 'failed') continue;
         const { id, file, documentType } = job;
         enqueue(() => {
-          setJobs((prev) =>
-            prev.map((j) => (j.id === id ? { ...j, status: 'uploading' } : j)),
-          );
+          setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, status: 'uploading' } : j)));
           void runUpload(
             id,
             file,
@@ -439,19 +434,19 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
             accessToken,
             setJobs,
             release,
-            onUploadComplete,
+            onUploadComplete
           );
         });
       }
     },
-    [selectedType, courseId, accessToken, enqueue, release, onUploadComplete, showToast],
+    [selectedType, courseId, accessToken, enqueue, release, onUploadComplete, showToast]
   );
 
   const handleRetry = useCallback(
     (jobId: string, docId: string) => {
       void runRetry(jobId, docId, accessToken, setJobs, onUploadComplete);
     },
-    [accessToken, onUploadComplete],
+    [accessToken, onUploadComplete]
   );
 
   const dismissJob = useCallback((jobId: string) => {
@@ -468,7 +463,7 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
       setIsDragOver(false);
       if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files);
     },
-    [handleFiles],
+    [handleFiles]
   );
 
   const doneCount = jobs.filter((j) => j.status === 'indexed' || j.status === 'failed').length;

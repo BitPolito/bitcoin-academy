@@ -18,7 +18,9 @@ interface CourseCardProps {
 function Mini({ n, k, warn }: { n: number; k: string; warn?: boolean }) {
   return (
     <div className="text-center">
-      <div className="text-xl tnum font-medium" style={warn ? { color: '#a55a00' } : {}}>{n}</div>
+      <div className="text-xl tnum font-medium" style={warn ? { color: '#a55a00' } : {}}>
+        {n}
+      </div>
       <div className="font-mono text-[9px] tracking-[0.18em] uppercase opacity-70 mt-0.5">{k}</div>
     </div>
   );
@@ -28,10 +30,13 @@ export function CourseCard({ course, stats = null }: CourseCardProps) {
   const failed = stats?.error ?? 0;
   const processing = stats?.processing ?? 0;
   const statusDot =
-    failed > 0       ? { color: '#b3261e', label: `${failed} failed` }
-    : processing > 0 ? { color: '#a55a00', label: `${processing} processing` }
-    : stats          ? { color: '#1a7f3a', label: 'all indexed' }
-    : { color: '#001CE0', label: 'ready' };
+    failed > 0
+      ? { color: '#b3261e', label: `${failed} failed` }
+      : processing > 0
+        ? { color: '#a55a00', label: `${processing} processing` }
+        : stats
+          ? { color: '#1a7f3a', label: 'all indexed' }
+          : { color: '#001CE0', label: 'ready' };
 
   return (
     <Link
@@ -46,7 +51,10 @@ export function CourseCard({ course, stats = null }: CourseCardProps) {
       </div>
 
       {/* Striped cover */}
-      <div className="stripes b-thin rounded-md mb-4 relative overflow-hidden" style={{ aspectRatio: '16/7' }}>
+      <div
+        className="stripes b-thin rounded-md mb-4 relative overflow-hidden"
+        style={{ aspectRatio: '16/7' }}
+      >
         <div className="absolute inset-0 flex items-center justify-center">
           <span className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-50">
             {course.title.slice(0, 16)}
@@ -60,14 +68,16 @@ export function CourseCard({ course, stats = null }: CourseCardProps) {
 
       <h3 className="text-lg font-medium leading-snug mb-1">{course.title}</h3>
       {course.description && (
-        <div className="font-mono text-[11px] opacity-70 mb-3 line-clamp-1">{course.description}</div>
+        <div className="font-mono text-[11px] opacity-70 mb-3 line-clamp-1">
+          {course.description}
+        </div>
       )}
 
       {/* Doc stats grid */}
       {stats && (
         <div className="grid grid-cols-3 gap-2 mb-4">
-          <Mini n={stats.total}      k="docs"    />
-          <Mini n={stats.ready}      k="indexed" />
+          <Mini n={stats.total} k="docs" />
+          <Mini n={stats.ready} k="indexed" />
           <Mini n={processing + failed} k="open" warn={failed > 0 || processing > 0} />
         </div>
       )}
@@ -75,7 +85,10 @@ export function CourseCard({ course, stats = null }: CourseCardProps) {
       {/* Footer */}
       <div className="flex items-center b-thin-t pt-3 mt-auto">
         <span className="font-mono text-[11px] flex items-center gap-2">
-          <span className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: statusDot.color }} />
+          <span
+            className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
+            style={{ background: statusDot.color }}
+          />
           {statusDot.label}
         </span>
       </div>
