@@ -117,7 +117,7 @@ STUDY_ACTION_REGISTRY: Dict[StudyAction, ActionMeta] = {
 # ---------------------------------------------------------------------------
 
 class StudyDispatchRequest(BaseModel):
-    query: str = Field(..., min_length=1, max_length=2000)
+    query: str = Field(..., min_length=5, max_length=2000, description="Student question (min 5 characters)")
     action: StudyAction
 
 

@@ -60,7 +60,8 @@ _SYSTEM_PROMPTS = {
     StudyAction.EXPLAIN: (
         "You are a Bitcoin education assistant for BitPolito Academy. "
         "Using ONLY the provided context, explain the concept clearly in 2–4 paragraphs. "
-        "Cite sources where relevant (e.g. 'p. 7', 'Slide 5'). "
+        "When you use information from a context passage, cite it as [ref_N] inline "
+        "(e.g. 'Bitcoin mining [ref_1] is...'). "
         "If the answer is not in the context, say so explicitly."
     ),
     StudyAction.SUMMARIZE: (
@@ -76,26 +77,43 @@ _SYSTEM_PROMPTS = {
     StudyAction.QUIZ: (
         "Based on the provided context, create 4 multiple-choice questions for self-assessment. "
         "For each question provide: the question, options A–D, and the correct answer. "
-        "Format each question as:\nQ: ...\nA) ...\nB) ...\nC) ...\nD) ...\nAnswer: [letter]"
+        "After the correct answer note the supporting reference as [ref_N]. "
+        "Format each question as:\nQ: ...\nA) ...\nB) ...\nC) ...\nD) ...\nAnswer: [letter] [ref_N]"
     ),
     StudyAction.ORAL: (
         "You are simulating an oral exam on Bitcoin material. "
         "Generate 3 oral exam questions drawn from the provided context, "
         "followed by a concise model answer for each. "
+        "Cite supporting context passages as [ref_N] in each model answer. "
         "Format each entry as:\nQ: ...\nModel answer: ..."
     ),
     StudyAction.DERIVE: (
         "You are a Bitcoin education assistant skilled in formal derivations. "
         "Using ONLY the provided context, present a step-by-step proof or derivation. "
-        "Number each step, state the reasoning clearly, and cite sources (e.g. 'p.7', 'Slide 5'). "
+        "Number each step, state the reasoning clearly, and cite sources as [ref_N]. "
         "If the full derivation is not supported by the context, say so explicitly."
     ),
     StudyAction.COMPARE: (
         "You are a Bitcoin education assistant. "
-        "Using ONLY the provided context, produce a structured comparison of the requested concepts or definitions. "
+        "Using ONLY the provided context, produce a structured comparison of the requested concepts. "
         "Use a table or parallel-list format: left column = Concept A, right column = Concept B. "
-        "Conclude with a 1-paragraph synthesis of key differences and similarities, citing sources."
+        "Conclude with a 1-paragraph synthesis citing sources as [ref_N]."
     ),
+}
+
+# Per-action LLM temperature:
+# - quiz/oral: low temperature for factual, deterministic answers
+# - open_questions/summarize: moderate for coherent but varied output
+# - explain/derive/compare/retrieve: default for balanced creativity
+_ACTION_TEMPERATURE: dict[StudyAction, float] = {
+    StudyAction.QUIZ: 0.1,
+    StudyAction.ORAL: 0.1,
+    StudyAction.OPEN_QUESTIONS: 0.2,
+    StudyAction.SUMMARIZE: 0.2,
+    StudyAction.EXPLAIN: 0.3,
+    StudyAction.DERIVE: 0.3,
+    StudyAction.COMPARE: 0.3,
+    StudyAction.RETRIEVE: 0.3,
 }
 
 
@@ -225,21 +243,27 @@ async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple
 async def _generate(action: StudyAction, question: str, context: str) -> Optional[str]:
     """Call OpenAI via langchain-openai with the action-specific system prompt.
 
+    Uses build_prompt() for a structured human-turn message and per-action
+    temperature for optimal output quality.
+
     Returns None when langchain-openai is unavailable or OPENAI_API_KEY is unset,
     allowing the caller to fall back to the raw QVAC answer.
     """
     if not _LANGCHAIN_AVAILABLE or not _OPENAI_API_KEY:
         return None
 
+    from app.rag.chains import build_prompt
+
     system_prompt = _SYSTEM_PROMPTS[action]
-    user_content = (
-        f"Context:\n{context}\n\nQuestion: {question}"
-        if context
-        else f"Question: {question}"
-    )
+    temperature = _ACTION_TEMPERATURE.get(action, 0.3)
+    user_content = build_prompt(context=context, question=question)
 
     try:
-        llm = _ChatOpenAI(model="gpt-4o-mini", temperature=0.3, timeout=_LLM_TIMEOUT)  # type: ignore[call-arg]
+        llm = _ChatOpenAI(  # type: ignore[call-arg]
+            model="gpt-4o-mini",
+            temperature=temperature,
+            timeout=_LLM_TIMEOUT,
+        )
         response = await llm.ainvoke(
             [_SystemMessage(content=system_prompt), _HumanMessage(content=user_content)]  # type: ignore[call-arg]
         )
@@ -318,6 +342,9 @@ async def dispatch(
     including when an exception is raised.  The request_id is not exposed
     in the HTTP response — it lives only in the log.
     """
+    if len(question.strip()) < 5:
+        raise ValueError("Query too short — must be at least 5 characters")
+
     request_id = str(uuid.uuid4())
     started_at = time.perf_counter()
 
