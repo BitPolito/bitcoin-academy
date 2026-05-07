@@ -10,6 +10,7 @@ import dataclasses
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -167,6 +168,48 @@ def _empty_pack(query: str, action: StudyAction) -> EvidencePack:
     )
 
 
+_REF_PATTERN = re.compile(r'\[ref_(\d+)\]', re.IGNORECASE)
+
+
+def _parse_citations(text: str, pack: EvidencePack) -> List[SourceChunk]:
+    """Extract [ref_N] markers from generated text and return referenced chunks.
+
+    The LLM is instructed to emit [ref_N] in-line; this function parses those
+    markers and returns SourceChunks for only the cited evidence, preserving
+    citation order (first appearance wins for dedup).
+
+    Falls back to all pack chunks when no [ref_N] markers are found — this
+    happens when the LLM ignores the citation instruction or when the action
+    does not require source grounding.
+    """
+    cited_indices: list[int] = []
+    seen: set[int] = set()
+    for m in _REF_PATTERN.finditer(text):
+        idx = int(m.group(1)) - 1  # [ref_N] is 1-based
+        if 0 <= idx < len(pack.chunks) and idx not in seen:
+            cited_indices.append(idx)
+            seen.add(idx)
+
+    if not cited_indices:
+        # No markers found — return all pack chunks as citations (backward-compat)
+        source_chunks = pack.chunks
+    else:
+        source_chunks = [pack.chunks[i] for i in cited_indices]
+
+    return [
+        SourceChunk(
+            snippet=c.text,
+            score=c.score,
+            label=c.anchor.doc_name,
+            page=c.anchor.page or 0,
+            slide=c.anchor.slide or 0,
+            section=c.anchor.section or "",
+            doc_id=c.anchor.doc_id,
+        )
+        for c in source_chunks
+    ]
+
+
 def _chroma_evidence(question: str, course_id: str) -> List[EvidenceChunk]:
     """Query ChromaDB and return EvidenceChunk list (same shape as QVAC results)."""
     from app.services.chroma_retrieval import query_chroma  # lazy — avoids circular import
@@ -291,27 +334,25 @@ async def _route(
         raw_answer, pack = await _retrieve(question, course_id, action)
         trace.chunks_found = len(pack.chunks)
 
-    # Derive SourceChunk list from pack (preserves existing DispatchResult/API shape)
-    sources: List[SourceChunk] = [
-        SourceChunk(
-            snippet=c.text,
-            score=c.score,
-            label=c.anchor.doc_name,
-            page=c.anchor.page or 0,
-            slide=c.anchor.slide or 0,
-            section=c.anchor.section or "",
-            doc_id=c.anchor.doc_id,
-        )
-        for c in pack.chunks
-    ]
-
     # Step 2 — retrieve-only shortcut: return deduplicated passages directly
     if not meta.generation_required:
+        all_sources: List[SourceChunk] = [
+            SourceChunk(
+                snippet=c.text,
+                score=c.score,
+                label=c.anchor.doc_name,
+                page=c.anchor.page or 0,
+                slide=c.anchor.slide or 0,
+                section=c.anchor.section or "",
+                doc_id=c.anchor.doc_id,
+            )
+            for c in pack.chunks
+        ]
         answer = pack.context_block() or raw_answer or "No relevant content found."
         return DispatchResult(
             answer=answer,
-            citations=sources,
-            retrieval_used=bool(sources),
+            citations=all_sources,
+            retrieval_used=bool(all_sources),
             evidence_pack=pack,
         )
 
@@ -320,9 +361,23 @@ async def _route(
     if generated is not None:
         trace.generation_ran = True
         answer = generated
+        # Parse [ref_N] markers to surface only the cited chunks as citations.
+        sources = _parse_citations(generated, pack)
     else:
         trace.fallback_used = True
         answer = raw_answer or "No relevant content found."
+        sources = [
+            SourceChunk(
+                snippet=c.text,
+                score=c.score,
+                label=c.anchor.doc_name,
+                page=c.anchor.page or 0,
+                slide=c.anchor.slide or 0,
+                section=c.anchor.section or "",
+                doc_id=c.anchor.doc_id,
+            )
+            for c in pack.chunks
+        ]
 
     return DispatchResult(answer=answer, citations=sources, retrieval_used=bool(sources), evidence_pack=pack)
 
