@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -23,6 +24,59 @@ _SERVICES_AI = _HERE.parents[2]
 _INGESTER_SRC = _SERVICES_AI.parents[1] / "workers" / "python-ingester" / "src"
 _CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", str(_SERVICES_AI / "chroma_db"))
 
+
+# ---------------------------------------------------------------------------
+# RetrievalTrace — full pipeline visibility for a single query
+# ---------------------------------------------------------------------------
+
+class ChunkSummary(BaseModel):
+    """Compact representation of a chunk for trace output."""
+    chunk_id: str
+    text_preview: str  # first 200 chars
+    score: float
+    rerank_score: float
+    anchor: dict[str, Any]
+
+
+class RetrievalTrace(BaseModel):
+    """Complete step-by-step trace of the retrieval pipeline for one query.
+
+    Intended for developer inspection — not returned in normal chat/study API
+    responses.  Exposes raw_chunks (pre-rerank), reranked_chunks, the final
+    evidence_pack, and any chunks that were discarded by dedup/truncation.
+    """
+    query: str
+    course_id: str
+    action: str
+    raw_chunks: list[ChunkSummary]
+    """Chunks as returned by ChromaDB, before reranking."""
+    reranked_chunks: list[ChunkSummary]
+    """Chunks after cross-encoder reranking (same set, different order/scores)."""
+    evidence_pack: EvidencePack
+    """Final evidence pack after dedup, boost, and token truncation."""
+    discarded_chunks: list[ChunkSummary]
+    """Chunks present in reranked_chunks but absent from evidence_pack.chunks."""
+
+
+class RetrievalTestRequest(BaseModel):
+    query: str
+    course_id: str
+    action: str = "explain"
+
+
+def _to_chunk_summary(chunk) -> ChunkSummary:  # type: ignore[no-untyped-def]
+    return ChunkSummary(
+        chunk_id=chunk.chunk_id,
+        text_preview=chunk.text[:200],
+        score=chunk.score,
+        rerank_score=chunk.rerank_score,
+        anchor=chunk.anchor.model_dump(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
 @router.get("/documents/{doc_id}/chunks")
 def get_document_chunks(
@@ -99,6 +153,46 @@ def get_evidence_pack(
     action: str = Query(default="explain"),
 ) -> EvidencePack:
     return evidence_pack_service.build(query, action, course_id)
+
+
+@router.post(
+    "/retrieval/test",
+    response_model=RetrievalTrace,
+    summary="Full retrieval pipeline trace (no LLM generation)",
+    description=(
+        "Runs retrieval → reranking → evidence pack for the given query and returns "
+        "a complete step-by-step trace.  Useful for diagnosing retrieval quality "
+        "without invoking the LLM."
+    ),
+)
+def test_retrieval_trace(body: RetrievalTestRequest) -> RetrievalTrace:
+    """Return a full RetrievalTrace for inspection — no LLM call."""
+    from app.services import retrieval_service
+    from app.services import reranker as reranker_module
+
+    # Retrieve with no min_score filter so the trace shows all raw candidates
+    raw = retrieval_service.search(
+        body.query, body.course_id, top_k=20, min_score=0.0
+    )
+
+    # Rerank (cross-encoder if available, else noop)
+    reranked = reranker_module.rerank(body.query, raw)
+
+    # Build evidence pack (applies dedup, boost, token truncation)
+    pack = evidence_pack_service.build_from_chunks(body.query, body.action, reranked)
+
+    pack_ids = {c.chunk_id for c in pack.chunks}
+    discarded = [c for c in reranked if c.chunk_id not in pack_ids]
+
+    return RetrievalTrace(
+        query=body.query,
+        course_id=body.course_id,
+        action=body.action,
+        raw_chunks=[_to_chunk_summary(c) for c in raw],
+        reranked_chunks=[_to_chunk_summary(c) for c in reranked],
+        evidence_pack=pack,
+        discarded_chunks=[_to_chunk_summary(c) for c in discarded],
+    )
 
 
 @router.get("/pipeline/health")
