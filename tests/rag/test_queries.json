@@ -1,0 +1,146 @@
+{
+  "description": "20 realistic Bitcoin study queries for RAG evaluation (Recall@5, MRR baseline).",
+  "version": "1.0",
+  "queries": [
+    {
+      "id": "q01",
+      "type": "what",
+      "query": "What is a UTXO and how does it differ from an account balance?",
+      "expected_keywords": ["unspent transaction output", "UTXO", "account model"],
+      "action": "explain"
+    },
+    {
+      "id": "q02",
+      "type": "how",
+      "query": "How does Bitcoin mining work?",
+      "expected_keywords": ["proof of work", "hash", "nonce", "difficulty", "block"],
+      "action": "explain"
+    },
+    {
+      "id": "q03",
+      "type": "what",
+      "query": "What is the Merkle tree and why is it used in Bitcoin?",
+      "expected_keywords": ["Merkle", "hash", "transaction", "root", "verification"],
+      "action": "explain"
+    },
+    {
+      "id": "q04",
+      "type": "compare",
+      "query": "Compare SegWit and Taproot upgrades",
+      "expected_keywords": ["SegWit", "Taproot", "witness", "signature", "Schnorr"],
+      "action": "compare"
+    },
+    {
+      "id": "q05",
+      "type": "why",
+      "query": "Why does Bitcoin have a 21 million coin limit?",
+      "expected_keywords": ["supply", "halving", "21 million", "scarcity", "monetary policy"],
+      "action": "explain"
+    },
+    {
+      "id": "q06",
+      "type": "what",
+      "query": "What is the Lightning Network?",
+      "expected_keywords": ["Lightning", "payment channel", "off-chain", "routing"],
+      "action": "explain"
+    },
+    {
+      "id": "q07",
+      "type": "how",
+      "query": "How does a Bitcoin transaction get confirmed?",
+      "expected_keywords": ["mempool", "miner", "fee", "confirmation", "block height"],
+      "action": "explain"
+    },
+    {
+      "id": "q08",
+      "type": "what",
+      "query": "What is a blockchain fork?",
+      "expected_keywords": ["hard fork", "soft fork", "consensus", "chain split"],
+      "action": "explain"
+    },
+    {
+      "id": "q09",
+      "type": "compare",
+      "query": "What is the difference between a full node and a light node?",
+      "expected_keywords": ["full node", "SPV", "light client", "block header", "verification"],
+      "action": "compare"
+    },
+    {
+      "id": "q10",
+      "type": "how",
+      "query": "How does the difficulty adjustment algorithm work?",
+      "expected_keywords": ["difficulty", "2016 blocks", "target", "retargeting", "hashrate"],
+      "action": "explain"
+    },
+    {
+      "id": "q11",
+      "type": "what",
+      "query": "What is a digital signature in Bitcoin?",
+      "expected_keywords": ["ECDSA", "private key", "public key", "signature", "secp256k1"],
+      "action": "explain"
+    },
+    {
+      "id": "q12",
+      "type": "why",
+      "query": "Why is double spending a problem and how does Bitcoin solve it?",
+      "expected_keywords": ["double spend", "consensus", "longest chain", "proof of work"],
+      "action": "explain"
+    },
+    {
+      "id": "q13",
+      "type": "what",
+      "query": "What is Script in Bitcoin transactions?",
+      "expected_keywords": ["Script", "locking", "unlocking", "P2PKH", "stack"],
+      "action": "explain"
+    },
+    {
+      "id": "q14",
+      "type": "when",
+      "query": "When did the first Bitcoin halving occur and what was its effect?",
+      "expected_keywords": ["halving", "2012", "block reward", "50 BTC", "25 BTC"],
+      "action": "explain"
+    },
+    {
+      "id": "q15",
+      "type": "how",
+      "query": "How are Bitcoin addresses generated from public keys?",
+      "expected_keywords": ["address", "SHA-256", "RIPEMD-160", "Base58", "hash"],
+      "action": "explain"
+    },
+    {
+      "id": "q16",
+      "type": "vague",
+      "query": "Bitcoin security",
+      "expected_keywords": ["51% attack", "hash", "consensus", "mining", "cryptography"],
+      "action": "explain"
+    },
+    {
+      "id": "q17",
+      "type": "what",
+      "query": "What is the mempool?",
+      "expected_keywords": ["mempool", "unconfirmed", "transaction pool", "fee", "priority"],
+      "action": "explain"
+    },
+    {
+      "id": "q18",
+      "type": "compare",
+      "query": "Compare Bitcoin and Ethereum consensus mechanisms",
+      "expected_keywords": ["proof of work", "proof of stake", "mining", "validator"],
+      "action": "compare"
+    },
+    {
+      "id": "q19",
+      "type": "how",
+      "query": "How does the Bitcoin P2P network propagate transactions?",
+      "expected_keywords": ["gossip", "peer", "broadcast", "propagation", "node"],
+      "action": "explain"
+    },
+    {
+      "id": "q20",
+      "type": "vague",
+      "query": "cryptographic hash properties",
+      "expected_keywords": ["collision resistance", "preimage", "SHA-256", "deterministic"],
+      "action": "explain"
+    }
+  ]
+}
