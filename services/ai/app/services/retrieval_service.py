@@ -38,13 +38,27 @@ def _get_collection():
     )
 
 
-def search(query: str, course_id: str, top_k: int = 10) -> list[EvidenceChunk]:
+def search(
+    query: str,
+    course_id: str,
+    top_k: int = 10,
+    min_score: float = 0.4,
+) -> list[EvidenceChunk]:
     """Return EvidenceChunks matching query filtered to course_id.
+
+    Args:
+        query: Student question — stripped and truncated to 300 chars before embedding.
+        course_id: Only chunks belonging to this course are returned.
+        top_k: Maximum number of candidates to retrieve from ChromaDB.
+        min_score: Cosine-similarity threshold; chunks below this value are discarded
+            (default 0.4 — calibrate on real course documents).
 
     Returns empty list on any error so callers can degrade gracefully.
     """
+    # Preprocess query: strip whitespace, cap length to avoid oversized embeddings
+    clean_query = query.strip()[:300]
     # Sanitize ligature corruption (same fix as in VerilocalSearcher)
-    clean_query = query.replace("昀椀", "fi").replace("昀氀", "fl")
+    clean_query = clean_query.replace("昀椀", "fi").replace("昀氀", "fl")
 
     try:
         model = _get_embedding_model()
@@ -97,7 +111,16 @@ def search(query: str, course_id: str, top_k: int = 10) -> list[EvidenceChunk]:
                 )
             )
 
-        return chunks
+        filtered = [c for c in chunks if c.score >= min_score]
+        if len(filtered) < len(chunks):
+            logger.debug(
+                "min_score=%.2f discarded %d/%d chunks for course_id=%s",
+                min_score,
+                len(chunks) - len(filtered),
+                len(chunks),
+                course_id,
+            )
+        return filtered
 
     except Exception as exc:
         logger.warning("Retrieval failed for course_id=%s: %s", course_id, exc)
