@@ -1,8 +1,6 @@
 import {
   loadModel,
   unloadModel,
-  startQVACProvider,
-  stopQVACProvider,
   close,
   GTE_LARGE_FP16,
 } from "@qvac/sdk";
@@ -18,8 +16,6 @@ let embeddingModelId = null;
 // and export getLlmModelId() returning its id.
 
 export async function initModels() {
-  await startQVACProvider();
-
   console.log("[qvac] loading embedding model...");
   embeddingModelId = await loadModel({
     modelSrc: EMB_SRC,
@@ -31,7 +27,6 @@ export async function initModels() {
 
 export async function shutdownModels() {
   if (embeddingModelId) await unloadModel({ modelId: embeddingModelId });
-  await stopQVACProvider();
   await close();
 }
 

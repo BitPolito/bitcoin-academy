@@ -33,6 +33,18 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   api:
     build:
       context: ./services/ai
@@ -49,10 +61,35 @@ services:
       - CORS_ORIGINS=http://localhost:3000
       - QVAC_SERVICE_URL=http://qvac:3001
       - QVAC_INGEST_DIR=/qvac_ingest
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
       qvac:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  arq-worker:
+    build:
+      context: ./services/ai
+    command: arq app.workers.arq_worker.WorkerSettings
+    volumes:
+      - ./services/ai:/app
+      - qvac_ingest:/qvac_ingest
+    env_file:
+      - ./services/ai/.env
+    environment:
+      - DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy
+      - QVAC_SERVICE_URL=http://qvac:3001
+      - QVAC_INGEST_DIR=/qvac_ingest
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qvac:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   web:
@@ -76,3 +113,4 @@ volumes:
   postgres_data:
   qvac_data:
   qvac_ingest:
+  redis_data:

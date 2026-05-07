@@ -14,6 +14,11 @@ from services.ai.app.schemas.normalized_document import (
 )
 
 try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
+
+try:
     from docling.document_converter import DocumentConverter
 except ImportError:
     DocumentConverter = None
@@ -140,17 +145,25 @@ class StructuralParser:
             try:
                 return self._parse_with_docling()
             except Exception as e:
-                logger.warning(f"Docling failed ({e}), falling back to hybrid parser.")
-            
+                available_pages = len(pages) if pages is not None else 0
+                logger.warning(
+                    "Docling failed (%s), falling back to hybrid parser with %d available pages.",
+                    e,
+                    available_pages,
+                )
+                if not available_pages:
+                    logger.error("Fallback aborted: ingestor provided 0 pages — re-raising Docling exception.")
+                    raise
+
         blocks = []
         
-        # --- PPTX HANDLING (Unchanged) ---
+        # --- PPTX HANDLING ---
         if self.document_type == DocumentType.LECTURE_SLIDES:
             for i, slide in enumerate(pages):
                 slide_num = i + 1
                 title_text = slide.shapes.title.text.strip() if slide.shapes.title else f"Slide {slide_num}"
                 self.current_section_path = [self._sanitize_text(title_text)]
-                
+
                 blocks.append(DocumentBlock(
                     block_id=str(uuid.uuid4()),
                     block_type=BlockType.SLIDE_TITLE,
@@ -158,7 +171,7 @@ class StructuralParser:
                     position=BlockPosition(slide=slide_num, section_path=self.current_section_path.copy()),
                     heading_level=1
                 ))
-                
+
                 for shape in slide.shapes:
                     if not shape.has_text_frame or shape == slide.shapes.title:
                         continue
@@ -170,27 +183,69 @@ class StructuralParser:
                             text=body_text,
                             position=BlockPosition(slide=slide_num, section_path=self.current_section_path.copy())
                         ))
+
+                # Speaker notes often contain the actual explanations
+                try:
+                    notes_text = self._sanitize_text(
+                        slide.notes_slide.notes_text_frame.text.strip()
+                    )
+                    if notes_text:
+                        blocks.append(DocumentBlock(
+                            block_id=str(uuid.uuid4()),
+                            block_type=BlockType.SPEAKER_NOTES,
+                            text=notes_text,
+                            position=BlockPosition(slide=slide_num, section_path=self.current_section_path.copy())
+                        ))
+                except Exception:
+                    pass
                         
-        # --- PDF HANDLING (Now with Regex Armor) ---
+        # --- PDF HANDLING ---
         else:
             for page in pages:
-                page_number = page.page_number
-                words = page.extract_words(extra_attrs=["size"], keep_blank_chars=True)
+                # Reset exclusion zone at each new page so content after the last
+                # "References" heading on a previous page is not silently discarded.
+                self.in_exclusion_zone = False
+
+                # fitz.Page: number is 0-indexed; add 1 for human-readable page numbers.
+                page_number = page.number + 1
+
+                # Extract word-like objects from fitz spans, preserving size per word.
+                words = []
+                for block in page.get_text("dict")["blocks"]:
+                    if block.get("type") != 0:  # skip image blocks
+                        continue
+                    for line in block["lines"]:
+                        for span in line["spans"]:
+                            span_text = span["text"]
+                            span_size = span["size"]
+                            span_top = span["bbox"][1]
+                            for token in span_text.split():
+                                if token:
+                                    words.append({"text": token, "top": span_top, "size": span_size})
+
                 if not words:
                     continue
 
-                sizes = [w['size'] for w in words if 'size' in w]
+                sizes = [w['size'] for w in words]
                 if not sizes:
                     continue
                 median_size = statistics.median(sizes)
-                heading_threshold = median_size * 1.15
 
-                lines_dict = {}
+                lines_dict: dict = {}
                 for word in words:
                     line_y = round(word['top'] / 2) * 2
                     if line_y not in lines_dict:
                         lines_dict[line_y] = []
                     lines_dict[line_y].append(word)
+
+                # Adaptive threshold: lower to ×1.05 when no line on this page
+                # exceeds ×1.15 (uniform-font PDFs, scans, slides exported as PDF).
+                any_heading_candidate = any(
+                    statistics.mean([w['size'] for w in lines_dict[y]]) > median_size * 1.15
+                    for y in lines_dict
+                    if lines_dict[y]
+                )
+                heading_threshold = median_size * (1.15 if any_heading_candidate else 1.05)
 
                 sorted_y_coords = sorted(lines_dict.keys())
                 content_buffer = []

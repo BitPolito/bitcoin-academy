@@ -1,8 +1,9 @@
 """Study API — action-aware RAG endpoints."""
 from typing import List
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, Request
 
+from app.core.rate_limit import limiter
 from app.middleware.auth import CurrentUser, get_current_user
 from app.schemas.study_schemas import (
     STUDY_ACTION_REGISTRY,
@@ -27,7 +28,9 @@ router = APIRouter(prefix="/api", tags=["Study"])
         "Falls back gracefully when the QVAC service or LLM is unavailable."
     ),
 )
+@limiter.limit("20/minute")
 async def study(
+    request: Request,
     body: StudyDispatchRequest,
     course_id: str = Path(..., description="Course whose documents to search"),
     _current_user: CurrentUser = Depends(get_current_user),

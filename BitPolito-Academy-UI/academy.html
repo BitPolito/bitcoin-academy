@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BitPolito Academy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        colors: {
+          'blue-dark': '#001CE0',
+          'surface': '#F9F9F9',
+          'ink-soft': '#0a1a4a',
+          'rule': '#E4E6F2',
+          'rule-soft': '#EFF1F8',
+          'ok': '#1a7f3a',
+          'warn': '#a55a00',
+          'err':  '#b3261e',
+        },
+        fontFamily: {
+          sans: ['"SF Pro Display"', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'system-ui', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        },
+      }
+    }
+  }
+</script>
+<style>
+  html, body { background:#F9F9F9; }
+  html.dark, html.dark body { background:#001CE0; }
+  body { font-family:'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+  /* Hard borders to match BitPolito */
+  .b-hard { border:2px solid #001CE0; }
+  .dark .b-hard { border-color:#ffffff; }
+  .b-hard-1 { border:1px solid #001CE0; }
+  .dark .b-hard-1 { border-color:#ffffff; }
+  .b-thin { border:1px solid rgba(0,28,224,0.18); }
+  .dark .b-thin { border-color: rgba(255,255,255,0.22); }
+  .b-thin-b { border-bottom:1px solid rgba(0,28,224,0.18); }
+  .dark .b-thin-b { border-bottom-color: rgba(255,255,255,0.22); }
+  .b-thin-r { border-right:1px solid rgba(0,28,224,0.18); }
+  .dark .b-thin-r { border-right-color: rgba(255,255,255,0.22); }
+  .b-thin-t { border-top:1px solid rgba(0,28,224,0.18); }
+  .dark .b-thin-t { border-top-color: rgba(255,255,255,0.22); }
+  .b-thin-l { border-left:1px solid rgba(0,28,224,0.18); }
+  .dark .b-thin-l { border-left-color: rgba(255,255,255,0.22); }
+
+  /* striped placeholder used in lieu of real imagery */
+  .stripes {
+    background-image: repeating-linear-gradient(45deg,
+      rgba(0,28,224,0.07) 0 6px, transparent 6px 12px);
+  }
+  .dark .stripes {
+    background-image: repeating-linear-gradient(45deg,
+      rgba(255,255,255,0.10) 0 6px, transparent 6px 12px);
+  }
+
+  /* invert helper for the BitPolito monogram svg */
+  .ink { color:#001CE0; }
+  .dark .ink { color:#ffffff; }
+
+  .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-feature-settings: 'tnum' 1, 'cv11' 1; }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  /* selection highlight (citation hover) */
+  .cite-hl {
+    background: rgba(0,28,224,0.10);
+    box-shadow: inset 0 -2px 0 #001CE0;
+  }
+  .dark .cite-hl {
+    background: rgba(255,255,255,0.18);
+    box-shadow: inset 0 -2px 0 #ffffff;
+  }
+
+  /* tiny scrollbar styling for workstation feel */
+  .ws-scroll::-webkit-scrollbar { width:10px; height:10px; }
+  .ws-scroll::-webkit-scrollbar-track { background: transparent; }
+  .ws-scroll::-webkit-scrollbar-thumb { background: rgba(0,28,224,0.18); border-radius: 0; }
+  .ws-scroll:hover::-webkit-scrollbar-thumb { background: rgba(0,28,224,0.32); }
+  .dark .ws-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.22); }
+  .dark .ws-scroll:hover::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.42); }
+
+  /* dotted bg for ws */
+  .dotgrid {
+    background-image: radial-gradient(rgba(0,28,224,0.10) 1px, transparent 1px);
+    background-size: 14px 14px;
+  }
+  .dark .dotgrid {
+    background-image: radial-gradient(rgba(255,255,255,0.10) 1px, transparent 1px);
+  }
+
+  /* progress bar */
+  @keyframes barber {
+    0% { background-position: 0 0; }
+    100% { background-position: 28px 0; }
+  }
+  .bar-stripes {
+    background-image: repeating-linear-gradient(135deg,
+      rgba(255,255,255,0.45) 0 6px, rgba(255,255,255,0.0) 6px 14px);
+    animation: barber 1s linear infinite;
+  }
+
+  /* caret blink for query */
+  @keyframes caret-blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+  .caret { animation: caret-blink 1.1s steps(1) infinite; }
+
+  /* pulse for processing dot */
+  @keyframes dotpulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+  .dotpulse { animation: dotpulse 1.4s ease-in-out infinite; }
+
+  /* hover cards */
+  .hover-card { transition: all 0.18s ease; }
+  .hover-card:hover { transform: translateY(-2px); box-shadow: 6px 6px 0 0 #001CE0; }
+  .dark .hover-card:hover { box-shadow: 6px 6px 0 0 #ffffff; }
+
+  /* button family — extends BitPolito's btn-b/btn-w */
+  .btn-primary {
+    background:#001CE0; color:#fff; border:2px solid #001CE0;
+    padding: 8px 14px; border-radius: 8px; font-weight: 700;
+    transition: all 0.18s ease; font-size: 13px; letter-spacing: 0.01em;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .btn-primary:hover { box-shadow: 4px 4px 0 0 #001CE0; transform: translate(-2px,-2px); }
+  .dark .btn-primary { background:#fff; color:#001CE0; border-color:#fff; }
+  .dark .btn-primary:hover { box-shadow: 4px 4px 0 0 #fff; }
+
+  .btn-ghost {
+    background: transparent; color:#001CE0; border:2px solid #001CE0;
+    padding: 7px 13px; border-radius: 8px; font-weight: 700;
+    transition: all 0.18s ease; font-size: 13px;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .btn-ghost:hover { box-shadow: 4px 4px 0 0 #001CE0; transform: translate(-2px,-2px); }
+  .dark .btn-ghost { color:#fff; border-color:#fff; }
+  .dark .btn-ghost:hover { box-shadow: 4px 4px 0 0 #fff; }
+
+  .chip {
+    display:inline-flex; align-items:center; gap:6px;
+    padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+
+  /* page transition */
+  .page-fade { animation: pf 0.22s ease both; }
+  @keyframes pf { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* corner ticks in panels — subtle technical detailing */
+  .tick-corners { position: relative; }
+  .tick-corners::before, .tick-corners::after,
+  .tick-corners > .tc-l, .tick-corners > .tc-r {
+    content:''; position:absolute; width:8px; height:8px; pointer-events:none;
+    border-color: #001CE0;
+  }
+  .dark .tick-corners::before, .dark .tick-corners::after,
+  .dark .tick-corners > .tc-l, .dark .tick-corners > .tc-r {
+    border-color:#fff;
+  }
+</style>
+
+<!-- React + Babel -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body class="bg-surface text-blue-dark dark:bg-blue-dark dark:text-white">
+<div id="root"></div>
+
+<script type="text/babel" src="src/data.jsx"></script>
+<script type="text/babel" src="src/atoms.jsx"></script>
+<script type="text/babel" src="src/screens-courses.jsx"></script>
+<script type="text/babel" src="src/screens-workspace.jsx"></script>
+<script type="text/babel" src="src/screens-study2.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="src/app2.jsx"></script>
+</body>
+</html>

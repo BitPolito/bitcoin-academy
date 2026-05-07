@@ -68,6 +68,9 @@ class Settings:
     REFRESH_TOKEN_EXPIRE_DAYS = int(
         os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
+    # Debug mode — enables /api/debug/* endpoints
+    DEBUG_MODE: bool = os.getenv("DEBUG_MODE", "").lower() in ("true", "1", "yes")
+
     # Environment validation
     ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
     if ENVIRONMENT not in ["development", "staging", "production"]:
