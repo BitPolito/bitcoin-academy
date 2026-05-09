@@ -427,7 +427,22 @@ class UserBadge(Base):
     badge: Mapped["Badge"] = relationship(back_populates="awards")
 
 
-# 7. Certificates
+# 7. RAG parent chunks (parent-child chunking — Sprint 2)
+class ChunkParent(Base):
+    """Parent chunk: 1200-word context block used by the LLM after child retrieval."""
+
+    __tablename__ = "chunk_parent"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    doc_id: Mapped[str] = mapped_column(String)
+    course_id: Mapped[str] = mapped_column(String)
+    text: Mapped[str] = mapped_column(Text)
+    citation_label: Mapped[str] = mapped_column(String, default="")
+    citation_page: Mapped[int] = mapped_column(Integer, default=0)
+    citation_section: Mapped[str] = mapped_column(String, default="")
+
+
+# 8. Certificates
 class Certificate(Base):
     __tablename__ = "certificate"
 

@@ -1,7 +1,7 @@
 import { createServer } from "http";
 import { initModels, shutdownModels } from "./models.js";
 import { ingestFromJsonl } from "./ingest.js";
-import { queryRag } from "./query.js";
+import { queryRag, retrieveChunks, generateFromContext } from "./query.js";
 
 const PORT = parseInt(process.env.QVAC_PORT ?? "3001", 10);
 
@@ -33,11 +33,30 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
 
-    // POST /query  { question: string, workspace: string, topK?: number }
-    // Returns { answer: string, sources: [{ score, snippet }] }.
+    // POST /query  { question: string, workspace: string, topK?: number, topKGenerate?: number }
+    // topK: chunks to retrieve (default 5); topKGenerate: chunks sent to LLM (default = topK).
+    // Returns { answer: string, sources: [{ score, snippet, label, page, slide, section, doc_id }] }.
     if (req.method === "POST" && req.url === "/query") {
-      const { question, workspace, topK = 5 } = await readBody(req);
-      const result = await queryRag(question, workspace, topK);
+      const { question, workspace, topK = 5, topKGenerate } = await readBody(req);
+      const result = await queryRag(question, workspace, topK, topKGenerate ?? topK);
+      return send(res, 200, result);
+    }
+
+    // POST /retrieve  { question: string, workspace: string, topK?: number }
+    // Dense retrieval only — returns raw chunks for Python-side hybrid search + reranking.
+    // Returns { chunks: [{ id, chunk_id, content, score, label, page, slide, section, doc_id, parent_id }] }
+    if (req.method === "POST" && req.url === "/retrieve") {
+      const { question, workspace, topK = 20 } = await readBody(req);
+      const result = await retrieveChunks(question, workspace, topK);
+      return send(res, 200, result);
+    }
+
+    // POST /generate  { question: string, context: [{ label: string, text: string }] }
+    // LLM generation from pre-built parent context — no retrieval.
+    // Returns { answer: string }
+    if (req.method === "POST" && req.url === "/generate") {
+      const { question, context = [] } = await readBody(req);
+      const result = await generateFromContext(question, context);
       return send(res, 200, result);
     }
 

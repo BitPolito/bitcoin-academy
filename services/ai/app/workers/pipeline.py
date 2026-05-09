@@ -35,7 +35,11 @@ from app.repositories import document_repo                                      
 # ---------------------------------------------------------------------------
 # Chunking parameters
 # ---------------------------------------------------------------------------
-_MAX_WORDS = 400        # soft cap per chunk normale (≈ 512 token)
+_PARENT_WORDS = 1200    # parent chunk: contesto LLM (≈ 1500 token)
+_CHILD_WORDS = 150      # child chunk: unità di retrieval (≈ 200 token)
+_CHILD_OVERLAP = 30     # overlap tra child chunk consecutivi (parole)
+_MAX_WORDS = 400        # legacy: usato solo da chunk_pages() (non più chiamata da run())
+_OVERLAP_WORDS = 50     # legacy: overlap usato da chunk_pages()
 _MIN_WORDS = 25         # soglia paragrafi: chunk più corti vengono scartati
 _MIN_WORDS_TABLE = 4    # soglia tabelle: basta una riga dati (celle corte)
 
@@ -240,10 +244,11 @@ def _split_into_blocks(text: str) -> list[dict]:
     return blocks
 
 
-def _split_paragraph(text: str, max_words: int) -> list[str]:
+def _split_paragraph(text: str, max_words: int, overlap_words: int = 0) -> list[str]:
     """Divide un paragrafo lungo in sub-chunk ancorati a fine frase.
 
-    Nessun overlap: ogni sub-chunk è autonomo e inizia a inizio frase.
+    overlap_words > 0 aggiunge una sliding window: ogni sub-chunk (tranne il primo)
+    inizia con le ultime ~overlap_words parole del chunk precedente.
     """
     if _word_count(text) <= max_words:
         return [text]
@@ -257,7 +262,20 @@ def _split_paragraph(text: str, max_words: int) -> list[str]:
         sent_words = _word_count(sent)
         if current_words + sent_words > max_words and current:
             result.append(" ".join(current))
-            current, current_words = [], 0
+            if overlap_words > 0:
+                overlap: list[str] = []
+                overlap_count = 0
+                for s in reversed(current):
+                    w = _word_count(s)
+                    if overlap_count + w > overlap_words:
+                        break
+                    overlap.insert(0, s)
+                    overlap_count += w
+                current = overlap
+                current_words = overlap_count
+            else:
+                current = []
+                current_words = 0
         current.append(sent)
         current_words += sent_words
 
@@ -287,11 +305,43 @@ def _make_chunk(
     }
 
 
-def chunk_pages(pages: list[dict], doc_id: str) -> list[dict]:
-    """Chunking structure-aware: heading → table → paragraph con sentence split.
+def _make_parent(doc_id: str, parent_idx: int, page: int, text: str, section: str) -> dict:
+    return {
+        "id": f"{doc_id}_p{parent_idx:04d}",
+        "text": text,
+        "doc_id": doc_id,
+        "citation_label": f"p. {page}",
+        "citation_page": page,
+        "citation_section": section,
+    }
 
-    Ogni chunk porta il numero di pagina e la sezione corrente.
-    Nessun overlap: la sezione corrente è già contesto sufficiente.
+
+def _make_child(
+    parent_id: str,
+    doc_id: str,
+    page: int,
+    child_idx: int,
+    text: str,
+    section: str,
+    chunk_type: str = "paragraph",
+) -> dict:
+    return {
+        "id": f"{parent_id}_c{child_idx:04d}",
+        "text": text,
+        "chunk_type": chunk_type,
+        "parent_id": parent_id,
+        "citation_label": f"p. {page}",
+        "citation_page": page,
+        "citation_slide": 0,
+        "citation_section": section,
+        "doc_id": doc_id,
+    }
+
+
+def chunk_pages(pages: list[dict], doc_id: str) -> list[dict]:
+    """Legacy flat-chunk function. Superseded by build_parent_child_chunks() in run().
+
+    Mantenuta per compatibilità con eventuali chiamate esterne e test.
     """
     chunks: list[dict] = []
     current_section = ""
@@ -315,14 +365,12 @@ def chunk_pages(pages: list[dict], doc_id: str) -> list[dict]:
                 continue
 
             if btype == "heading":
-                # Accumula heading; la sezione viene aggiornata al primo paragrafo/tabella seguente
                 heading_text = re.sub(r'^#{1,4}\s+', '', btext).strip()
                 current_section = heading_text
                 pending_heading = btext
                 continue
 
             if btype == "table":
-                # Prepend heading se in attesa
                 full_text = f"{pending_heading}\n\n{btext}" if pending_heading else btext
                 pending_heading = ""
                 if _word_count(full_text) >= _MIN_WORDS_TABLE:
@@ -330,20 +378,100 @@ def chunk_pages(pages: list[dict], doc_id: str) -> list[dict]:
                     chunk_idx += 1
                 continue
 
-            # Paragrafo — eventualmente prepend heading
             full_text = f"{pending_heading}\n\n{btext}" if pending_heading else btext
             pending_heading = ""
 
-            for sub in _split_paragraph(full_text, _MAX_WORDS):
+            for sub in _split_paragraph(full_text, _MAX_WORDS, overlap_words=_OVERLAP_WORDS):
                 sub = sub.strip()
                 if _word_count(sub) >= _MIN_WORDS:
                     chunks.append(_make_chunk(doc_id, page_num, chunk_idx, sub, "paragraph", current_section))
                     chunk_idx += 1
 
-        # Heading rimasto senza corpo (ultima riga della pagina): ignoralo,
-        # la sezione corrente è già aggiornata per la pagina seguente.
-
     return chunks
+
+
+def build_parent_child_chunks(
+    pages: list[dict],
+    doc_id: str,
+) -> tuple[list[dict], list[dict]]:
+    """Chunking gerarchico: parent (1200 parole) → child (150 parole).
+
+    I child chunk sono le unità di retrieval indicizzate in QVAC.
+    I parent chunk forniscono contesto esteso al LLM dopo il retrieval.
+
+    Ritorna (parent_chunks, child_chunks).
+    """
+    parents: list[dict] = []
+    children: list[dict] = []
+    current_section = ""
+    parent_idx = 0
+
+    for page_data in pages:
+        page_num = page_data["page"]
+        text = page_data["text"]
+
+        if not text.strip():
+            continue
+
+        blocks = _split_into_blocks(text)
+        pending_heading = ""
+
+        for block in blocks:
+            btype = block["type"]
+            btext = block["text"].strip()
+
+            if not btext:
+                continue
+
+            if btype == "heading":
+                heading_text = re.sub(r'^#{1,4}\s+', '', btext).strip()
+                current_section = heading_text
+                pending_heading = btext
+                continue
+
+            full_text = f"{pending_heading}\n\n{btext}" if pending_heading else btext
+            pending_heading = ""
+
+            # Suddividi in parent block (nessun overlap tra parent)
+            for parent_text in _split_paragraph(full_text, _PARENT_WORDS, overlap_words=0):
+                parent_text = parent_text.strip()
+                if not parent_text:
+                    continue
+
+                wc = _word_count(parent_text)
+                min_thresh = _MIN_WORDS_TABLE if btype == "table" else _MIN_WORDS
+                if wc < min_thresh:
+                    continue
+
+                parent = _make_parent(doc_id, parent_idx, page_num, parent_text, current_section)
+                parents.append(parent)
+
+                # Genera child chunk dal parent
+                if btype == "table" or wc <= _CHILD_WORDS:
+                    # Tabelle e blocchi piccoli: un solo child = il parent intero
+                    child = _make_child(
+                        parent["id"], doc_id, page_num, 0,
+                        parent_text, current_section, chunk_type=btype,
+                    )
+                    if _word_count(child["text"]) >= min_thresh:
+                        children.append(child)
+                else:
+                    child_subs = _split_paragraph(
+                        parent_text, _CHILD_WORDS, overlap_words=_CHILD_OVERLAP
+                    )
+                    for ci, child_text in enumerate(child_subs):
+                        child_text = child_text.strip()
+                        if _word_count(child_text) >= _MIN_WORDS:
+                            children.append(
+                                _make_child(
+                                    parent["id"], doc_id, page_num, ci,
+                                    child_text, current_section,
+                                )
+                            )
+
+                parent_idx += 1
+
+    return parents, children
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +502,91 @@ def filter_chunks(chunks: list[dict]) -> list[dict]:
         result.append(c)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# BM25 index
+# ---------------------------------------------------------------------------
+
+def _build_bm25_index(child_chunks: list[dict], workspace: str, doc_id: str) -> None:
+    """Aggiorna il corpus BM25 per il workspace e ricostruisce l'indice su disco.
+
+    Il corpus (corpus.json) accumula i child chunk di tutti i documenti del corso.
+    Su re-ingest dello stesso doc_id, i vecchi entry vengono prima rimossi.
+    """
+    try:
+        from rank_bm25 import BM25Okapi  # type: ignore[import]
+    except ImportError:
+        logger.warning("rank_bm25 non installato — BM25 index non costruito")
+        return
+
+    corpus_path = QVAC_INGEST_DIR / f"{workspace}_corpus.json"
+    bm25_path = QVAC_INGEST_DIR / f"{workspace}_bm25.pkl"
+
+    corpus: dict[str, dict] = {}
+    if corpus_path.exists():
+        try:
+            with corpus_path.open(encoding="utf-8") as f:
+                corpus = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            corpus = {}
+
+    # Rimuovi entry stale per questo doc_id (gestione re-ingest)
+    corpus = {cid: info for cid, info in corpus.items() if info.get("doc_id") != doc_id}
+
+    # Aggiungi nuovi child chunk
+    for c in child_chunks:
+        corpus[c["id"]] = {
+            "text": c["text"],
+            "label": c["citation_label"],
+            "page": c["citation_page"],
+            "section": c["citation_section"],
+            "doc_id": c["doc_id"],
+            "parent_id": c.get("parent_id", ""),
+        }
+
+    with corpus_path.open("w", encoding="utf-8") as f:
+        json.dump(corpus, f, ensure_ascii=False)
+
+    ids = list(corpus.keys())
+    tokenized = [corpus[i]["text"].lower().split() for i in ids]
+    bm25 = BM25Okapi(tokenized)
+
+    import pickle
+    with bm25_path.open("wb") as f:
+        pickle.dump({"ids": ids, "bm25": bm25}, f)
+
+    logger.info("BM25 index aggiornato per workspace '%s': %d chunk totali", workspace, len(ids))
+
+
+# ---------------------------------------------------------------------------
+# Parent DB helpers
+# ---------------------------------------------------------------------------
+
+def _save_parents_to_db(parents: list[dict], course_id: str, db) -> None:
+    """Salva i parent chunk nella tabella ChunkParent (upsert per id)."""
+    from app.db.models import ChunkParent  # noqa: PLC0415
+
+    for p in parents:
+        existing = db.query(ChunkParent).filter_by(id=p["id"]).first()
+        if existing:
+            existing.text = p["text"]
+            existing.course_id = course_id
+            existing.citation_label = p["citation_label"]
+            existing.citation_page = p["citation_page"]
+            existing.citation_section = p["citation_section"]
+        else:
+            db.add(ChunkParent(
+                id=p["id"],
+                doc_id=p["doc_id"],
+                course_id=course_id,
+                text=p["text"],
+                citation_label=p["citation_label"],
+                citation_page=p["citation_page"],
+                citation_section=p["citation_section"],
+            ))
+    db.commit()
+    logger.debug("Saved %d parent chunks to DB for course '%s'", len(parents), course_id)
 
 
 # ---------------------------------------------------------------------------
@@ -487,20 +700,28 @@ def run(
                 ]
 
             # ------------------------------------------------------------------
-            # Stage 3 — CHUNKING (structure-aware)
+            # Stage 3 — CHUNKING (parent-child hierarchy)
             # ------------------------------------------------------------------
             _set_stage(doc, DocumentProcessingStage.CHUNKING, db)
-            raw_chunks = chunk_pages(pages, document_id)
+            parent_chunks, raw_children = build_parent_child_chunks(pages, document_id)
 
             # ------------------------------------------------------------------
-            # Stage 4 — QUALITY FILTER
+            # Stage 3b — QUALITY FILTER (child chunks only)
             # ------------------------------------------------------------------
-            chunks = filter_chunks(raw_chunks)
-            dropped = len(raw_chunks) - len(chunks)
+            chunks = filter_chunks(raw_children)
+            dropped = len(raw_children) - len(chunks)
             logger.info(
-                "Chunks for %s: %d raw → %d after filter (%d dropped)",
-                document_id, len(raw_chunks), len(chunks), dropped,
+                "Parent-child for %s: %d parents, %d children raw → %d after filter (%d dropped)",
+                document_id, len(parent_chunks), len(raw_children), len(chunks), dropped,
             )
+
+            # ------------------------------------------------------------------
+            # Stage 3c — SAVE PARENTS TO DB
+            # ------------------------------------------------------------------
+            try:
+                _save_parents_to_db(parent_chunks, course_id, db)
+            except Exception as exc:
+                logger.warning("Could not save parent chunks to DB for %s: %s", document_id, exc)
 
             # ------------------------------------------------------------------
             # Stage 5 — INDEXING (ChromaDB — skipped when SKIP_CHROMA_INDEX=true)
@@ -555,6 +776,14 @@ def run(
             # ------------------------------------------------------------------
             jsonl_path = _write_jsonl(chunks, document_id)
             qvac_ok = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=False)
+
+            # ------------------------------------------------------------------
+            # Stage 6b — BM25 index update (sparse retrieval)
+            # ------------------------------------------------------------------
+            try:
+                _build_bm25_index(chunks, course_id, document_id)
+            except Exception as exc:
+                logger.warning("BM25 index build failed for %s: %s", document_id, exc)
 
             # ------------------------------------------------------------------
             # Finalise DB record
