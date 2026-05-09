@@ -6,7 +6,6 @@ import type {
   DocumentDetailView,
   DocumentPreviewView,
   DocumentStatus,
-  ProcessingStage,
 } from './types';
 
 function mimeToLabel(mime: string | null, filename: string): string {
@@ -35,6 +34,7 @@ export function toDocumentListRow(item: ApiDocumentListItem): DocumentListRow {
     processingStage: item.processing_stage,
     isTerminal: TERMINAL_STATUSES.has(item.status),
     errorMessage: item.error_message,
+    documentType: item.document_type ?? 'lecture',
     createdAt: item.created_at,
     updatedAt: item.updated_at,
   };
@@ -59,6 +59,7 @@ export function toDocumentDetailView(item: ApiDocumentDetail): DocumentDetailVie
     status: item.status,
     processingStage: item.processing_stage,
     errorMessage: item.error_message,
+    documentType: item.document_type ?? 'lecture',
     parserUsed: item.parser_used,
     pageCount: item.page_count,
     chunkCount: item.chunk_count,

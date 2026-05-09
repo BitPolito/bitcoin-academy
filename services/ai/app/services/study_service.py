@@ -10,6 +10,7 @@ import dataclasses
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -17,10 +18,12 @@ from typing import List, Optional
 
 import httpx
 
+from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk, EvidencePack
 from app.schemas.study_schemas import (
     STUDY_ACTION_REGISTRY,
     StudyAction,
 )
+from app.services import evidence_pack_service
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +32,10 @@ _TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 _OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 _LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
 
-_qvac_client = httpx.AsyncClient(base_url=_QVAC_SERVICE_URL, timeout=60.0)
+_qvac_client = httpx.AsyncClient(
+    base_url=_QVAC_SERVICE_URL,
+    timeout=httpx.Timeout(connect=5.0, read=45.0, write=10.0, pool=5.0),
+)
 
 _LANGCHAIN_AVAILABLE = False
 _ChatOpenAI = None
@@ -55,7 +61,8 @@ _SYSTEM_PROMPTS = {
     StudyAction.EXPLAIN: (
         "You are a Bitcoin education assistant for BitPolito Academy. "
         "Using ONLY the provided context, explain the concept clearly in 2–4 paragraphs. "
-        "Cite sources where relevant (e.g. 'p. 7', 'Slide 5'). "
+        "When you use information from a context passage, cite it as [ref_N] inline "
+        "(e.g. 'Bitcoin mining [ref_1] is...'). "
         "If the answer is not in the context, say so explicitly."
     ),
     StudyAction.SUMMARIZE: (
@@ -71,14 +78,43 @@ _SYSTEM_PROMPTS = {
     StudyAction.QUIZ: (
         "Based on the provided context, create 4 multiple-choice questions for self-assessment. "
         "For each question provide: the question, options A–D, and the correct answer. "
-        "Format each question as:\nQ: ...\nA) ...\nB) ...\nC) ...\nD) ...\nAnswer: [letter]"
+        "After the correct answer note the supporting reference as [ref_N]. "
+        "Format each question as:\nQ: ...\nA) ...\nB) ...\nC) ...\nD) ...\nAnswer: [letter] [ref_N]"
     ),
     StudyAction.ORAL: (
         "You are simulating an oral exam on Bitcoin material. "
         "Generate 3 oral exam questions drawn from the provided context, "
         "followed by a concise model answer for each. "
+        "Cite supporting context passages as [ref_N] in each model answer. "
         "Format each entry as:\nQ: ...\nModel answer: ..."
     ),
+    StudyAction.DERIVE: (
+        "You are a Bitcoin education assistant skilled in formal derivations. "
+        "Using ONLY the provided context, present a step-by-step proof or derivation. "
+        "Number each step, state the reasoning clearly, and cite sources as [ref_N]. "
+        "If the full derivation is not supported by the context, say so explicitly."
+    ),
+    StudyAction.COMPARE: (
+        "You are a Bitcoin education assistant. "
+        "Using ONLY the provided context, produce a structured comparison of the requested concepts. "
+        "Use a table or parallel-list format: left column = Concept A, right column = Concept B. "
+        "Conclude with a 1-paragraph synthesis citing sources as [ref_N]."
+    ),
+}
+
+# Per-action LLM temperature:
+# - quiz/oral: low temperature for factual, deterministic answers
+# - open_questions/summarize: moderate for coherent but varied output
+# - explain/derive/compare/retrieve: default for balanced creativity
+_ACTION_TEMPERATURE: dict[StudyAction, float] = {
+    StudyAction.QUIZ: 0.1,
+    StudyAction.ORAL: 0.1,
+    StudyAction.OPEN_QUESTIONS: 0.2,
+    StudyAction.SUMMARIZE: 0.2,
+    StudyAction.EXPLAIN: 0.3,
+    StudyAction.DERIVE: 0.3,
+    StudyAction.COMPARE: 0.3,
+    StudyAction.RETRIEVE: 0.3,
 }
 
 
@@ -117,14 +153,94 @@ class DispatchResult:
     answer: str
     citations: List[SourceChunk] = field(default_factory=list)
     retrieval_used: bool = False
+    # Structured retrieval context — available for debug/inspection, not exposed in HTTP response.
+    evidence_pack: Optional[EvidencePack] = None
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-async def _retrieve(question: str, course_id: str) -> tuple[str, List[SourceChunk]]:
-    """Call QVAC /query and return (raw_answer, sources)."""
+def _empty_pack(query: str, action: StudyAction) -> EvidencePack:
+    return EvidencePack(
+        query=query, action=action.value,
+        chunks=[], total_candidates=0, ordering=[], deduped_passages=[],
+    )
+
+
+_REF_PATTERN = re.compile(r'\[ref_(\d+)\]', re.IGNORECASE)
+
+
+def _parse_citations(text: str, pack: EvidencePack) -> List[SourceChunk]:
+    """Extract [ref_N] markers from generated text and return referenced chunks.
+
+    The LLM is instructed to emit [ref_N] in-line; this function parses those
+    markers and returns SourceChunks for only the cited evidence, preserving
+    citation order (first appearance wins for dedup).
+
+    Falls back to all pack chunks when no [ref_N] markers are found — this
+    happens when the LLM ignores the citation instruction or when the action
+    does not require source grounding.
+    """
+    cited_indices: list[int] = []
+    seen: set[int] = set()
+    for m in _REF_PATTERN.finditer(text):
+        idx = int(m.group(1)) - 1  # [ref_N] is 1-based
+        if 0 <= idx < len(pack.chunks) and idx not in seen:
+            cited_indices.append(idx)
+            seen.add(idx)
+
+    if not cited_indices:
+        # No markers found — return all pack chunks as citations (backward-compat)
+        source_chunks = pack.chunks
+    else:
+        source_chunks = [pack.chunks[i] for i in cited_indices]
+
+    return [
+        SourceChunk(
+            snippet=c.text,
+            score=c.score,
+            label=c.anchor.doc_name,
+            page=c.anchor.page or 0,
+            slide=c.anchor.slide or 0,
+            section=c.anchor.section or "",
+            doc_id=c.anchor.doc_id,
+        )
+        for c in source_chunks
+    ]
+
+
+def _chroma_evidence(question: str, course_id: str) -> List[EvidenceChunk]:
+    """Query ChromaDB and return EvidenceChunk list (same shape as QVAC results)."""
+    from app.services.chroma_retrieval import query_chroma  # lazy — avoids circular import
+    return [
+        EvidenceChunk(
+            chunk_id=f"chroma_{s.get('doc_id', 'unk')}_{i}",
+            text=s["snippet"],
+            score=s["score"],
+            anchor=CitationAnchor(
+                doc_id=s["doc_id"],
+                doc_name=s["label"],
+                section=s["section"] or None,
+                page=int(s["page"]) if s.get("page") else None,
+                slide=int(s["slide"]) if s.get("slide") else None,
+                chunk_id=f"chroma_{s.get('doc_id', 'unk')}_{i}",
+                chunk_type="paragraph",
+            ),
+        )
+        for i, s in enumerate(query_chroma(question, course_id, top_k=_TOP_K))
+    ]
+
+
+async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple[str, EvidencePack]:
+    """Call QVAC /query, wrap response into a structured EvidencePack.
+
+    Returns (raw_answer, pack).  raw_answer is the QVAC-generated string
+    (used as fallback when the LLM is unavailable); pack is the canonical
+    interface for generation and citation display.
+
+    ChromaDB is queried as a fallback when QVAC returns zero chunks or fails.
+    """
     try:
         resp = await _qvac_client.post(
             "/query",
@@ -132,27 +248,46 @@ async def _retrieve(question: str, course_id: str) -> tuple[str, List[SourceChun
         )
         resp.raise_for_status()
         data = resp.json()
-        raw_answer = data.get("answer", "")
-        sources = [
-            SourceChunk(
-                snippet=s.get("snippet", ""),
-                score=s.get("score", 0.0),
-                label=s.get("label", ""),
-                page=s.get("page", 0),
-                slide=s.get("slide", 0),
-                section=s.get("section", ""),
-                doc_id=s.get("doc_id", ""),
+        raw_answer: str = data.get("answer", "")
+
+        candidates: List[EvidenceChunk] = [
+            EvidenceChunk(
+                chunk_id=s.get("chunk_id") or f"qvac_{s.get('doc_id', 'unk')}_{i}",
+                text=s.get("snippet", ""),
+                score=float(s.get("score", 0.0)),
+                anchor=CitationAnchor(
+                    doc_id=str(s.get("doc_id", "")),
+                    doc_name=str(s.get("label", "")),
+                    section=s.get("section") or None,
+                    page=int(s["page"]) if s.get("page") else None,
+                    slide=int(s["slide"]) if s.get("slide") else None,
+                    chunk_id=s.get("chunk_id") or f"qvac_{s.get('doc_id', 'unk')}_{i}",
+                    chunk_type="paragraph",
+                ),
             )
-            for s in data.get("sources", [])
+            for i, s in enumerate(data.get("sources", []))
         ]
-        return raw_answer, sources
+
+        if not candidates:
+            logger.info(
+                "QVAC returned 0 chunks for course '%s', trying ChromaDB fallback", course_id
+            )
+            candidates = _chroma_evidence(question, course_id)
+
+        pack = evidence_pack_service.build_from_chunks(question, action.value, candidates)
+        return raw_answer, pack
+
     except (httpx.HTTPError, ValueError, KeyError) as exc:
-        logger.warning("QVAC retrieval failed: %s", exc)
-        return "", []
+        logger.warning("QVAC retrieval failed (%s) — trying ChromaDB fallback", exc)
+        candidates = _chroma_evidence(question, course_id)
+        return "", evidence_pack_service.build_from_chunks(question, action.value, candidates)
 
 
 async def _generate(action: StudyAction, question: str, context: str) -> Optional[str]:
     """Call OpenAI via langchain-openai with the action-specific system prompt.
+
+    Uses build_prompt() for a structured human-turn message and per-action
+    temperature for optimal output quality.
 
     Returns None when langchain-openai is unavailable or OPENAI_API_KEY is unset,
     allowing the caller to fall back to the raw QVAC answer.
@@ -160,15 +295,18 @@ async def _generate(action: StudyAction, question: str, context: str) -> Optiona
     if not _LANGCHAIN_AVAILABLE or not _OPENAI_API_KEY:
         return None
 
+    from app.rag.chains import build_prompt
+
     system_prompt = _SYSTEM_PROMPTS[action]
-    user_content = (
-        f"Context:\n{context}\n\nQuestion: {question}"
-        if context
-        else f"Question: {question}"
-    )
+    temperature = _ACTION_TEMPERATURE.get(action, 0.3)
+    user_content = build_prompt(context=context, question=question)
 
     try:
-        llm = _ChatOpenAI(model="gpt-4o-mini", temperature=0.3, timeout=_LLM_TIMEOUT)  # type: ignore[call-arg]
+        llm = _ChatOpenAI(  # type: ignore[call-arg]
+            model="gpt-4o-mini",
+            temperature=temperature,
+            timeout=_LLM_TIMEOUT,
+        )
         response = await llm.ainvoke(
             [_SystemMessage(content=system_prompt), _HumanMessage(content=user_content)]  # type: ignore[call-arg]
         )
@@ -187,37 +325,61 @@ async def _route(
 ) -> DispatchResult:
     meta = STUDY_ACTION_REGISTRY[action]
 
-    # Step 1 — Retrieval
+    # Step 1 — Retrieval → EvidencePack
     raw_answer = ""
-    sources: List[SourceChunk] = []
-    context = ""
+    pack = _empty_pack(question, action)
 
     if meta.retrieval_required:
         trace.retrieval_ran = True
-        raw_answer, sources = await _retrieve(question, course_id)
-        trace.chunks_found = len(sources)
-        context = "\n\n---\n\n".join(
-            f"[{i + 1}] {s.snippet}" for i, s in enumerate(sources)
-        )
+        raw_answer, pack = await _retrieve(question, course_id, action)
+        trace.chunks_found = len(pack.chunks)
 
-    # Step 2 — retrieve-only shortcut
+    # Step 2 — retrieve-only shortcut: return deduplicated passages directly
     if not meta.generation_required:
+        all_sources: List[SourceChunk] = [
+            SourceChunk(
+                snippet=c.text,
+                score=c.score,
+                label=c.anchor.doc_name,
+                page=c.anchor.page or 0,
+                slide=c.anchor.slide or 0,
+                section=c.anchor.section or "",
+                doc_id=c.anchor.doc_id,
+            )
+            for c in pack.chunks
+        ]
+        answer = pack.context_block() or raw_answer or "No relevant content found."
         return DispatchResult(
-            answer=raw_answer or "No relevant content found.",
-            citations=sources,
-            retrieval_used=bool(sources),
+            answer=answer,
+            citations=all_sources,
+            retrieval_used=bool(all_sources),
+            evidence_pack=pack,
         )
 
-    # Step 3 — Generation
-    generated = await _generate(action, question, context)
+    # Step 3 — Generation using the pack's context block
+    generated = await _generate(action, question, pack.context_block())
     if generated is not None:
         trace.generation_ran = True
         answer = generated
+        # Parse [ref_N] markers to surface only the cited chunks as citations.
+        sources = _parse_citations(generated, pack)
     else:
         trace.fallback_used = True
         answer = raw_answer or "No relevant content found."
+        sources = [
+            SourceChunk(
+                snippet=c.text,
+                score=c.score,
+                label=c.anchor.doc_name,
+                page=c.anchor.page or 0,
+                slide=c.anchor.slide or 0,
+                section=c.anchor.section or "",
+                doc_id=c.anchor.doc_id,
+            )
+            for c in pack.chunks
+        ]
 
-    return DispatchResult(answer=answer, citations=sources, retrieval_used=bool(sources))
+    return DispatchResult(answer=answer, citations=sources, retrieval_used=bool(sources), evidence_pack=pack)
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +397,9 @@ async def dispatch(
     including when an exception is raised.  The request_id is not exposed
     in the HTTP response — it lives only in the log.
     """
+    if len(question.strip()) < 5:
+        raise ValueError("Query too short — must be at least 5 characters")
+
     request_id = str(uuid.uuid4())
     started_at = time.perf_counter()
 

@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 import os
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -27,20 +28,42 @@ from app.middleware.security import (
 
 logger = logging.getLogger(__name__)
 
-# Configure logging based on environment
+_log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
 logging.basicConfig(
-    level=logging.DEBUG if settings.ENVIRONMENT == "development" else logging.INFO,
+    level=_log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
 )
+# Keep third-party chatter out of the console unless LOG_LEVEL=DEBUG
+if _log_level > logging.DEBUG:
+    for _noisy in ("sqlalchemy.engine", "httpx", "httpcore", "chromadb", "fastembed", "hpack"):
+        logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 
 # Initialize database tables
 init_db()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    redis_url = os.getenv("REDIS_URL")
+    if redis_url:
+        from arq.connections import create_pool, RedisSettings
+        app.state.arq_pool = await create_pool(RedisSettings.from_dsn(redis_url))
+        logger.info("ARQ pool connected to %s", redis_url)
+    else:
+        app.state.arq_pool = None
+        logger.warning("REDIS_URL not set — document ingestion runs as BackgroundTask (no ARQ)")
+    yield
+    pool = getattr(app.state, "arq_pool", None)
+    if pool is not None:
+        await pool.close()
+
+
 app = FastAPI(
     title="Bitcoin Academy API",
     version="1.0.0",
     description="AI-Tutor API for Bitcoin Academy platform",
+    lifespan=lifespan,
     # Disable docs in production for security
     docs_url="/docs" if settings.ENVIRONMENT != "production" else None,
     redoc_url="/redoc" if settings.ENVIRONMENT != "production" else None,
@@ -120,6 +143,11 @@ app.include_router(documents_router)
 app.include_router(progress_router)
 app.include_router(quizzes_router)
 app.include_router(study_router)
+
+if settings.DEBUG_MODE:
+    from app.api.debug_api import router as debug_router
+    app.include_router(debug_router)
+    logger.info("Debug API enabled at /api/debug/*")
 
 
 @app.get("/", tags=["Root"])

@@ -1,5 +1,9 @@
 import { apiFetch } from '@/lib/api';
 
+// MVP limit: pagination not implemented. Acceptable for expected scale (5–10 courses).
+// When real pagination is needed, replace getCourses calls with a paginated version.
+export const MVP_COURSES_LIMIT = 100;
+
 export interface Course {
   id: number;
   title: string;
@@ -16,33 +20,27 @@ export interface CourseWithLessons extends Course {
   lessons: Lesson[];
 }
 
-export async function getCourses(
-  skip = 0,
-  limit = 100,
-  accessToken?: string
-): Promise<Course[]> {
+export async function getCourses(skip = 0, limit = 100, accessToken?: string): Promise<Course[]> {
   return apiFetch<Course[]>(`/courses?skip=${skip}&limit=${limit}`, {
     accessToken,
   });
 }
 
-export async function getCourse(
-  courseId: string,
-  accessToken?: string
-): Promise<Course> {
+export async function getCourse(courseId: string, accessToken?: string): Promise<Course> {
   return apiFetch<Course>(`/courses/${courseId}`, { accessToken });
 }
 
-export async function getCourseLessons(
-  courseId: string,
-  accessToken?: string
-): Promise<Lesson[]> {
+export async function getCourseLessons(courseId: string, accessToken?: string): Promise<Lesson[]> {
   return apiFetch<Lesson[]>(`/courses/${courseId}/lessons`, { accessToken });
 }
 
-export async function getLesson(
-  lessonId: string,
-  accessToken?: string
-): Promise<Lesson> {
+export async function getLesson(lessonId: string, accessToken?: string): Promise<Lesson> {
   return apiFetch<Lesson>(`/lessons/${lessonId}`, { accessToken });
+}
+
+export async function createCourse(title: string, description?: string): Promise<Course> {
+  return apiFetch<Course>('/courses', {
+    method: 'POST',
+    body: { title, description },
+  });
 }

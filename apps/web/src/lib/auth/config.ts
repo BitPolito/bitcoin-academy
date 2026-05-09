@@ -1,7 +1,33 @@
 import type { AuthOptions } from 'next-auth';
+import type { JWT } from 'next-auth/jwt';
 import CredentialsProvider from 'next-auth/providers/credentials';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const ACCESS_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 min — must match backend ACCESS_TOKEN_EXPIRE_MINUTES
+const REFRESH_BUFFER_MS = 60 * 1000; // refresh 1 min before expiry
+
+async function refreshAccessToken(token: JWT): Promise<JWT> {
+  try {
+    const res = await fetch(`${API_URL}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: token.refreshToken }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw data;
+
+    return {
+      ...token,
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token ?? token.refreshToken,
+      accessTokenExpires: Date.now() + ACCESS_TOKEN_TTL_MS,
+      error: undefined,
+    };
+  } catch {
+    return { ...token, error: 'RefreshAccessTokenError' };
+  }
+}
 
 export const authOptions: AuthOptions = {
   providers: [
@@ -43,9 +69,7 @@ export const authOptions: AuthOptions = {
             displayName: data.user?.display_name || null,
           };
         } catch (error) {
-          if (error instanceof Error) {
-            throw error;
-          }
+          if (error instanceof Error) throw error;
           throw new Error('Authentication failed');
         }
       },
@@ -54,20 +78,30 @@ export const authOptions: AuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.accessToken = (user as any).accessToken;
-        token.refreshToken = (user as any).refreshToken;
-        token.role = (user as any).role;
-        token.displayName = (user as any).displayName;
+        return {
+          ...token,
+          accessToken: user.accessToken,
+          refreshToken: user.refreshToken,
+          role: user.role,
+          displayName: user.displayName,
+          accessTokenExpires: Date.now() + ACCESS_TOKEN_TTL_MS,
+        };
       }
-      return token;
+
+      // Token still valid
+      if (Date.now() < (token.accessTokenExpires ?? 0) - REFRESH_BUFFER_MS) {
+        return token;
+      }
+
+      // Token expired — attempt refresh
+      return refreshAccessToken(token);
     },
     async session({ session, token }) {
-      if (session.user) {
-        (session.user as any).id = token.sub;
-        (session.user as any).accessToken = token.accessToken;
-        (session.user as any).role = token.role;
-        (session.user as any).displayName = token.displayName;
-      }
+      session.user.id = token.sub;
+      session.user.accessToken = token.accessToken;
+      session.user.role = token.role;
+      session.user.displayName = token.displayName;
+      session.error = token.error;
       return session;
     },
   },
@@ -77,7 +111,7 @@ export const authOptions: AuthOptions = {
   },
   session: {
     strategy: 'jwt',
-    maxAge: 24 * 60 * 60,
+    maxAge: 7 * 24 * 60 * 60, // 7 days — refresh token lifetime
   },
   secret: process.env.NEXTAUTH_SECRET,
 };

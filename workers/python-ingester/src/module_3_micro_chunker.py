@@ -8,6 +8,8 @@ from services.ai.app.schemas.normalized_document import (
 
 logger = logging.getLogger(__name__)
 
+_LIST_ITEM_RE = re.compile(r'^\s*([-*•]|\d+\.)\s')
+
 
 class Chunker:
     """Three-level hierarchical chunker (R-01).
@@ -124,19 +126,55 @@ class Chunker:
         return groups
 
     def _split_into_micros(self, text: str) -> List[str]:
-        """Split text into micro-chunks at sentence boundaries."""
-        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        """Split text into micro-chunks respecting list items and sentence boundaries.
+
+        Splitting strategy:
+        1. Split on newlines to isolate lines.
+        2. Lines starting with -/*/•/N. are kept atomic (list items).
+        3. Other lines are further split on sentence-ending punctuation (.!?).
+        4. Units that individually exceed micro_char_limit are hard-split on the
+           nearest whitespace, preventing silent overflow.
+        """
+        units: List[str] = []
+        for line in text.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if _LIST_ITEM_RE.match(line):
+                units.append(line)
+            else:
+                sents = re.split(r'(?<=[.!?])\s+', line)
+                units.extend(s for s in sents if s.strip())
+
         micros: List[str] = []
         current: List[str] = []
         current_len = 0
 
-        for sent in sentences:
-            if current_len + len(sent) > self.micro_char_limit and current:
+        for unit in units:
+            # Hard-split a single unit that already exceeds the limit
+            if len(unit) > self.micro_char_limit:
+                if current:
+                    micros.append(" ".join(current))
+                    current = []
+                    current_len = 0
+                remaining = unit
+                while len(remaining) > self.micro_char_limit:
+                    cut = remaining.rfind(' ', 0, self.micro_char_limit)
+                    if cut == -1:
+                        cut = self.micro_char_limit
+                    micros.append(remaining[:cut].strip())
+                    remaining = remaining[cut:].strip()
+                if remaining:
+                    current = [remaining]
+                    current_len = len(remaining)
+                continue
+
+            if current_len + len(unit) > self.micro_char_limit and current:
                 micros.append(" ".join(current))
                 current = []
                 current_len = 0
-            current.append(sent)
-            current_len += len(sent)
+            current.append(unit)
+            current_len += len(unit)
 
         if current:
             micros.append(" ".join(current))

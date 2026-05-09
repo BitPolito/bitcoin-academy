@@ -2,7 +2,7 @@
  * Unit tests for src/query.js.
  *
  * No LLM is configured (getLlmModelId returns null), so all tests
- * exercise the placeholder path: ragSearch → raw context returned.
+ * exercise the no-LLM path: ragSearch → top-1 chunk returned as answer.
  *
  * @qvac/sdk and src/models.js are fully mocked.
  */
@@ -54,7 +54,7 @@ const { queryRag } = await import("../src/query.js");
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("queryRag — placeholder path (no LLM configured)", () => {
+describe("queryRag — no LLM configured (top-1 answer)", () => {
   beforeEach(() => {
     mockRagSearch.mock.resetCalls();
     mockGetEmbeddingModelId.mock.resetCalls();
@@ -88,51 +88,41 @@ describe("queryRag — placeholder path (no LLM configured)", () => {
     assert.equal(mockRagSearch.mock.calls[0].arguments[0].topK, 5);
   });
 
-  // --- placeholder answer when no LLM ---
+  // --- answer when no LLM: top-1 chunk only ---
 
-  it("answer contains the placeholder note", async () => {
+  it("answer is the top-1 chunk content verbatim", async () => {
     const { answer } = await queryRag("What is Bitcoin?", "WS1");
-    assert.ok(
-      answer.includes("[LLM not configured]"),
-      `placeholder note missing; got: "${answer.slice(0, 120)}"`
-    );
+    assert.equal(answer, FAKE_RESULTS[0].content);
   });
 
-  it("answer includes all retrieved chunk texts", async () => {
+  it("answer does not contain a placeholder note", async () => {
     const { answer } = await queryRag("What is Bitcoin?", "WS1");
-    for (const r of FAKE_RESULTS) {
-      assert.ok(answer.includes(r.content), `chunk text missing from answer: "${r.content}"`);
-    }
+    assert.ok(!answer.includes("[LLM not configured]"));
   });
 
   // --- sources ---
 
-  it("sources length matches ragSearch result count", async () => {
+  it("returns exactly one source when no LLM is configured", async () => {
     const { sources } = await queryRag("What is Bitcoin?", "WS1");
-    assert.equal(sources.length, FAKE_RESULTS.length);
+    assert.equal(sources.length, 1);
   });
 
-  it("each source has score and snippet fields", async () => {
+  it("the single source has score and snippet fields", async () => {
     const { sources } = await queryRag("What is Bitcoin?", "WS1");
-    for (const src of sources) {
-      assert.ok("score" in src, "source missing score");
-      assert.ok("snippet" in src, "source missing snippet");
-      assert.equal(typeof src.score, "number");
-      assert.equal(typeof src.snippet, "string");
-    }
+    assert.ok("score" in sources[0], "source missing score");
+    assert.ok("snippet" in sources[0], "source missing snippet");
+    assert.equal(typeof sources[0].score, "number");
+    assert.equal(typeof sources[0].snippet, "string");
   });
 
   it("snippet is at most 200 characters", async () => {
     const { sources } = await queryRag("What is Bitcoin?", "WS1");
-    for (const src of sources) {
-      assert.ok(src.snippet.length <= 200, `snippet too long: ${src.snippet.length}`);
-    }
+    assert.ok(sources[0].snippet.length <= 200, `snippet too long: ${sources[0].snippet.length}`);
   });
 
-  it("source scores match ragSearch scores in order", async () => {
+  it("source score matches top-1 ragSearch score", async () => {
     const { sources } = await queryRag("What is Bitcoin?", "WS1");
     assert.equal(sources[0].score, FAKE_RESULTS[0].score);
-    assert.equal(sources[1].score, FAKE_RESULTS[1].score);
   });
 
   // --- empty corpus ---

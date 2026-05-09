@@ -17,6 +17,8 @@ class StudyAction(str, Enum):
     OPEN_QUESTIONS = "open_questions"
     QUIZ = "quiz"
     ORAL = "oral"
+    DERIVE = "derive"
+    COMPARE = "compare"
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +91,24 @@ STUDY_ACTION_REGISTRY: Dict[StudyAction, ActionMeta] = {
         source_grounding_required=True,
         example_query="Prepare oral exam questions about Merkle trees",
     ),
+    StudyAction.DERIVE: ActionMeta(
+        name="Derive",
+        description="Step-by-step proof or derivation scaffolded from source material",
+        retrieval_required=True,
+        generation_required=True,
+        output_type="prose",
+        source_grounding_required=True,
+        example_query="Derive the proof of the source coding theorem",
+    ),
+    StudyAction.COMPARE: ActionMeta(
+        name="Compare",
+        description="Side-by-side comparison and reconciliation of definitions across sources",
+        retrieval_required=True,
+        generation_required=True,
+        output_type="prose",
+        source_grounding_required=True,
+        example_query="Compare Bitcoin UTXO model with Ethereum account model",
+    ),
 }
 
 
@@ -97,7 +117,7 @@ STUDY_ACTION_REGISTRY: Dict[StudyAction, ActionMeta] = {
 # ---------------------------------------------------------------------------
 
 class StudyDispatchRequest(BaseModel):
-    query: str = Field(..., min_length=1, max_length=2000)
+    query: str = Field(..., min_length=5, max_length=2000, description="Student question (min 5 characters)")
     action: StudyAction
 
 

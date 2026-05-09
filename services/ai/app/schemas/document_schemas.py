@@ -12,6 +12,7 @@ class DocumentListItem(BaseModel):
     status: str
     processing_stage: str
     error_message: Optional[str] = None
+    document_type: str = "lecture"
     created_at: str
     updated_at: str
 
@@ -35,6 +36,7 @@ class DocumentDetail(BaseModel):
     status: str
     processing_stage: str
     error_message: Optional[str] = None
+    document_type: str = "lecture"
     parser_used: Optional[str] = None
     page_count: Optional[int] = None
     chunk_count: Optional[int] = None
@@ -52,7 +54,7 @@ class DocumentPreview(BaseModel):
     filename: str
     extracted_text_preview: Optional[str] = None
     page_count: Optional[int] = None
-    sections: Optional[List[Dict[str, Any]]] = None
+    sections: Optional[List[str]] = None
     sample_chunks: Optional[List[Dict[str, Any]]] = None
 
     class Config:

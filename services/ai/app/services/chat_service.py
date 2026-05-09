@@ -1,11 +1,4 @@
-"""Chat service — forwards RAG queries to the QVAC Node.js service.
-
-The QVAC service owns embedding, HyperDB retrieval, and optional LLM synthesis.
-This module is only responsible for the HTTP call and mapping the response to
-the ChatResult type consumed by chat_api.py.
-
-QVAC workspace = course_id, matching the convention in pipeline.py and ingest.js.
-"""
+"""Chat service — QVAC-backed Q&A."""
 import logging
 import os
 from dataclasses import dataclass, field
@@ -15,15 +8,11 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
+_QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "")
 _TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 
 _client = httpx.AsyncClient(base_url=_QVAC_SERVICE_URL, timeout=60.0)
 
-
-# ---------------------------------------------------------------------------
-# Data types
-# ---------------------------------------------------------------------------
 
 @dataclass
 class Citation:
@@ -47,12 +36,34 @@ class ChatResult:
 # Public API
 # ---------------------------------------------------------------------------
 
+def _chroma_chat_result(question: str, course_id: str) -> ChatResult:
+    """Query ChromaDB and return a ChatResult with raw snippets as answer."""
+    from app.services.chroma_retrieval import query_chroma  # lazy import
+    sources = query_chroma(question, course_id, top_k=_TOP_K)
+    citations = [
+        Citation(
+            snippet=s["snippet"],
+            score=s["score"],
+            label=s["label"],
+            page=s["page"],
+            slide=s["slide"],
+            section=s["section"],
+            doc_id=s["doc_id"],
+        )
+        for s in sources
+    ]
+    answer_text = (
+        "\n\n---\n\n".join(s["snippet"] for s in sources)
+        if sources
+        else "No relevant content found."
+    )
+    return ChatResult(answer=answer_text, citations=citations, retrieval_used=bool(citations))
+
+
 async def answer(question: str, course_id: str) -> ChatResult:
     """Send the question to the QVAC /query endpoint and return a ChatResult.
 
-    retrieval_used is True only when the QVAC service returned at least one
-    source — empty sources means nothing was found in the workspace, not that
-    retrieval was skipped.
+    Falls back to ChromaDB when QVAC is unavailable or returns zero sources.
     """
     try:
         resp = await _client.post(
@@ -61,11 +72,8 @@ async def answer(question: str, course_id: str) -> ChatResult:
         )
         resp.raise_for_status()
     except httpx.HTTPError as exc:
-        logger.warning("QVAC service unavailable: %s", exc)
-        return ChatResult(
-            answer="The AI service is temporarily unavailable. Please try again later.",
-            retrieval_used=False,
-        )
+        logger.warning("QVAC service unavailable (%s) — trying ChromaDB fallback", exc)
+        return _chroma_chat_result(question, course_id)
 
     try:
         data = resp.json()
@@ -77,6 +85,14 @@ async def answer(question: str, course_id: str) -> ChatResult:
             answer="Received an unexpected response from the AI service.",
             retrieval_used=False,
         )
+
+    if not sources:
+        logger.info(
+            "QVAC returned 0 sources for course '%s', trying ChromaDB fallback", course_id
+        )
+        fallback = _chroma_chat_result(question, course_id)
+        if fallback.citations:
+            return fallback
 
     citations = [
         Citation(

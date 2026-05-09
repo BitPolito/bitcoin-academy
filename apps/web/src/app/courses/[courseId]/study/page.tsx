@@ -1,9 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
+import type { ApiStudyResponse, StudyAction } from '@/lib/api/types';
 import { getCourse, getCourseLessons, type Course, type Lesson } from '@/lib/services/courses';
+import { getDocumentListRows } from '@/lib/api/documents';
 import {
   getCourseProgress,
   markLessonComplete,
@@ -13,15 +15,18 @@ import {
 import { SplitPane } from '@/components/study/SplitPane';
 import { SourcePane } from '@/components/study/SourcePane';
 import { OutputPane } from '@/components/study/OutputPane';
-import { ProgressBar } from '@/components/ui/ProgressBar';
 import { BadgeDisplay } from '@/components/ui/BadgeDisplay';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
 export default function StudyPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const courseId = params.courseId as string;
   const { data: session } = useSession();
-  const accessToken = (session?.user as any)?.accessToken;
+  const accessToken = session?.user?.accessToken;
+
+  const initialQuery = searchParams.get('q') ?? '';
+  const initialAction = (searchParams.get('action') as StudyAction) || null;
 
   const [course, setCourse] = useState<Course | null>(null);
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -30,17 +35,37 @@ export default function StudyPage() {
   const [courseProgress, setCourseProgress] = useState<CourseProgress | null>(null);
   const [newBadges, setNewBadges] = useState<Badge[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasIndexedDocs, setHasIndexedDocs] = useState(false);
+  const [lastActionResult, setLastActionResult] = useState<{
+    result: ApiStudyResponse;
+    lesson: Lesson | null;
+  } | null>(null);
+
+  const activeCitationDocIds = useMemo(() => {
+    if (!lastActionResult) return new Set<string>();
+    return new Set(
+      lastActionResult.result.citations.map((c) => c.doc_id).filter(Boolean) as string[]
+    );
+  }, [lastActionResult]);
+
+  const lastStudiedLessonId = lastActionResult?.lesson ? String(lastActionResult.lesson.id) : null;
+
+  const handleActionResult = useCallback((result: ApiStudyResponse, lesson: Lesson | null) => {
+    setLastActionResult({ result, lesson });
+  }, []);
 
   useEffect(() => {
     async function load() {
       try {
-        const [courseData, lessonsData] = await Promise.all([
+        const [courseData, lessonsData, docs] = await Promise.all([
           getCourse(courseId, accessToken),
           getCourseLessons(courseId, accessToken),
+          getDocumentListRows(courseId, accessToken),
         ]);
         setCourse(courseData);
         setLessons(lessonsData);
         if (lessonsData.length > 0) setSelectedLesson(lessonsData[0]);
+        setHasIndexedDocs(docs.some((d) => d.status === 'ready'));
       } catch {
         // empty state shown in SourcePane
       } finally {
@@ -51,13 +76,13 @@ export default function StudyPage() {
     async function loadProgress() {
       if (!accessToken) return;
       try {
-        const progress = await getCourseProgress(courseId, accessToken);
-        setCourseProgress(progress);
-        if (progress.completedLessonIds.length > 0) {
-          setCompletedLessons(new Set(progress.completedLessonIds));
+        const p = await getCourseProgress(courseId, accessToken);
+        setCourseProgress(p);
+        if (p.completedLessonIds.length > 0) {
+          setCompletedLessons(new Set(p.completedLessonIds));
         }
       } catch {
-        // progress is non-critical
+        /* non-critical */
       }
     }
 
@@ -80,7 +105,7 @@ export default function StudyPage() {
           setTimeout(() => setNewBadges([]), 5000);
         }
       } catch {
-        // non-critical; UI stays responsive
+        /* non-critical */
       }
     },
     [courseId, accessToken]
@@ -88,30 +113,40 @@ export default function StudyPage() {
 
   if (loading) {
     return (
-      <div className="h-[calc(100vh-7rem)] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-600" />
+      <div className="h-[calc(100vh-3.5rem)] flex items-center justify-center">
+        <div className="space-y-2 text-center">
+          <div className="w-8 h-8 border-2 border-blue-dark/30 border-t-blue-dark rounded-full animate-spin mx-auto" />
+          <p className="font-mono text-[11px] tracking-[0.18em] uppercase opacity-60">Loading…</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-7rem)]">
-      {/* Course progress strip */}
+    <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+      {/* Progress strip */}
       {courseProgress && (
-        <div className="flex-shrink-0 px-6 py-2 bg-white border-b border-gray-100">
-          <ProgressBar
-            percent={courseProgress.percent}
-            label={`${courseProgress.completedCount} of ${courseProgress.lessonCount} lessons completed`}
-            size="sm"
-          />
+        <div className="flex-shrink-0 px-6 py-2 bg-white b-thin-b flex items-center gap-4">
+          <span className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-70 whitespace-nowrap">
+            Progress
+          </span>
+          <div className="flex-1 h-1.5 b-thin overflow-hidden rounded-none">
+            <div
+              className="h-full bg-blue-dark transition-all"
+              style={{ width: `${courseProgress.percent}%` }}
+            />
+          </div>
+          <span className="font-mono text-[11px] opacity-60 whitespace-nowrap">
+            {courseProgress.completedCount}/{courseProgress.lessonCount}
+          </span>
         </div>
       )}
 
-      {/* Badge notification — auto-dismisses after 5 s */}
+      {/* Badge notification */}
       {newBadges.length > 0 && (
-        <div className="flex-shrink-0 flex items-center gap-3 px-6 py-3 bg-yellow-50 border-b border-yellow-200">
-          <span className="text-sm font-medium text-yellow-800">
-            {newBadges.length === 1 ? 'New badge earned!' : 'New badges earned!'}
+        <div className="flex-shrink-0 flex items-center gap-3 px-6 py-2 b-thin-b bg-white">
+          <span className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-70">
+            {newBadges.length === 1 ? 'Badge earned' : 'Badges earned'}
           </span>
           <div className="flex gap-2">
             {newBadges.map((badge) => (
@@ -121,7 +156,7 @@ export default function StudyPage() {
         </div>
       )}
 
-      {/* Split pane — fills remaining height */}
+      {/* Split pane */}
       <div className="flex-1 overflow-hidden">
         <SplitPane
           left={
@@ -134,6 +169,8 @@ export default function StudyPage() {
               completedLessons={completedLessons}
               onSelectLesson={setSelectedLesson}
               onMarkComplete={handleMarkComplete}
+              activeCitationDocIds={activeCitationDocIds}
+              lastStudiedLessonId={lastStudiedLessonId}
             />
           }
           right={
@@ -142,6 +179,10 @@ export default function StudyPage() {
                 courseId={courseId}
                 accessToken={accessToken}
                 selectedLesson={selectedLesson}
+                hasIndexedDocs={hasIndexedDocs}
+                initialQuery={initialQuery}
+                initialAction={initialAction}
+                onActionResult={handleActionResult}
               />
             </ErrorBoundary>
           }
