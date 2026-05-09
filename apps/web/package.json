@@ -14,7 +14,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,json,md}\""
   },
   "dependencies": {
-    "next": "^14.0.0",
+    "next": "^15.5.15",
     "next-auth": "^4.24.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -32,7 +32,7 @@
     "@typescript-eslint/parser": "^6.13.0",
     "autoprefixer": "^10.4.0",
     "eslint": "^8.55.0",
-    "eslint-config-next": "^14.0.0",
+    "eslint-config-next": "^15.5.15",
     "eslint-plugin-prettier": "^5.0.0",
     "eslint-plugin-react": "^7.33.0",
     "eslint-plugin-react-hooks": "^4.6.0",
