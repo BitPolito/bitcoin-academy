@@ -5,12 +5,6 @@ import { getEmbeddingModelId, getLlmModelId } from "./models.js";
 
 const INGEST_DIR = process.env.QVAC_INGEST_DIR ?? "/qvac_ingest";
 
-// Returned when the LLM is not configured.
-// FastAPI chat_service.py treats this as a valid answer string.
-const LLM_PLACEHOLDER_NOTE =
-  "[LLM not configured] Retrieved context shown below. " +
-  "Wire up a generation model in src/models.js to get synthesized answers.";
-
 function loadMeta(workspace) {
   const p = path.join(INGEST_DIR, `${workspace}_meta.json`);
   if (!existsSync(p)) return {};
@@ -69,13 +63,9 @@ export async function queryRag(question, workspace, topK = 5) {
   const llmId = getLlmModelId();
 
   if (!llmId) {
-    const rawContext = results
-      .map((r, i) => `[${i + 1}] ${r.content}`)
-      .join("\n\n---\n\n");
-
     return {
-      answer: `${LLM_PLACEHOLDER_NOTE}\n\n${rawContext}`,
-      sources,
+      answer: results[0].content,
+      sources: sources.slice(0, 1),
     };
   }
 
