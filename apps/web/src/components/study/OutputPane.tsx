@@ -488,7 +488,7 @@ export function OutputPane({
         })}
 
         {loading && (
-          <div className="flex justify-start w-full" aria-live="polite">
+          <div className="flex justify-start w-full" aria-live="polite" aria-label="Loading response">
             <div className="b-thin rounded-lg px-4 py-3 w-full max-w-[85%] space-y-2">
               <p className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-60 mb-1">
                 Retrieving · generating…
@@ -543,11 +543,13 @@ export function OutputPane({
             placeholder={placeholder}
             rows={2}
             disabled={loading}
+            aria-label="Message input"
             className="flex-1 resize-none rounded-md b-thin px-3 py-2 text-sm placeholder-blue-dark/40 dark:placeholder-white/40 bg-transparent outline-none focus:ring-1 focus:ring-blue-dark dark:focus:ring-white disabled:opacity-50"
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || loading}
+            aria-label="Send message"
             className="flex-shrink-0 inline-flex items-center justify-center h-10 w-10 self-end btn-primary rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <svg

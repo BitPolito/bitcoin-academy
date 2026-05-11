@@ -25,7 +25,7 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/9</span>
+                <span class='fraction'>0/13</span>
             </div>
         
             
@@ -39,14 +39,14 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/4</span>
+                <span class='fraction'>0/5</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/9</span>
+                <span class='fraction'>0/12</span>
             </div>
         
             
@@ -109,9 +109,11 @@
 <a name='L44'></a><a href='#L44'>44</a>
 <a name='L45'></a><a href='#L45'>45</a>
 <a name='L46'></a><a href='#L46'>46</a>
-<a name='L47'></a><a href='#L47'>47</a>
-<a name='L48'></a><a href='#L48'>48</a>
-<a name='L49'></a><a href='#L49'>49</a></td><td class="line-coverage quiet"><span class="cline-any cline-no">&nbsp;</span>
+<a name='L47'></a><a href='#L47'>47</a></td><td class="line-coverage quiet"><span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -130,36 +132,34 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { apiFetch } from <span class="cstat-no" title="statement not covered" >'@/lib/api';</span>
+&nbsp;
+// MVP limit: pagination not implemented. Acceptable for expected scale (5–10 courses).
+// When real pagination is needed, replace getCourses calls with a paginated version.
+export const <span class="cstat-no" title="statement not covered" >MVP_COURSES_LIMIT </span>= <span class="cstat-no" title="statement not covered" >100;</span>
 &nbsp;
 export interface Course {
   id: number;
@@ -177,35 +177,29 @@ export interface CourseWithLessons extends Course {
   lessons: Lesson[];
 }
 &nbsp;
-export async function <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >getCourses(</span></span>
-  skip = <span class="branch-0 cbranch-no" title="branch not covered" >0,</span>
-  limit = <span class="branch-0 cbranch-no" title="branch not covered" >100,</span>
-  accessToken?: string
-): Promise&lt;Course[]&gt; {
+export async function <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >getCourses(</span></span>skip = <span class="branch-0 cbranch-no" title="branch not covered" >0,</span> limit = <span class="branch-0 cbranch-no" title="branch not covered" >100,</span> accessToken?: string): Promise&lt;Course[]&gt; {
 <span class="cstat-no" title="statement not covered" >  return apiFetch&lt;Course[]&gt;(`/courses?skip=${skip}&amp;limit=${limit}`, {</span>
     accessToken,
   });
 }
 &nbsp;
-export async function <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >getCourse(</span></span>
-  courseId: string,
-  accessToken?: string
-): Promise&lt;Course&gt; {
+export async function <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >getCourse(</span></span>courseId: string, accessToken?: string): Promise&lt;Course&gt; {
 <span class="cstat-no" title="statement not covered" >  return apiFetch&lt;Course&gt;(`/courses/${courseId}`, { accessToken });</span>
 }
 &nbsp;
-export async function <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >getCourseLessons(</span></span>
-  courseId: string,
-  accessToken?: string
-): Promise&lt;Lesson[]&gt; {
+export async function <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >getCourseLessons(</span></span>courseId: string, accessToken?: string): Promise&lt;Lesson[]&gt; {
 <span class="cstat-no" title="statement not covered" >  return apiFetch&lt;Lesson[]&gt;(`/courses/${courseId}/lessons`, { accessToken });</span>
 }
 &nbsp;
-export async function <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >getLesson(</span></span>
-  lessonId: string,
-  accessToken?: string
-): Promise&lt;Lesson&gt; {
+export async function <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >getLesson(</span></span>lessonId: string, accessToken?: string): Promise&lt;Lesson&gt; {
 <span class="cstat-no" title="statement not covered" >  return apiFetch&lt;Lesson&gt;(`/lessons/${lessonId}`, { accessToken });</span>
+}
+&nbsp;
+export async function <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >createCourse(</span></span>title: string, description?: string): Promise&lt;Course&gt; {
+<span class="cstat-no" title="statement not covered" >  return apiFetch&lt;Course&gt;('/courses', {</span>
+    method: 'POST',
+    body: { title, description },
+  });
 }
 &nbsp;</pre></td></tr></table></pre>
 
@@ -214,7 +208,7 @@ export async function <span class="cstat-no" title="statement not covered" ><spa
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-04-13T10:15:08.930Z
+                at 2026-05-10T17:56:01.890Z
             </div>
         <script src="../../../prettify.js"></script>
         <script>
