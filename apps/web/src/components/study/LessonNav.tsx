@@ -90,7 +90,7 @@ export function LessonNav({
                 )}
                 {isCompleted && (
                   <span className="flex-shrink-0 font-mono text-[9px] tracking-[0.18em] uppercase opacity-60">
-                    done
+                    Done
                   </span>
                 )}
               </button>

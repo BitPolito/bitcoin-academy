@@ -24,12 +24,12 @@ dependencies = [
     # Database
     "sqlalchemy==2.0.23",
     "psycopg2-binary==2.9.9",
-    "python-dotenv>=1.0.0",
+    "python-dotenv>=1.2.2",
     # Validation & settings
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
     # Auth & security
-    "python-jose==3.3.0",
+    "python-jose==3.4.0",
     "passlib==1.7.4",
     "bcrypt==4.1.1",
     "zxcvbn==4.4.28",
@@ -50,8 +50,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest==7.4.3",
-    "pytest-asyncio==0.21.1",
+    "pytest==9.0.3",
+    "pytest-asyncio==0.24.0",
     "pytest-cov>=4.1.0",
     "mypy>=1.7.0",
 ]

@@ -55,6 +55,9 @@ htmlcov/
 .dmypy.json
 dmypy.json
 
+# Test coverage reports
+apps/web/coverage/
+
 # Node.js / npm / yarn / pnpm
 node_modules/
 npm-debug.log*

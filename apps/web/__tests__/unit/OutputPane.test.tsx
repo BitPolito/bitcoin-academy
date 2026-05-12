@@ -46,7 +46,7 @@ describe('OutputPane', () => {
 
     it('shows the empty-state prompt when no messages', () => {
       render(<OutputPane {...defaultProps} />);
-      expect(screen.getByText(/ask me anything/i)).toBeInTheDocument();
+      expect(screen.getByText(/type a topic/i)).toBeInTheDocument();
     });
 
     it('shows lesson-specific placeholder when a lesson is selected', () => {
@@ -57,7 +57,7 @@ describe('OutputPane', () => {
         />
       );
       const textarea = screen.getByRole('textbox', { name: /message input/i });
-      expect(textarea).toHaveAttribute('placeholder', 'Ask about "How Mining Works"…');
+      expect(textarea).toHaveAttribute('placeholder', 'Ask about "How Mining Works" or pick an action above…');
     });
   });
 
@@ -178,7 +178,7 @@ describe('OutputPane', () => {
       fireEvent.click(screen.getByRole('button', { name: /send message/i }));
 
       await waitFor(() => {
-        expect(screen.getByText('Relevance: 92%')).toBeInTheDocument();
+        expect(screen.getByText(/92%/)).toBeInTheDocument();
       });
     });
 

@@ -39,7 +39,7 @@ describe('SignupPage', () => {
     it('renders signup form with all elements', () => {
       render(<SignupPage />);
 
-      expect(screen.getByRole('heading', { name: /create your account/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /create account/i })).toBeInTheDocument();
       expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/^password$/i)).toBeInTheDocument();
@@ -51,7 +51,7 @@ describe('SignupPage', () => {
     it('shows password requirements hint', () => {
       render(<SignupPage />);
 
-      expect(screen.getByText(/min 8 characters/i)).toBeInTheDocument();
+      expect(screen.getByText(/min 12/i)).toBeInTheDocument();
     });
   });
 
@@ -59,8 +59,8 @@ describe('SignupPage', () => {
     it('shows error when email is empty', async () => {
       render(<SignupPage />);
 
-      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123');
-      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123');
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123!');
+      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123!');
 
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
@@ -73,8 +73,8 @@ describe('SignupPage', () => {
       render(<SignupPage />);
 
       await userEvent.type(screen.getByLabelText(/email/i), 'invalid-email');
-      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123');
-      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123');
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123!');
+      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123!');
 
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
@@ -93,7 +93,7 @@ describe('SignupPage', () => {
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/at least 8 characters/i)).toBeInTheDocument();
+        expect(screen.getByText(/at least 12 characters/i)).toBeInTheDocument();
       });
     });
 
@@ -143,7 +143,7 @@ describe('SignupPage', () => {
       render(<SignupPage />);
 
       await userEvent.type(screen.getByLabelText(/email/i), 'test@example.com');
-      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123');
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123!');
       await userEvent.type(screen.getByLabelText(/confirm password/i), 'DifferentPass456');
 
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
@@ -157,7 +157,7 @@ describe('SignupPage', () => {
       render(<SignupPage />);
 
       await userEvent.type(screen.getByLabelText(/email/i), 'test@example.com');
-      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123');
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123!');
 
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
@@ -179,8 +179,8 @@ describe('SignupPage', () => {
       render(<SignupPage />);
 
       await userEvent.type(screen.getByLabelText(/email/i), 'test@example.com');
-      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123');
-      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123');
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123!');
+      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123!');
 
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
@@ -205,8 +205,8 @@ describe('SignupPage', () => {
 
       await userEvent.type(screen.getByLabelText(/display name/i), 'Test User');
       await userEvent.type(screen.getByLabelText(/email/i), 'test@example.com');
-      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123');
-      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123');
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123!');
+      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123!');
 
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
@@ -218,7 +218,7 @@ describe('SignupPage', () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               email: 'test@example.com',
-              password: 'ValidPass123',
+              password: 'ValidPass123!',
               display_name: 'Test User',
             }),
           })
@@ -239,8 +239,8 @@ describe('SignupPage', () => {
       render(<SignupPage />);
 
       await userEvent.type(screen.getByLabelText(/email/i), 'test@example.com');
-      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123');
-      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123');
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123!');
+      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123!');
 
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
@@ -249,7 +249,7 @@ describe('SignupPage', () => {
           'credentials',
           expect.objectContaining({
             email: 'test@example.com',
-            password: 'ValidPass123',
+            password: 'ValidPass123!',
           })
         );
       });
@@ -268,13 +268,13 @@ describe('SignupPage', () => {
       render(<SignupPage />);
 
       await userEvent.type(screen.getByLabelText(/email/i), 'test@example.com');
-      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123');
-      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123');
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123!');
+      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123!');
 
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
       await waitFor(() => {
-        expect(mockRouter.push).toHaveBeenCalledWith('/dashboard');
+        expect(mockRouter.push).toHaveBeenCalledWith('/courses');
       });
     });
 
@@ -288,8 +288,8 @@ describe('SignupPage', () => {
       render(<SignupPage />);
 
       await userEvent.type(screen.getByLabelText(/email/i), 'existing@example.com');
-      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123');
-      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123');
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123!');
+      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123!');
 
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
@@ -308,8 +308,8 @@ describe('SignupPage', () => {
       render(<SignupPage />);
 
       await userEvent.type(screen.getByLabelText(/email/i), 'test@example.com');
-      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123');
-      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123');
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123!');
+      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123!');
 
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
@@ -326,8 +326,8 @@ describe('SignupPage', () => {
       render(<SignupPage />);
 
       await userEvent.type(screen.getByLabelText(/email/i), 'test@example.com');
-      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123');
-      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123');
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'ValidPass123!');
+      await userEvent.type(screen.getByLabelText(/confirm password/i), 'ValidPass123!');
 
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 

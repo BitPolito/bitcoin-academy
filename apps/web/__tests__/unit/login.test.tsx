@@ -122,7 +122,7 @@ describe('LoginPage', () => {
           email: 'test@example.com',
           password: 'Password123',
           redirect: false,
-          callbackUrl: '/dashboard',
+          callbackUrl: '/courses',
         });
       });
     });
@@ -137,7 +137,7 @@ describe('LoginPage', () => {
       fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
 
       await waitFor(() => {
-        expect(mockRouter.push).toHaveBeenCalledWith('/dashboard');
+        expect(mockRouter.push).toHaveBeenCalledWith('/courses');
         expect(mockRouter.refresh).toHaveBeenCalled();
       });
     });
@@ -167,7 +167,7 @@ describe('LoginPage', () => {
     });
 
     it('displays error message on failed login', async () => {
-      (signIn as jest.Mock).mockResolvedValue({ ok: false, error: 'Invalid credentials' });
+      (signIn as jest.Mock).mockResolvedValue({ ok: false, error: 'CredentialsSignin' });
 
       render(<LoginPage />);
 
@@ -176,7 +176,7 @@ describe('LoginPage', () => {
       fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/invalid credentials/i)).toBeInTheDocument();
+        expect(screen.getByText(/invalid email or password/i)).toBeInTheDocument();
       });
     });
 
