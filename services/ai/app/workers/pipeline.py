@@ -33,15 +33,44 @@ from app.db.session import get_db_context                                       
 from app.repositories import document_repo                                          # noqa: E402
 
 # ---------------------------------------------------------------------------
+# sys.modules aliasing — dual-import guard
+# ---------------------------------------------------------------------------
+# Register 'services.ai.app.*' as aliases for 'app.*' in sys.modules.
+# This ensures that classes imported via either path are the same objects,
+# preventing silent Pydantic isinstance failures when the worker is invoked
+# from the project root instead of from services/ai/.
+import sys as _sys
+import types as _types
+
+
+def _register_module_aliases() -> None:
+    canonical = "app"
+    alias_root = "services.ai.app"
+
+    for ns_name in ("services", "services.ai", "services.ai.app"):
+        if ns_name not in _sys.modules:
+            ns = _types.ModuleType(ns_name)
+            ns.__path__ = []  # type: ignore[attr-defined]
+            _sys.modules[ns_name] = ns
+
+    for name in list(_sys.modules):
+        if name == canonical or name.startswith(canonical + "."):
+            long_name = alias_root + name[len(canonical):]
+            _sys.modules.setdefault(long_name, _sys.modules[name])
+
+
+_register_module_aliases()
+
+# ---------------------------------------------------------------------------
 # Chunking parameters
 # ---------------------------------------------------------------------------
-_PARENT_WORDS = 1200    # parent chunk: contesto LLM (≈ 1500 token)
-_CHILD_WORDS = 150      # child chunk: unità di retrieval (≈ 200 token)
-_CHILD_OVERLAP = 30     # overlap tra child chunk consecutivi (parole)
-_MAX_WORDS = 400        # legacy: usato solo da chunk_pages() (non più chiamata da run())
-_OVERLAP_WORDS = 50     # legacy: overlap usato da chunk_pages()
-_MIN_WORDS = 25         # soglia paragrafi: chunk più corti vengono scartati
-_MIN_WORDS_TABLE = 4    # soglia tabelle: basta una riga dati (celle corte)
+_PARENT_WORDS = 1200    # parent chunk: LLM context window (≈ 1500 tokens)
+_CHILD_WORDS = 150      # child chunk: retrieval unit (≈ 200 tokens)
+_CHILD_OVERLAP = 30     # overlap between consecutive child chunks (words)
+_MAX_WORDS = 400        # legacy: only used by chunk_pages() (no longer called by run())
+_OVERLAP_WORDS = 50     # legacy: overlap used by chunk_pages()
+_MIN_WORDS = 25         # paragraph threshold: shorter chunks are discarded
+_MIN_WORDS_TABLE = 4    # table threshold: one data row is enough (cells are short)
 
 # ---------------------------------------------------------------------------
 # Helpers
