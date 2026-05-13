@@ -13,7 +13,9 @@ Open-source educational platform for Bitcoin study. Upload course materials (sli
 | uv | latest | [Installation guide](https://docs.astral.sh/uv/getting-started/installation/) |
 | Redis | ≥ 7 | Optional in development (required in production for background ingestion, token blacklist, and account lockout) |
 | Disk space | ≥ 4 GB | Embedding model ~670 MB + Qwen3-4B ~2.5 GB (downloaded on first run) |
-| RAM | ≥ 8 GB | ~5 GB at runtime; 16 GB recommended |
+| RAM | ≥ 8 GB | ~5 GB at runtime with LLM; 16 GB recommended |
+
+> **8 GB RAM mode:** Set `QVAC_LLM_ENABLED=false` to skip loading Qwen3-4B. The system runs in retrieval-only mode (~670 MB total): it retrieves and surfaces the most relevant passages but does not generate prose answers. All study actions still return source excerpts.
 
 SQLite is used in development — no PostgreSQL setup required.
 
@@ -126,6 +128,18 @@ Tests use an in-memory SQLite database and mock the QVAC service — no external
 | [`docs/api.md`](docs/api.md) | Full REST API reference |
 | [`docs/rag-pipeline.md`](docs/rag-pipeline.md) | Ingestion pipeline and retrieval internals |
 | [`docs/configuration.md`](docs/configuration.md) | All environment variables |
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| QVAC service fails to start | Model download timed out on first run | Re-run `node src/server.js`; models are cached after the first successful download |
+| Backend starts but `/health` returns `database: disconnected` | `DATABASE_URL` not set or wrong | Check `services/ai/.env`; verify PostgreSQL is running |
+| Upload succeeds but document stays in `processing` state forever | Redis not running → ARQ worker not processing jobs | Start Redis: `redis-server --daemonize yes`; start ARQ worker (see Manual Start) |
+| Frontend shows CORS error in browser | `CORS_ORIGINS` does not include the frontend origin | Add the frontend URL to `CORS_ORIGINS` in `services/ai/.env` |
+| `NEXT_PUBLIC_API_BASE_URL` error at build time | Env var not set for production build | Set `NEXT_PUBLIC_API_BASE_URL` before running `npm run build` |
 
 ---
 
