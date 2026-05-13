@@ -35,13 +35,13 @@ from app.repositories import document_repo                                      
 # ---------------------------------------------------------------------------
 # Chunking parameters
 # ---------------------------------------------------------------------------
-_PARENT_WORDS = 1200    # parent chunk: contesto LLM (≈ 1500 token)
-_CHILD_WORDS = 150      # child chunk: unità di retrieval (≈ 200 token)
-_CHILD_OVERLAP = 30     # overlap tra child chunk consecutivi (parole)
-_MAX_WORDS = 400        # legacy: usato solo da chunk_pages() (non più chiamata da run())
-_OVERLAP_WORDS = 50     # legacy: overlap usato da chunk_pages()
-_MIN_WORDS = 25         # soglia paragrafi: chunk più corti vengono scartati
-_MIN_WORDS_TABLE = 4    # soglia tabelle: basta una riga dati (celle corte)
+_PARENT_WORDS = 1200    # parent chunk: LLM context window (≈ 1500 tokens)
+_CHILD_WORDS = 150      # child chunk: retrieval unit (≈ 200 tokens)
+_CHILD_OVERLAP = 30     # overlap between consecutive child chunks (words)
+_MAX_WORDS = 400        # legacy: only used by chunk_pages() (no longer called by run())
+_OVERLAP_WORDS = 50     # legacy: overlap used by chunk_pages()
+_MIN_WORDS = 25         # paragraph threshold: shorter chunks are discarded
+_MIN_WORDS_TABLE = 4    # table threshold: one data row is enough (cells are short)
 
 # ---------------------------------------------------------------------------
 # Helpers
