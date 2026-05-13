@@ -134,7 +134,7 @@ def test_study_rejects_empty_query(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-@pytest.mark.parametrize("action", ["explain", "summarize", "retrieve", "quiz", "oral", "open_questions"])
+@pytest.mark.parametrize("action", ["explain", "summarize", "retrieve", "quiz", "oral", "open_questions", "derive", "compare"])
 def test_study_action_echoed_in_response(client, db, action):
     """action field in the response must match the requested action."""
     user = make_user(db)

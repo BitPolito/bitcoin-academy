@@ -65,6 +65,13 @@ def build_from_chunks(
 
     ranked = selected
 
+    # Parent expansion: swap child text → full parent context for LLM generation.
+    # `ranked` keeps child text (used for citation snippets in the API response).
+    # `context_chunks` carries the expanded parent text that becomes deduped_passages
+    # (what the LLM receives as context). Citation anchors stay at child precision.
+    from app.services import parent_expansion as _pe
+    context_chunks = _pe.expand_to_parents(ranked)
+
     # ordering[i] = position of ranked[i] in the post-dedup list before rerank/sort
     pre_sort_ids = [c.chunk_id for c in deduped]
     ordering = [
@@ -78,11 +85,11 @@ def build_from_chunks(
     return EvidencePack(
         query=query,
         action=action,
-        chunks=ranked,
+        chunks=ranked,                                       # child text — citation snippets
         total_candidates=total,
         ordering=ordering,
-        deduped_passages=[c.text for c in ranked],
-        total_tokens_estimate=token_sum,
+        deduped_passages=[c.text for c in context_chunks],  # parent text — LLM context
+        total_tokens_estimate=sum(_token_estimate(c.text) for c in context_chunks),
         truncated=truncated,
         sources=sources,
     )

@@ -66,6 +66,66 @@ _SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?])\s+(?=[A-Z\"])')
 
 
 # ---------------------------------------------------------------------------
+# Stage 0 — Docling PDF parser (optional, activated by USE_DOCLING=true)
+# ---------------------------------------------------------------------------
+
+def _parse_pdf_with_docling(file_path: str) -> tuple[list[dict], int]:
+    """Docling-based PDF parser — returns the same pages format as parse_pdf_pages.
+
+    Docling produces higher-quality structured extraction (better table handling,
+    heading detection, formula recognition) than pymupdf4llm. Activated when
+    USE_DOCLING=true; otherwise parse_pdf_pages (pymupdf4llm) is used.
+
+    Falls back to parse_pdf_pages if Docling is not installed or conversion fails.
+    """
+    from collections import defaultdict
+    from docling.document_converter import DocumentConverter
+
+    converter = DocumentConverter()
+    result = converter.convert(file_path)
+    doc = result.document
+
+    page_texts: dict[int, list[str]] = defaultdict(list)
+
+    for item, _ in doc.iterate_items():
+        prov_list = getattr(item, "prov", None)
+        prov = prov_list[0] if prov_list else None
+        page_no = int(prov.page_no) if prov else 0
+
+        # Tables: export to markdown for structured representation
+        raw_text: str = ""
+        try:
+            from docling_core.types.doc.document import TableItem
+            if isinstance(item, TableItem):
+                try:
+                    raw_text = item.export_to_dataframe().to_markdown(index=False) or ""
+                except Exception:
+                    raw_text = getattr(item, "text", None) or ""
+            else:
+                raw_text = getattr(item, "text", None) or ""
+        except ImportError:
+            raw_text = getattr(item, "text", None) or ""
+
+        text = raw_text.strip()
+        if not text:
+            continue
+        # Fix PDF ligature corruption (same as StructuralParser._sanitize_text)
+        text = text.replace("昀椀", "fi").replace("昀氀", "fl")
+        page_texts[page_no].append(text)
+
+    pages = [
+        {"page": pno, "text": "\n\n".join(blocks)}
+        for pno, blocks in sorted(page_texts.items())
+        if any(b.strip() for b in blocks)
+    ]
+    page_count = len(getattr(doc, "pages", pages))
+    return pages, page_count
+
+
+_USE_DOCLING = os.getenv("USE_DOCLING", "false").lower() == "true"
+
+
+# ---------------------------------------------------------------------------
 # Stage 1 — Parsers (page-by-page)
 # ---------------------------------------------------------------------------
 
@@ -676,8 +736,20 @@ def run(
             _set_stage(doc, DocumentProcessingStage.PARSING, db)
 
             if ext == ".pdf":
-                pages, page_count = parse_pdf_pages(file_path)
-                parser_used = "pymupdf4llm-page-chunks"
+                if _USE_DOCLING:
+                    try:
+                        pages, page_count = _parse_pdf_with_docling(file_path)
+                        parser_used = "docling"
+                    except Exception as exc:
+                        logger.warning(
+                            "Docling failed for %s (%s) — falling back to pymupdf4llm",
+                            document_id, exc,
+                        )
+                        pages, page_count = parse_pdf_pages(file_path)
+                        parser_used = "pymupdf4llm-page-chunks"
+                else:
+                    pages, page_count = parse_pdf_pages(file_path)
+                    parser_used = "pymupdf4llm-page-chunks"
             elif ext == ".pptx":
                 pages, page_count = parse_pptx_pages(file_path)
                 parser_used = "python-pptx"
@@ -757,6 +829,7 @@ def run(
                         "page": c["citation_page"],
                         "slide": c["citation_slide"],
                         "chunk_type": c["chunk_type"],
+                        "parent_id": c.get("parent_id", ""),
                     }
                     for c in chunks
                 ]

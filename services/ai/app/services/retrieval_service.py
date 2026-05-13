@@ -1,4 +1,11 @@
-"""Retrieval service — queries ChromaDB with course_id filter, returns EvidenceChunks."""
+"""Retrieval service — hybrid dense+sparse search with RRF fusion.
+
+Query path:
+  1. Dense vector search via ChromaDB (fastembed/MiniLM-L6).
+  2. Sparse BM25 search via pre-built per-course index (rank_bm25).
+  3. Reciprocal Rank Fusion (k=60) merges both rankings.
+  Falls back to dense-only when the BM25 index is absent.
+"""
 import logging
 import os
 from functools import lru_cache
@@ -38,28 +45,15 @@ def _get_collection():
     )
 
 
-def search(
-    query: str,
+def _dense_search(
+    clean_query: str,
     course_id: str,
-    top_k: int = 10,
-    min_score: float = 0.4,
+    top_k: int,
 ) -> list[EvidenceChunk]:
-    """Return EvidenceChunks matching query filtered to course_id.
+    """ChromaDB vector search — internal helper, expects pre-processed query.
 
-    Args:
-        query: Student question — stripped and truncated to 300 chars before embedding.
-        course_id: Only chunks belonging to this course are returned.
-        top_k: Maximum number of candidates to retrieve from ChromaDB.
-        min_score: Cosine-similarity threshold; chunks below this value are discarded
-            (default 0.4 — calibrate on real course documents).
-
-    Returns empty list on any error so callers can degrade gracefully.
+    Returns all results without a score threshold so RRF has full ranking signal.
     """
-    # Preprocess query: strip whitespace, cap length to avoid oversized embeddings
-    clean_query = query.strip()[:300]
-    # Sanitize ligature corruption (same fix as in VerilocalSearcher)
-    clean_query = clean_query.replace("昀椀", "fi").replace("昀氀", "fl")
-
     try:
         model = _get_embedding_model()
         collection = _get_collection()
@@ -69,21 +63,21 @@ def search(
             return []
 
         query_vector = list(model.embed([clean_query]))[0].tolist()
-
         results = collection.query(
             query_embeddings=[query_vector],
             n_results=min(top_k, collection.count()),
             where={"course_id": course_id},
         )
 
-        chunks: list[EvidenceChunk] = []
         if not results or not results.get("ids") or not results["ids"]:
             return []
+
         ids = results["ids"][0]
         docs = (results["documents"] or [[]])[0]
         metas = (results["metadatas"] or [[]])[0]
         dists = (results["distances"] or [[]])[0]
 
+        chunks: list[EvidenceChunk] = []
         for i in range(len(ids)):
             meta: dict = metas[i]  # type: ignore[assignment]
             distance: float = float(dists[i])  # type: ignore[arg-type]
@@ -110,18 +104,67 @@ def search(
                     ),
                 )
             )
+        return chunks
 
-        filtered = [c for c in chunks if c.score >= min_score]
-        if len(filtered) < len(chunks):
+    except Exception as exc:
+        logger.warning("Dense retrieval failed for course_id=%s: %s", course_id, exc)
+        return []
+
+
+def search(
+    query: str,
+    course_id: str,
+    top_k: int = 10,
+    min_score: float = 0.4,
+) -> list[EvidenceChunk]:
+    """Hybrid dense+sparse retrieval with RRF fusion.
+
+    Runs ChromaDB vector search and BM25 sparse search, then fuses rankings
+    via Reciprocal Rank Fusion (k=60). Falls back to dense-only retrieval when
+    the BM25 index has not been built yet for this course.
+
+    The min_score threshold applies only to the dense-only fallback path
+    (cosine-similarity scale). Hybrid RRF scores are on a different scale
+    (~0–0.033); quality filtering is delegated to the reranker instead.
+
+    Args:
+        query:      Student question; stripped and truncated to 300 chars.
+        course_id:  Only chunks belonging to this course are returned.
+        top_k:      Maximum number of results to return.
+        min_score:  Cosine-similarity lower bound — dense-only fallback only.
+
+    Returns [] on any error so callers can degrade gracefully.
+    """
+    from app.services.hybrid_search import bm25_search, load_bm25_index, rrf_fuse
+
+    clean_query = query.strip()[:300].replace("昀椀", "fi").replace("昀氀", "fl")
+
+    # Fetch 3× candidates so RRF has enough ranking signal from both sources
+    candidate_k = top_k * 3
+
+    dense_chunks = _dense_search(clean_query, course_id, top_k=candidate_k)
+    bm25_hits = bm25_search(clean_query, course_id, top_k=candidate_k)
+
+    if not bm25_hits:
+        # Dense-only fallback — apply cosine similarity threshold
+        logger.debug("BM25 index absent for course '%s' — dense-only retrieval", course_id)
+        filtered = [c for c in dense_chunks[:top_k] if c.score >= min_score]
+        if len(filtered) < len(dense_chunks[:top_k]):
             logger.debug(
                 "min_score=%.2f discarded %d/%d chunks for course_id=%s",
                 min_score,
-                len(chunks) - len(filtered),
-                len(chunks),
+                len(dense_chunks[:top_k]) - len(filtered),
+                len(dense_chunks[:top_k]),
                 course_id,
             )
         return filtered
 
-    except Exception as exc:
-        logger.warning("Retrieval failed for course_id=%s: %s", course_id, exc)
-        return []
+    # Hybrid path — load corpus to reconstruct BM25-only chunk metadata
+    index_data = load_bm25_index(course_id)
+    corpus = index_data[2] if index_data else {}
+
+    merged = rrf_fuse(dense_chunks, bm25_hits, corpus, top_k=top_k)
+    logger.debug(
+        "Hybrid search: %d results for course_id=%s", len(merged), course_id
+    )
+    return merged

@@ -1,6 +1,6 @@
 # BitPolito Academy
 
-Open-source educational platform for Bitcoin study. Upload course materials (slides, PDFs, textbooks) and get AI-powered tutoring with source-anchored citations and 8 study actions.
+Open-source educational platform for Bitcoin study. Upload course materials (slides, PDFs, textbooks) and get AI-powered tutoring with source-anchored citations and 8 study actions: **explain**, **summarize**, **retrieve**, **open_questions**, **quiz**, **oral**, **derive**, **compare**.
 
 ---
 
@@ -137,7 +137,30 @@ bitcoin-academy/
 | `POST` | `/api/courses/{id}/documents` | Upload a document |
 | `POST` | `/api/courses/{id}/study` | AI study action (20 req/min) |
 | `POST` | `/api/courses/{id}/chat` | Free-form RAG chat |
-| `GET` | `/api/health` | Health check |
+| `POST` | `/api/auth/refresh` | Refresh access token |
+| `GET` | `/api/auth/me` | Get current user |
+| `POST` | `/api/auth/logout` | Logout (blacklist token) |
+| `GET` | `/api/courses/{id}` | Get a specific course |
+| `GET` | `/api/courses/{id}/lessons` | List lessons for a course |
+| `GET` | `/api/lessons/{id}` | Get a specific lesson |
+| `GET` | `/api/courses/{id}/documents` | List documents for a course |
+| `GET` | `/api/documents/{id}` | Get document detail |
+| `GET` | `/api/documents/{id}/status` | Poll ingestion status |
+| `GET` | `/api/documents/{id}/preview` | Preview document content |
+| `DELETE` | `/api/documents/{id}` | Delete a document |
+| `POST` | `/api/documents/{id}/reindex` | Re-index a document |
+| `POST` | `/api/documents/{id}/retry` | Retry a failed ingestion |
+| `GET` | `/api/progress/{id}` | Get course progress |
+| `POST` | `/api/progress/update` | Update lesson progress |
+| `GET` | `/api/badges` | List all badges |
+| `GET` | `/api/badges/user` | Get current user's badges |
+| `GET` | `/api/courses/{id}/quizzes` | List quizzes for a course |
+| `GET` | `/api/quizzes/{quiz_id}` | Get a quiz |
+| `POST` | `/api/quizzes/{quiz_id}/attempts` | Submit a quiz attempt |
+| `GET` | `/api/users/me/certificates` | List user certificates |
+| `GET` | `/api/certificates/verify/{code}` | Verify a certificate |
+| `GET` | `/api/study/actions` | List available study actions |
+| `GET` | `/health` | Health check |
 
 Full interactive documentation at `http://localhost:8000/docs`.
 
@@ -197,6 +220,37 @@ NEXTAUTH_URL=http://localhost:3000
 | Language model | Qwen3-4B Q4\_K\_M (local, CPU/MPS, via QVAC) |
 | Task queue | arq + Redis (falls back to FastAPI BackgroundTasks) |
 | Database | SQLite (dev) · PostgreSQL (prod) |
+
+---
+
+## Testing
+
+### Backend (Python — pytest)
+
+```bash
+cd services/ai
+uv run pytest                        # unit + integration, with coverage
+uv run pytest tests/unit/            # unit tests only
+uv run pytest tests/integration/     # integration tests only
+uv run pytest -m "not integration"   # skip integration tests
+```
+
+Tests use an in-memory SQLite database and mock the QVAC service — no external services needed.
+
+### Frontend (TypeScript — Jest)
+
+```bash
+cd apps/web
+npm test             # run all tests with coverage
+npm run test:watch   # watch mode
+```
+
+### QVAC service (Node.js)
+
+```bash
+cd workers/qvac-service
+npm test
+```
 
 ---
 
