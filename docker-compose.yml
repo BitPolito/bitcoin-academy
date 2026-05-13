@@ -56,8 +56,8 @@ services:
     env_file:
       - ./services/ai/.env
     environment:
-      - DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy
-      - ENVIRONMENT=development
+      - DATABASE_URL=${DATABASE_URL}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
       - CORS_ORIGINS=http://localhost:3000
       - QVAC_SERVICE_URL=http://qvac:3001
       - QVAC_INGEST_DIR=/qvac_ingest
@@ -80,7 +80,7 @@ services:
     env_file:
       - ./services/ai/.env
     environment:
-      - DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy
+      - DATABASE_URL=${DATABASE_URL}
       - QVAC_SERVICE_URL=http://qvac:3001
       - QVAC_INGEST_DIR=/qvac_ingest
       - REDIS_URL=redis://redis:6379/0
@@ -91,6 +91,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -u $$REDIS_URL ping | grep -q PONG"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   web:
     build:

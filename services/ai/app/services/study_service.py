@@ -1,8 +1,7 @@
 """Study service — action-aware RAG dispatch with structured tracing.
 
-Retrieval is delegated to the QVAC Node.js service; generation uses
-langchain-openai when OPENAI_API_KEY is set, with graceful fallback to the
-QVAC raw answer when the key is absent or the call fails.
+Retrieval and generation are both delegated to the local QVAC Node.js service
+(via @qvac/sdk).  No external LLM API is used.
 
 Workspace = course_id, matching the convention in pipeline.py and chat_service.py.
 """
@@ -29,28 +28,11 @@ logger = logging.getLogger(__name__)
 
 _QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 _TOP_K = int(os.getenv("RAG_TOP_K", "5"))
-_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-_LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
 
 _qvac_client = httpx.AsyncClient(
     base_url=_QVAC_SERVICE_URL,
     timeout=httpx.Timeout(connect=5.0, read=45.0, write=10.0, pool=5.0),
 )
-
-_LANGCHAIN_AVAILABLE = False
-_ChatOpenAI = None
-_SystemMessage = None
-_HumanMessage = None
-
-try:
-    from langchain_openai import ChatOpenAI as _ChatOpenAI          # type: ignore[assignment]
-    from langchain_core.messages import (                            # type: ignore[assignment]
-        HumanMessage as _HumanMessage,
-        SystemMessage as _SystemMessage,
-    )
-    _LANGCHAIN_AVAILABLE = True
-except ImportError:
-    pass
 
 
 # ---------------------------------------------------------------------------
@@ -100,21 +82,6 @@ _SYSTEM_PROMPTS = {
         "Use a table or parallel-list format: left column = Concept A, right column = Concept B. "
         "Conclude with a 1-paragraph synthesis citing sources as [ref_N]."
     ),
-}
-
-# Per-action LLM temperature:
-# - quiz/oral: low temperature for factual, deterministic answers
-# - open_questions/summarize: moderate for coherent but varied output
-# - explain/derive/compare/retrieve: default for balanced creativity
-_ACTION_TEMPERATURE: dict[StudyAction, float] = {
-    StudyAction.QUIZ: 0.1,
-    StudyAction.ORAL: 0.1,
-    StudyAction.OPEN_QUESTIONS: 0.2,
-    StudyAction.SUMMARIZE: 0.2,
-    StudyAction.EXPLAIN: 0.3,
-    StudyAction.DERIVE: 0.3,
-    StudyAction.COMPARE: 0.3,
-    StudyAction.RETRIEVE: 0.3,
 }
 
 
@@ -240,11 +207,16 @@ async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple
     interface for generation and citation display.
 
     ChromaDB is queried as a fallback when QVAC returns zero chunks or fails.
+    The retrieval query may be rewritten or HyDE-expanded before hitting QVAC;
+    the original *question* is preserved for generation prompts and citations.
     """
+    from app.rag.query_rewriter import expand_query
+    retrieval_query = await expand_query(question)
+
     try:
         resp = await _qvac_client.post(
             "/query",
-            json={"question": question, "workspace": course_id, "topK": _TOP_K},
+            json={"question": retrieval_query, "workspace": course_id, "topK": _TOP_K},
         )
         resp.raise_for_status()
         data = resp.json()
@@ -284,36 +256,29 @@ async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple
 
 
 async def _generate(action: StudyAction, question: str, context: str) -> Optional[str]:
-    """Call OpenAI via langchain-openai with the action-specific system prompt.
+    """Call QVAC /generate with the action-specific system prompt (local LLM via QVAC SDK).
 
-    Uses build_prompt() for a structured human-turn message and per-action
-    temperature for optimal output quality.
+    The pre-formatted context string (with [ref_N] markers) is passed as a single
+    context block so the LLM sees the citation anchors embedded by evidence_pack_service.
 
-    Returns None when langchain-openai is unavailable or OPENAI_API_KEY is unset,
-    allowing the caller to fall back to the raw QVAC answer.
+    Returns None when QVAC is unreachable or returns an empty answer, allowing
+    the caller to fall back to the raw retrieval context.
     """
-    if not _LANGCHAIN_AVAILABLE or not _OPENAI_API_KEY:
-        return None
-
-    from app.rag.chains import build_prompt
-
-    system_prompt = _SYSTEM_PROMPTS[action]
-    temperature = _ACTION_TEMPERATURE.get(action, 0.3)
-    user_content = build_prompt(context=context, question=question)
-
+    system_prompt = _SYSTEM_PROMPTS.get(action, "")
     try:
-        llm = _ChatOpenAI(  # type: ignore[call-arg]
-            model="gpt-4o-mini",
-            temperature=temperature,
-            timeout=_LLM_TIMEOUT,
+        resp = await _qvac_client.post(
+            "/generate",
+            json={
+                "question": question,
+                "context": [{"label": "", "text": context}],
+                "systemPrompt": system_prompt,
+            },
         )
-        response = await llm.ainvoke(
-            [_SystemMessage(content=system_prompt), _HumanMessage(content=user_content)]  # type: ignore[call-arg]
-        )
-        content = response.content
-        return content if isinstance(content, str) else str(content)
-    except Exception as exc:
-        logger.warning("LLM generation failed for action '%s': %s", action.value, exc)
+        resp.raise_for_status()
+        answer: str = resp.json().get("answer", "")
+        return answer or None
+    except httpx.HTTPError as exc:
+        logger.warning("QVAC /generate failed for action '%s': %s", action.value, exc)
         return None
 
 
@@ -322,6 +287,7 @@ async def _route(
     course_id: str,
     action: StudyAction,
     trace: DispatchTrace,
+    rag_only: bool = False,
 ) -> DispatchResult:
     meta = STUDY_ACTION_REGISTRY[action]
 
@@ -334,8 +300,9 @@ async def _route(
         raw_answer, pack = await _retrieve(question, course_id, action)
         trace.chunks_found = len(pack.chunks)
 
-    # Step 2 — retrieve-only shortcut: return deduplicated passages directly
-    if not meta.generation_required:
+    # Step 2 — skip generation when the action doesn't need it, OR when rag_only is active.
+    # rag_only lets callers force raw-retrieval mode for every action (e.g. no LLM key configured).
+    if not meta.generation_required or rag_only:
         all_sources: List[SourceChunk] = [
             SourceChunk(
                 snippet=c.text,
@@ -390,6 +357,7 @@ async def dispatch(
     question: str,
     course_id: str,
     action: StudyAction,
+    rag_only: bool = False,
 ) -> DispatchResult:
     """Route a student query through retrieval and optional generation.
 
@@ -418,7 +386,7 @@ async def dispatch(
     )
 
     try:
-        result = await _route(question, course_id, action, trace)
+        result = await _route(question, course_id, action, trace, rag_only=rag_only)
         trace.output_length = len(result.answer)
         return result
     except Exception as exc:

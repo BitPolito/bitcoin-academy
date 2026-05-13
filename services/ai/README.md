@@ -1,62 +1,40 @@
-# FastAPI Backend Setup
+# Backend — FastAPI service
 
-## Prerequisites
+Python 3.11 · FastAPI · SQLAlchemy 2 · uv
 
-- Python 3.10+
-- pip or poetry
-
-## Installation
+## Setup
 
 ```bash
 cd services/ai
-pip install -r requirements.txt
+uv sync
+cp .env.example .env   # then fill in the required values
+uv run python -m app.db.init_db
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
-## Environment Variables
+The API is available at `http://localhost:8000`. Interactive documentation at `http://localhost:8000/docs`.
 
-Create a `.env` file in `services/ai`:
+## Environment
+
+See [`../../docs/configuration.md`](../../docs/configuration.md) for all variables. Minimum required:
+
+```env
+DATABASE_URL=sqlite:///./bitcoin_academy.db
+SECRET_KEY=<random 32+ chars>
+ENVIRONMENT=development
+```
+
+## Testing
 
 ```bash
-DATABASE_URL=postgresql://user:password@localhost:5432/bitcoin_academy
-SECRET_KEY=your-secret-key
-API_PORT=8000
+uv run pytest                       # all tests (unit + integration)
+uv run pytest tests/unit/           # unit tests only
+uv run pytest tests/integration/    # integration tests only
+uv run pytest -m "not integration"  # skip integration tests
 ```
 
-## Development
+Tests use an in-memory SQLite database and mock the QVAC service — no external services required.
 
-### Initial Setup
+## Structure
 
-Run the setup script to initialize the database with test users:
-
-```bash
-./setup-dev.sh
-```
-
-This will:
-
-- Install dependencies
-- Create the SQLite database with schema
-- Seed test users for development (no registration needed)
-
-**Test Users:**
-
-- **Admin**: `admin@bitpolito.it` / `admin123`
-- **Student**: `student@bitpolito.it` / `student123`
-
-### Start the Server
-
-```bash
-python -m uvicorn app.main:app --reload
-```
-
-The API will be available at `http://localhost:8000`
-
-## Project Structure
-
-See the main README.md for the FastAPI architecture overview.
-
-## Running Tests
-
-```bash
-pytest
-```
+See [`../../docs/architecture.md`](../../docs/architecture.md) for the full project layout and component overview.

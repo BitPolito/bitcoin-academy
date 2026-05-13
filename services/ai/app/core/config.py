@@ -4,9 +4,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+import uuid
+
 import bcrypt as _bcrypt
+import jwt
 from dotenv import load_dotenv
-from jose import JWTError, jwt
 from pydantic import BaseModel
 
 # Load environment variables from .env file
@@ -92,6 +94,7 @@ class TokenPayload(BaseModel):
     exp: datetime
     iat: datetime
     type: str  # 'access' or 'refresh'
+    jti: str = ""  # JWT ID — empty string for tokens issued before this field was added
 
 
 def get_password_hash(password: str) -> str:
@@ -132,7 +135,8 @@ def create_access_token(
         "role": role,
         "exp": expire,
         "iat": now,
-        "type": "access"
+        "type": "access",
+        "jti": str(uuid.uuid4()),
     }
 
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -168,7 +172,8 @@ def create_refresh_token(
         "role": role,
         "exp": expire,
         "iat": now,
-        "type": "refresh"
+        "type": "refresh",
+        "jti": str(uuid.uuid4()),
     }
 
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -191,7 +196,7 @@ def decode_token(token: str) -> Optional[dict[str, Any]]:
             algorithms=[settings.ALGORITHM]
         )
         return payload
-    except JWTError:
+    except jwt.PyJWTError:
         return None
 
 
@@ -220,7 +225,8 @@ def validate_access_token(token: str) -> Optional[TokenPayload]:
             role=payload["role"],
             exp=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
             iat=datetime.fromtimestamp(payload["iat"], tz=timezone.utc),
-            type=payload["type"]
+            type=payload["type"],
+            jti=payload.get("jti", ""),
         )
     except (KeyError, ValueError):
         return None
@@ -251,7 +257,8 @@ def validate_refresh_token(token: str) -> Optional[TokenPayload]:
             role=payload["role"],
             exp=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
             iat=datetime.fromtimestamp(payload["iat"], tz=timezone.utc),
-            type=payload["type"]
+            type=payload["type"],
+            jti=payload.get("jti", ""),
         )
     except (KeyError, ValueError):
         return None

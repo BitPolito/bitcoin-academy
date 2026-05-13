@@ -51,12 +51,13 @@ const server = createServer(async (req, res) => {
       return send(res, 200, result);
     }
 
-    // POST /generate  { question: string, context: [{ label: string, text: string }] }
+    // POST /generate  { question: string, context: [{ label: string, text: string }], systemPrompt?: string }
     // LLM generation from pre-built parent context — no retrieval.
+    // systemPrompt overrides the default; omit to use the BitPolito Academy default.
     // Returns { answer: string }
     if (req.method === "POST" && req.url === "/generate") {
-      const { question, context = [] } = await readBody(req);
-      const result = await generateFromContext(question, context);
+      const { question, context = [], systemPrompt = null } = await readBody(req);
+      const result = await generateFromContext(question, context, systemPrompt);
       return send(res, 200, result);
     }
 

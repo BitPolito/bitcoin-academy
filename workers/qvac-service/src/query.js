@@ -53,15 +53,23 @@ export async function retrieveChunks(question, workspace, topK = 20) {
 }
 
 
+const DEFAULT_SYSTEM_PROMPT =
+  "Sei un assistente educativo per BitPolito Academy. " +
+  "Rispondi SOLO usando il contesto fornito. " +
+  "Cita sempre la fonte (es. \"p. 7\", \"Slide 3\") quando fai riferimento a contenuti specifici. " +
+  "Se la risposta non è nel contesto, dillo esplicitamente. " +
+  "Sii conciso: massimo 3 frasi salvo complessità della domanda.";
+
 /**
  * LLM generation from pre-built context — no retrieval.
  * Used by the Python service after hybrid search + reranking + parent lookup.
  *
  * @param {string} question        student's question
  * @param {{ label: string, text: string }[]} contextBlocks  pre-selected parent chunks
+ * @param {string|null} [systemPrompt]  optional override; falls back to DEFAULT_SYSTEM_PROMPT
  * @returns {{ answer: string }}
  */
-export async function generateFromContext(question, contextBlocks) {
+export async function generateFromContext(question, contextBlocks, systemPrompt = null) {
   const llmId = getLlmModelId();
 
   if (!llmId) {
@@ -80,16 +88,13 @@ export async function generateFromContext(question, contextBlocks) {
   const history = [
     {
       role: "system",
-      content:
-        "Sei un assistente educativo per BitPolito Academy. " +
-        "Rispondi SOLO usando il contesto fornito. " +
-        "Cita sempre la fonte (es. \"p. 7\", \"Slide 3\") quando fai riferimento a contenuti specifici. " +
-        "Se la risposta non è nel contesto, dillo esplicitamente. " +
-        "Sii conciso: massimo 3 frasi salvo complessità della domanda.",
+      content: systemPrompt || DEFAULT_SYSTEM_PROMPT,
     },
     {
       role: "user",
-      content: `Contesto:\n${contextStr}\n\nDomanda: ${question}`,
+      content: contextStr
+        ? `Contesto:\n${contextStr}\n\nDomanda: ${question}`
+        : `Domanda: ${question}`,
     },
   ];
 

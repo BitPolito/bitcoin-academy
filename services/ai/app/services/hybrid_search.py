@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import pickle
+import re
 from pathlib import Path
 from typing import List, Tuple
 
@@ -19,9 +20,12 @@ _SERVICES_AI = _HERE.parents[2]
 _QVAC_INGEST_DIR = Path(os.getenv("QVAC_INGEST_DIR", str(_SERVICES_AI / "qvac_ingest")))
 
 _RRF_K = 60  # Cormack & Clarke 2009 constant
+_SAFE_COURSE_ID = re.compile(r'^[A-Za-z0-9_-]+$')
 
 
 def _index_paths(course_id: str) -> tuple[Path, Path]:
+    if not _SAFE_COURSE_ID.match(course_id):
+        raise ValueError(f"Invalid course_id: {course_id!r}")
     return (
         _QVAC_INGEST_DIR / f"{course_id}_bm25.pkl",
         _QVAC_INGEST_DIR / f"{course_id}_corpus.json",

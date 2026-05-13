@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.rate_limit import limiter
 from app.middleware.security import (
+    MaxBodySizeMiddleware,
     RequestIDMiddleware,
     SecurityHeadersMiddleware,
 )
@@ -39,12 +40,14 @@ if _log_level > logging.DEBUG:
         logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 
-# Initialize database tables
-init_db()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    try:
+        init_db()
+    except Exception:
+        logger.critical("Database initialisation failed — cannot start", exc_info=True)
+        raise
+
     redis_url = os.getenv("REDIS_URL")
     if redis_url:
         from arq.connections import create_pool, RedisSettings
@@ -81,10 +84,13 @@ register_exception_handlers(app)
 # Security Middleware Stack (order matters - first added = last executed)
 # =============================================================================
 
-# 1. Security Headers - adds security headers to all responses
+# 1. Body size limit — reject oversized requests before reading the body
+app.add_middleware(MaxBodySizeMiddleware)
+
+# 2. Security Headers - adds security headers to all responses
 app.add_middleware(SecurityHeadersMiddleware, environment=settings.ENVIRONMENT)
 
-# 2. Request ID - adds unique ID to each request for tracing
+# 3. Request ID - adds unique ID to each request for tracing
 app.add_middleware(RequestIDMiddleware)
 
 # =============================================================================
@@ -167,15 +173,18 @@ def health_check():
     """Health check endpoint with database connectivity test."""
     health_status = {
         "status": "healthy",
-        "environment": settings.ENVIRONMENT,
         "database": "unknown",
     }
 
     # Check database connectivity
     try:
-        db = next(get_db())
-        db.execute(text("SELECT 1"))
-        health_status["database"] = "connected"
+        gen = get_db()
+        db = next(gen)
+        try:
+            db.execute(text("SELECT 1"))
+            health_status["database"] = "connected"
+        finally:
+            gen.close()
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
         health_status["database"] = "disconnected"

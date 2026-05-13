@@ -230,6 +230,7 @@ export function OutputPane({
   const [activeAction, setActiveAction] = useState<StudyAction | null>(null);
   const [showEvidence, setShowEvidence] = useState(false);
   const [showInspect, setShowInspect] = useState(false);
+  const [ragOnly, setRagOnly] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const didAutoFireRef = useRef(false);
 
@@ -275,7 +276,7 @@ export function OutputPane({
     setMessages((prev) => [...prev, { role: 'user', content: `[${action}] ${query}` }]);
     const t0 = Date.now();
     try {
-      const result = await sendStudyAction(courseId, action, query, accessToken);
+      const result = await sendStudyAction(courseId, action, query, accessToken, ragOnly);
       const durationMs = Date.now() - t0;
       setMessages((prev) => [
         ...prev,
@@ -491,7 +492,7 @@ export function OutputPane({
           <div className="flex justify-start w-full" aria-live="polite" aria-label="Loading response">
             <div className="b-thin rounded-lg px-4 py-3 w-full max-w-[85%] space-y-2">
               <p className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-60 mb-1">
-                Retrieving · generating…
+                {ragOnly ? 'Retrieving…' : 'Retrieving · generating…'}
               </p>
               <div
                 className="h-1.5 rounded bar-stripes"
@@ -528,6 +529,18 @@ export function OutputPane({
           <span className="chip text-[10px]" style={{ border: '1px solid currentColor' }}>
             k=5 · QVAC
           </span>
+          <button
+            onClick={() => setRagOnly((v) => !v)}
+            title={ragOnly ? 'RAG-only mode active — click to enable LLM generation' : 'Enable RAG-only mode (no LLM)'}
+            className={`chip text-[10px] transition-all ${
+              ragOnly
+                ? 'bg-blue-dark text-white dark:bg-white dark:text-blue-dark'
+                : 'opacity-60 hover:opacity-100'
+            }`}
+            style={{ border: '1px solid currentColor' }}
+          >
+            ⌖ RAG only
+          </button>
           {lastActionResult && (
             <span className="ml-auto font-mono text-[10px] opacity-50">
               {lastActionResult.result.citations.length} sources ·{' '}

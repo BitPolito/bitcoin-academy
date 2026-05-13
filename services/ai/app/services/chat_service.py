@@ -109,12 +109,16 @@ async def answer(question: str, course_id: str) -> ChatResult:
     Falls back to ChromaDB when QVAC is unavailable.
     """
     from app.services import hybrid_search, reranker, parent_expansion  # noqa: PLC0415
+    from app.rag.query_rewriter import expand_query  # noqa: PLC0415
+
+    # 0. Query expansion (HyDE / rewrite) — original question kept for generation.
+    retrieval_query = await expand_query(question)
 
     # 1. Dense retrieval
     try:
         resp = await _client.post(
             "/retrieve",
-            json={"question": question, "workspace": course_id, "topK": _TOP_K_RETRIEVE},
+            json={"question": retrieval_query, "workspace": course_id, "topK": _TOP_K_RETRIEVE},
         )
         resp.raise_for_status()
         dense_dicts: list[dict] = resp.json().get("chunks", [])

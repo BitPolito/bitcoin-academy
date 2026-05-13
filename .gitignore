@@ -153,3 +153,7 @@ docs/
 *.jsonl
 parsed_output/
 chroma_db/
+
+# AI service runtime artifacts
+services/ai/uploads/
+services/ai/qvac_ingest/

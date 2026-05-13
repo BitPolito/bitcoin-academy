@@ -72,6 +72,11 @@ def build_from_chunks(
     from app.services import parent_expansion as _pe
     context_chunks = _pe.expand_to_parents(ranked)
 
+    # Compress each passage to query-relevant sentences (opt-in, no-op when disabled).
+    from app.rag.compressor import compress_passages
+    raw_passages = [c.text for c in context_chunks]
+    deduped_passages = compress_passages(query, raw_passages)
+
     # ordering[i] = position of ranked[i] in the post-dedup list before rerank/sort
     pre_sort_ids = [c.chunk_id for c in deduped]
     ordering = [
@@ -85,11 +90,11 @@ def build_from_chunks(
     return EvidencePack(
         query=query,
         action=action,
-        chunks=ranked,                                       # child text — citation snippets
+        chunks=ranked,                                # child text — citation snippets
         total_candidates=total,
         ordering=ordering,
-        deduped_passages=[c.text for c in context_chunks],  # parent text — LLM context
-        total_tokens_estimate=sum(_token_estimate(c.text) for c in context_chunks),
+        deduped_passages=deduped_passages,            # compressed parent text — LLM context
+        total_tokens_estimate=sum(_token_estimate(p) for p in deduped_passages),
         truncated=truncated,
         sources=sources,
     )

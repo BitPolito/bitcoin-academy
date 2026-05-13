@@ -119,6 +119,13 @@ STUDY_ACTION_REGISTRY: Dict[StudyAction, ActionMeta] = {
 class StudyDispatchRequest(BaseModel):
     query: str = Field(..., min_length=5, max_length=2000, description="Student question (min 5 characters)")
     action: StudyAction
+    rag_only: bool = Field(
+        False,
+        description=(
+            "When true, skip LLM generation for all actions and return the raw retrieved "
+            "passages directly. Useful when no LLM API key is configured."
+        ),
+    )
 
 
 class CitationOut(BaseModel):

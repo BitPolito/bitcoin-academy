@@ -128,6 +128,7 @@ export type StudyAction =
 export interface ApiStudyRequest {
   action: StudyAction;
   query: string;
+  rag_only?: boolean;
 }
 
 export interface ApiCitationOut {
