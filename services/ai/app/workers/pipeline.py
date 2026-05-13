@@ -33,6 +33,35 @@ from app.db.session import get_db_context                                       
 from app.repositories import document_repo                                          # noqa: E402
 
 # ---------------------------------------------------------------------------
+# sys.modules aliasing — dual-import guard
+# ---------------------------------------------------------------------------
+# Register 'services.ai.app.*' as aliases for 'app.*' in sys.modules.
+# This ensures that classes imported via either path are the same objects,
+# preventing silent Pydantic isinstance failures when the worker is invoked
+# from the project root instead of from services/ai/.
+import sys as _sys
+import types as _types
+
+
+def _register_module_aliases() -> None:
+    canonical = "app"
+    alias_root = "services.ai.app"
+
+    for ns_name in ("services", "services.ai", "services.ai.app"):
+        if ns_name not in _sys.modules:
+            ns = _types.ModuleType(ns_name)
+            ns.__path__ = []  # type: ignore[attr-defined]
+            _sys.modules[ns_name] = ns
+
+    for name in list(_sys.modules):
+        if name == canonical or name.startswith(canonical + "."):
+            long_name = alias_root + name[len(canonical):]
+            _sys.modules.setdefault(long_name, _sys.modules[name])
+
+
+_register_module_aliases()
+
+# ---------------------------------------------------------------------------
 # Chunking parameters
 # ---------------------------------------------------------------------------
 _PARENT_WORDS = 1200    # parent chunk: LLM context window (≈ 1500 tokens)

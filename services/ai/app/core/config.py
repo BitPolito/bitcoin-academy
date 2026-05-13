@@ -4,9 +4,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+import bcrypt as _bcrypt
 from dotenv import load_dotenv
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from pydantic import BaseModel
 
 # Load environment variables from .env file
@@ -83,10 +83,6 @@ class Settings:
 settings = Settings()
 
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
 class TokenPayload(BaseModel):
     """JWT token payload structure."""
 
@@ -98,31 +94,12 @@ class TokenPayload(BaseModel):
     type: str  # 'access' or 'refresh'
 
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """
-    Verify a plain password against a hashed password.
-
-    Args:
-        plain_password: The plain text password to verify.
-        hashed_password: The hashed password to compare against.
-
-    Returns:
-        True if the password matches, False otherwise.
-    """
-    return pwd_context.verify(plain_password, hashed_password)
-
-
 def get_password_hash(password: str) -> str:
-    """
-    Hash a password using bcrypt.
+    return _bcrypt.hashpw(password.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
 
-    Args:
-        password: The plain text password to hash.
 
-    Returns:
-        The hashed password.
-    """
-    return pwd_context.hash(password)
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return _bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
 
 def create_access_token(
