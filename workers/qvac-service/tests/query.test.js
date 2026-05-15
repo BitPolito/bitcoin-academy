@@ -6,7 +6,7 @@
  *
  * @qvac/sdk and src/models.js are fully mocked.
  */
-import { describe, it, beforeEach, mock } from "node:test";
+import { describe, it, before, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 
 // ---------------------------------------------------------------------------
@@ -17,6 +17,8 @@ const FAKE_RESULTS = [
   { content: "Bitcoin is a peer-to-peer electronic cash system.", score: 0.92 },
   { content: "Transactions are validated via proof-of-work.",    score: 0.85 },
 ];
+
+const NO_LLM_PREFIX = "Generazione LLM disabilitata. Passaggio più rilevante trovato:\n\n";
 
 const mockRagSearch = mock.fn(async () => FAKE_RESULTS);
 
@@ -92,7 +94,7 @@ describe("queryRag — no LLM configured (top-1 answer)", () => {
 
   it("answer is the top-1 chunk content verbatim", async () => {
     const { answer } = await queryRag("What is Bitcoin?", "WS1");
-    assert.equal(answer, FAKE_RESULTS[0].content);
+    assert.equal(answer, NO_LLM_PREFIX + FAKE_RESULTS[0].content);
   });
 
   it("answer does not contain a placeholder note", async () => {
@@ -232,7 +234,7 @@ describe("generateFromContext — no LLM", () => {
       { label: "p. 2", text: "Miners validate transactions." },
     ];
     const { answer } = await generateFromContext("What is Bitcoin?", ctx);
-    assert.equal(answer, ctx[0].text);
+    assert.equal(answer, NO_LLM_PREFIX + ctx[0].text);
   });
 
   it("returns fallback string when context is empty", async () => {
@@ -316,13 +318,13 @@ describe("generateFromContext — systemPrompt parameter (no LLM, fallback path)
     const ctx = [{ label: "p.1", text: "Bitcoin exists." }];
     // With no LLM, returns fallback; the systemPrompt param must not throw.
     const { answer } = await generateFromContext("What is Bitcoin?", ctx, "Custom system prompt.");
-    assert.equal(answer, ctx[0].text);
+    assert.equal(answer, NO_LLM_PREFIX + ctx[0].text);
   });
 
   it("accepts null systemPrompt without error", async () => {
     const ctx = [{ label: "p.1", text: "Bitcoin exists." }];
     const { answer } = await generateFromContext("What is Bitcoin?", ctx, null);
-    assert.equal(answer, ctx[0].text);
+    assert.equal(answer, NO_LLM_PREFIX + ctx[0].text);
   });
 
   it("works with empty context and custom systemPrompt", async () => {
