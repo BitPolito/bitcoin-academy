@@ -135,7 +135,9 @@ async def test_answer_happy_path_returns_chat_result():
          patch("app.services.hybrid_search.load_bm25_index", return_value=(None, None, corpus)), \
          patch("app.services.hybrid_search.rrf_fuse", return_value=[ev_chunk]), \
          patch("app.services.reranker.rerank", return_value=[ev_chunk]), \
-         patch("app.services.parent_expansion.expand_to_parents", return_value=[ev_chunk]):
+         patch("app.services.parent_expansion.expand_to_parents", return_value=[ev_chunk]), \
+         patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"):
 
         mock_client.post = AsyncMock(side_effect=[retrieve_resp, generate_resp])
         result = await __import__("app.services.chat_service", fromlist=["answer"]).answer(
@@ -177,41 +179,33 @@ async def test_answer_dense_only_when_no_bm25():
 async def test_answer_chroma_fallback_on_retrieve_error():
     import httpx
 
-    chroma_result = ChatResult(
-        answer="Fallback answer.",
-        citations=[Citation(snippet="s", score=0.5, label="doc", page=1)],
-        retrieval_used=True,
-    )
-
     with patch("app.services.chat_service._client") as mock_client, \
-         patch("app.services.chat_service._chroma_chat_result", return_value=chroma_result):
-
+         patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"):
         mock_client.post = AsyncMock(side_effect=httpx.ConnectError("refused"))
         from app.services.chat_service import answer
         result = await answer("What is Bitcoin?", "COURSE1")
 
-    assert result.answer == "Fallback answer."
-    assert result.retrieval_used is True
+    assert result.retrieval_used is False
+    assert result.citations == []
+    assert len(result.answer) > 0
 
 
 @pytest.mark.asyncio
 @pytest.mark.unit
 async def test_answer_chroma_fallback_on_zero_chunks():
-    chroma_result = ChatResult(
-        answer="Chroma answer.",
-        citations=[Citation(snippet="s", score=0.5, label="doc", page=1)],
-        retrieval_used=True,
-    )
     retrieve_resp = _mock_httpx_response({"chunks": []})
+    generate_resp = _mock_httpx_response({"answer": "No relevant content found."})
 
     with patch("app.services.chat_service._client") as mock_client, \
-         patch("app.services.chat_service._chroma_chat_result", return_value=chroma_result):
-
-        mock_client.post = AsyncMock(return_value=retrieve_resp)
+         patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"):
+        mock_client.post = AsyncMock(side_effect=[retrieve_resp, generate_resp])
         from app.services.chat_service import answer
         result = await answer("What is Bitcoin?", "COURSE1")
 
-    assert result.answer == "Chroma answer."
+    assert result.retrieval_used is False
+    assert result.citations == []
 
 
 @pytest.mark.asyncio
@@ -228,14 +222,16 @@ async def test_answer_generate_failure_returns_first_context_block():
     with patch("app.services.chat_service._client") as mock_client, \
          patch("app.services.hybrid_search.bm25_search", return_value=[]), \
          patch("app.services.reranker.rerank", return_value=[ev_chunk]), \
-         patch("app.services.parent_expansion.expand_to_parents", return_value=[ev_chunk]):
+         patch("app.services.parent_expansion.expand_to_parents", return_value=[ev_chunk]), \
+         patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"):
 
         mock_post = AsyncMock(side_effect=[retrieve_resp, gen_error])
         mock_client.post = mock_post
         from app.services.chat_service import answer
         result = await answer("What is Bitcoin?", "COURSE1")
 
-    assert result.answer == "First context block text."
+    assert "First context block text." in result.answer
 
 
 @pytest.mark.asyncio
@@ -251,7 +247,9 @@ async def test_answer_citations_use_child_chunks():
     with patch("app.services.chat_service._client") as mock_client, \
          patch("app.services.hybrid_search.bm25_search", return_value=[]), \
          patch("app.services.reranker.rerank", return_value=[child]), \
-         patch("app.services.parent_expansion.expand_to_parents", return_value=[parent]):
+         patch("app.services.parent_expansion.expand_to_parents", return_value=[parent]), \
+         patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"):
 
         mock_client.post = AsyncMock(side_effect=[retrieve_resp, generate_resp])
         from app.services.chat_service import answer

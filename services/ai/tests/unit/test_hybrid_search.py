@@ -102,8 +102,8 @@ def test_bm25_search_returns_empty_when_index_missing(tmp_path):
 @pytest.mark.unit
 def test_bm25_search_returns_ranked_tuples(tmp_path):
     pytest.importorskip("rank_bm25")
-    ids = ["chunk_bitcoin", "chunk_mining"]
-    tokenized = [["bitcoin", "utxo", "transaction"], ["proof", "work", "mining"]]
+    ids = ["chunk_bitcoin", "chunk_mining", "chunk_unrelated"]
+    tokenized = [["bitcoin", "utxo", "transaction"], ["proof", "work", "mining"], ["astronomy", "stars"]]
     _write_bm25_index(tmp_path, ids, tokenized)
 
     with patch("app.services.hybrid_search._QVAC_INGEST_DIR", tmp_path):
@@ -118,8 +118,8 @@ def test_bm25_search_returns_ranked_tuples(tmp_path):
 @pytest.mark.unit
 def test_bm25_search_excludes_zero_scores(tmp_path):
     pytest.importorskip("rank_bm25")
-    ids = ["relevant", "irrelevant"]
-    tokenized = [["bitcoin", "utxo"], ["astronomy", "stars"]]
+    ids = ["relevant", "irrelevant", "extra"]
+    tokenized = [["bitcoin", "utxo"], ["astronomy", "stars"], ["proof", "work"]]
     _write_bm25_index(tmp_path, ids, tokenized)
 
     with patch("app.services.hybrid_search._QVAC_INGEST_DIR", tmp_path):

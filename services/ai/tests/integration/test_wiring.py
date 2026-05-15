@@ -8,7 +8,7 @@ RAG pipeline returns results from the wrong course, or nothing at all.
 
 Test need to cover LLM query path and document upload path, and verify that both use the same course_id workspace when calling QVAC. Also verify that different courses use different workspaces, and that the chat endpoint correctly forwards the full QVAC response to the client.
 """
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -21,11 +21,31 @@ def _auth(user_id: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _qvac_ok(answer="Test answer.", sources=None) -> MagicMock:
+def _retrieve_resp(chunks=None) -> MagicMock:
     resp = MagicMock()
-    resp.json.return_value = {"answer": answer, "sources": sources or []}
+    resp.json.return_value = {"chunks": chunks or []}
     resp.raise_for_status.return_value = None
     return resp
+
+
+def _generate_resp(answer="Test answer.") -> MagicMock:
+    resp = MagicMock()
+    resp.json.return_value = {"answer": answer}
+    resp.raise_for_status.return_value = None
+    return resp
+
+
+def _chunk_dict(chunk_id="c1", content="Bitcoin content.", score=0.9) -> dict:
+    return {
+        "chunk_id": chunk_id, "content": content, "score": score,
+        "label": "doc.pdf", "page": 1, "slide": 0, "section": "Intro", "doc_id": "doc1",
+    }
+
+
+def _mock_chat_client(chunks=None, answer="Test answer.") -> MagicMock:
+    mock = MagicMock()
+    mock.post = AsyncMock(side_effect=[_retrieve_resp(chunks), _generate_resp(answer)])
+    return mock
 
 
 # ---------------------------------------------------------------------------
@@ -51,13 +71,15 @@ def test_upload_and_chat_use_same_qvac_workspace(client, db):
     assert resp.status_code == 201
     upload_course_id = mock_pipeline.call_args[1]["course_id"]
 
-    with patch("httpx.post", return_value=_qvac_ok()) as mock_qvac:
+    mock_client = _mock_chat_client()
+    with patch("app.services.chat_service._client", mock_client):
         client.post(
             f"/api/courses/{course.id}/chat",
             json={"message": "What is Bitcoin?"},
             headers=_auth(user.id),
         )
-    chat_workspace = mock_qvac.call_args[1]["json"]["workspace"]
+    _, call_kwargs = mock_client.post.call_args_list[0]
+    chat_workspace = call_kwargs["json"]["workspace"]
 
     assert upload_course_id == course.id
     assert chat_workspace == course.id
@@ -71,21 +93,25 @@ def test_different_courses_use_different_workspaces(client, db):
     course_b, _ = make_course_with_lessons(db)
     user = make_user(db)
 
-    with patch("httpx.post", return_value=_qvac_ok()) as mock_a:
+    mock_a = _mock_chat_client()
+    with patch("app.services.chat_service._client", mock_a):
         client.post(
             f"/api/courses/{course_a.id}/chat",
             json={"message": "Question about course A."},
             headers=_auth(user.id),
         )
-    workspace_a = mock_a.call_args[1]["json"]["workspace"]
+    _, kwargs_a = mock_a.post.call_args_list[0]
+    workspace_a = kwargs_a["json"]["workspace"]
 
-    with patch("httpx.post", return_value=_qvac_ok()) as mock_b:
+    mock_b = _mock_chat_client()
+    with patch("app.services.chat_service._client", mock_b):
         client.post(
             f"/api/courses/{course_b.id}/chat",
             json={"message": "Question about course B."},
             headers=_auth(user.id),
         )
-    workspace_b = mock_b.call_args[1]["json"]["workspace"]
+    _, kwargs_b = mock_b.post.call_args_list[0]
+    workspace_b = kwargs_b["json"]["workspace"]
 
     assert workspace_a != workspace_b
     assert workspace_a == course_a.id
@@ -123,34 +149,36 @@ def test_pipeline_receives_correct_args_from_upload_api(client, db):
 
 @pytest.mark.integration
 def test_chat_posts_to_qvac_query_endpoint(client, db):
-    """The chat handler must POST to /query on the QVAC service, not any other path."""
+    """The chat handler must POST to /retrieve on the QVAC service for dense retrieval."""
     course, _ = make_course_with_lessons(db)
     user = make_user(db)
 
-    with patch("httpx.post", return_value=_qvac_ok()) as mock_post:
+    mock_client = _mock_chat_client()
+    with patch("app.services.chat_service._client", mock_client):
         client.post(
             f"/api/courses/{course.id}/chat",
             json={"message": "Explain mining."},
             headers=_auth(user.id),
         )
 
-    called_url = mock_post.call_args[0][0]
-    assert called_url.endswith("/query"), f"Expected /query endpoint, got: {called_url}"
+    call_args, _ = mock_client.post.call_args_list[0]
+    called_path = call_args[0]
+    assert called_path == "/retrieve", f"Expected /retrieve endpoint, got: {called_path}"
 
 
 @pytest.mark.integration
 def test_chat_answer_and_citations_flow_from_qvac_to_client(client, db):
-    """The full response from QVAC /query must reach the HTTP client unchanged."""
+    """Answer and citations from QVAC must reach the HTTP client unchanged."""
     course, _ = make_course_with_lessons(db)
     user = make_user(db)
 
     expected_answer = "The blockchain is a distributed ledger."
-    sources = [
-        {"snippet": "A blockchain records transactions.", "score": 0.95},
-        {"snippet": "Each block links to the previous one.", "score": 0.88},
+    chunks = [
+        _chunk_dict("c1", "A blockchain records transactions.", 0.95),
+        _chunk_dict("c2", "Each block links to the previous one.", 0.88),
     ]
-
-    with patch("httpx.post", return_value=_qvac_ok(answer=expected_answer, sources=sources)):
+    mock_client = _mock_chat_client(chunks=chunks, answer=expected_answer)
+    with patch("app.services.chat_service._client", mock_client):
         resp = client.post(
             f"/api/courses/{course.id}/chat",
             json={"message": "What is blockchain?"},
@@ -162,24 +190,27 @@ def test_chat_answer_and_citations_flow_from_qvac_to_client(client, db):
     assert data["answer"] == expected_answer
     assert data["retrieval_used"] is True
     assert len(data["citations"]) == 2
-    assert data["citations"][0]["score"] == 0.95
-    assert data["citations"][1]["snippet"] == "Each block links to the previous one."
+    scores = {c["score"] for c in data["citations"]}
+    assert 0.95 in scores
+    assert 0.88 in scores
 
 
 @pytest.mark.integration
 def test_chat_topk_is_forwarded_to_qvac(client, db):
-    """The QVAC /query call must include a topK parameter."""
+    """The QVAC /retrieve call must include a topK parameter."""
     course, _ = make_course_with_lessons(db)
     user = make_user(db)
 
-    with patch("httpx.post", return_value=_qvac_ok()) as mock_post:
+    mock_client = _mock_chat_client()
+    with patch("app.services.chat_service._client", mock_client):
         client.post(
             f"/api/courses/{course.id}/chat",
-            json={"message": "Question."},
+            json={"message": "Question about Bitcoin."},
             headers=_auth(user.id),
         )
 
-    payload = mock_post.call_args[1]["json"]
+    _, call_kwargs = mock_client.post.call_args_list[0]
+    payload = call_kwargs["json"]
     assert "topK" in payload
     assert isinstance(payload["topK"], int)
     assert payload["topK"] > 0

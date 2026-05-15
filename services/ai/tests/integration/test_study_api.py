@@ -169,7 +169,7 @@ def test_study_dispatches_with_correct_workspace(client, db):
             headers=_auth(user.id),
         )
 
-    _, call_kwargs = mock_post.call_args
+    _, call_kwargs = mock_post.call_args_list[0]
     assert call_kwargs["json"]["workspace"] == course.id
 
 

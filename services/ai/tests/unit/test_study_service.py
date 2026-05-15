@@ -261,7 +261,9 @@ async def test_route_generation_fallback_on_none():
 async def test_dispatch_rag_only_propagated():
     pack = _make_pack()
     with patch("app.services.study_service._route", new_callable=AsyncMock,
-               return_value=DispatchResult(answer="ok", citations=[], retrieval_used=True)) as mock_route:
+               return_value=DispatchResult(answer="ok", citations=[], retrieval_used=True)) as mock_route, \
+         patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"):
         from app.services.study_service import dispatch
         await dispatch("What is Bitcoin?", "COURSE1", StudyAction.EXPLAIN, rag_only=True)
 
