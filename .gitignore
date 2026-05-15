@@ -106,7 +106,7 @@ temp/
 
 # Docker
 .dockerignore
-docker-compose.override.yml
+docker-compose.local.yml
 
 # IDE config
 .editorconfig

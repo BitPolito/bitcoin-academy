@@ -1,0 +1,15 @@
+# Reverse proxy for Bitcoin Academy.
+# Routes /api/* to the FastAPI backend and everything else to Next.js.
+#
+# For production with automatic TLS, replace ":80" with your domain:
+#   academy.example.com {
+#       ...
+#   }
+# Caddy will obtain and renew Let's Encrypt certificates automatically.
+
+:80 {
+    @api path /api/*
+    reverse_proxy @api api:8000
+
+    reverse_proxy web:3000
+}

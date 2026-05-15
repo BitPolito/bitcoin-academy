@@ -35,16 +35,23 @@ echo "DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bi
 cp services/ai/.env.example services/ai/.env
 cp apps/web/.env.example     apps/web/.env.local
 
-# 3. Start all services
+# 3. Start all services (development mode — uses docker-compose.override.yml automatically)
 docker compose up --build
 ```
 
-| Service | URL |
-|---|---|
-| Frontend | http://localhost:3000 |
-| Backend API | http://localhost:8000 |
-| QVAC service | http://localhost:3001 |
-| Interactive API docs | http://localhost:8000/docs |
+`docker compose up` merges `docker-compose.yml` (production base) with `docker-compose.override.yml` (dev overrides: source mounts, hot reload, exposed ports). To run production-only without the overrides:
+
+```bash
+docker compose -f docker-compose.yml up --build
+```
+
+| Service | Dev URL | Notes |
+|---|---|---|
+| Frontend | http://localhost:3000 | direct in dev; through Caddy (:80) in prod |
+| Backend API | http://localhost:8000 | direct in dev; through Caddy (:80/api/*) in prod |
+| Reverse proxy | http://localhost:80 | Caddy — active in both modes |
+| QVAC service | http://localhost:3001 | direct in dev |
+| Interactive API docs | http://localhost:8000/docs | dev only (`ENVIRONMENT=development`) |
 
 **Default development accounts (created automatically):**
 

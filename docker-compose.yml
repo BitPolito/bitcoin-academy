@@ -1,12 +1,16 @@
+# Production-ready base configuration.
+# Development overrides (source mounts, exposed ports, hot reload) live in
+# docker-compose.override.yml, which Docker Compose merges automatically.
+# To run production-only: docker compose -f docker-compose.yml up
+
 services:
   postgres:
     image: postgres:15-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: bitcoin_academy
       POSTGRES_PASSWORD: bitcoin_academy
       POSTGRES_DB: bitcoin_academy
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -14,29 +18,35 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.5'
 
   qvac:
     build: ./workers/qvac-service
-    ports:
-      - "3001:3001"
+    restart: unless-stopped
     volumes:
       - qvac_data:/app/hyperdb
       - qvac_ingest:/qvac_ingest
     environment:
       - QVAC_PORT=3001
       - QVAC_INGEST_DIR=/qvac_ingest
-      # Set QVAC_LLM_SRC to a local model path to enable LLM generation.
-      # Leave unset to run in embedding + retrieval only mode.
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+          cpus: '4'
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
     volumes:
       - redis_data:/data
     healthcheck:
@@ -44,14 +54,17 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.5'
 
   api:
     build:
       context: ./services/ai
-    ports:
-      - "8000:8000"
+    restart: unless-stopped
     volumes:
-      - ./services/ai:/app
       - qvac_ingest:/qvac_ingest
     env_file:
       - ./services/ai/.env
@@ -69,13 +82,18 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '2'
 
   arq-worker:
     build:
       context: ./services/ai
     command: arq app.workers.arq_worker.WorkerSettings
+    restart: unless-stopped
     volumes:
-      - ./services/ai:/app
       - qvac_ingest:/qvac_ingest
     env_file:
       - ./services/ai/.env
@@ -92,21 +110,21 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -u $$REDIS_URL ping | grep -q PONG"]
+      test: ["CMD-SHELL", "redis-cli -h redis -p 6379 ping | grep -q PONG"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: '2'
 
   web:
     build:
       context: ./apps/web
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./apps/web:/app
-      - /app/node_modules
-      - /app/.next
+    restart: unless-stopped
     env_file:
       - ./apps/web/.env.local
     environment:
@@ -115,9 +133,36 @@ services:
       - NEXTAUTH_URL=http://localhost:3000
     depends_on:
       - api
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '1'
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+          cpus: '0.5'
 
 volumes:
   postgres_data:
   qvac_data:
   qvac_ingest:
   redis_data:
+  caddy_data:
+  caddy_config:
