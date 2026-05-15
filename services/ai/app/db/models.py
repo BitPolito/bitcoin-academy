@@ -442,7 +442,25 @@ class ChunkParent(Base):
     citation_section: Mapped[str] = mapped_column(String, default="")
 
 
-# 8. Certificates
+# 8. Answer Feedback (Q8 — student thumbs up/down on RAG answers)
+class AnswerFeedback(Base):
+    """Student rating of a RAG-generated answer (thumbs up/down + optional comment)."""
+
+    __tablename__ = "answer_feedback"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    session_id: Mapped[str] = mapped_column(String, index=True)
+    course_id: Mapped[str] = mapped_column(String, index=True)
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text)
+    rating: Mapped[int] = mapped_column(Integer)  # 1 = helpful, -1 = not helpful
+    comment: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(String, default=func.now())
+
+
+# 9. Certificates
 class Certificate(Base):
     __tablename__ = "certificate"
 

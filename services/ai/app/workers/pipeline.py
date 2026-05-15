@@ -291,11 +291,28 @@ def clean_page(text: str, boilerplate: set[str]) -> str:
 # Stage 3 — Structure-aware chunker
 # ---------------------------------------------------------------------------
 
-def _split_into_blocks(text: str) -> list[dict]:
-    """Segmenta il testo in blocchi tipizzati: heading | table | paragraph.
+_LATEX_BLOCK_RE = re.compile(r'\$\$.+?\$\$', re.DOTALL)
+_CODE_FENCE_RE = re.compile(r'```.*?```', re.DOTALL)
 
-    Le tabelle markdown (righe con |) vengono preservate come blocco atomico.
+
+def _split_into_blocks(text: str) -> list[dict]:
+    """Segmenta il testo in blocchi tipizzati: heading | table | formula | code | paragraph.
+
+    Formula ($$...$$) e code fence (```...```) vengono estratti come blocchi atomici
+    prima del parsing riga per riga, per preservarli intatti.
     """
+    # Extract LaTeX block formulas and code fences as standalone blocks first,
+    # replacing them with a sentinel so line-by-line parsing is not disrupted.
+    sentinel_map: dict[str, dict] = {}
+
+    def _replace(m: re.Match, block_type: str) -> str:
+        key = f"\x00BLOCK{len(sentinel_map)}\x00"
+        sentinel_map[key] = {"type": block_type, "text": m.group(0).strip()}
+        return f"\n{key}\n"
+
+    text = _LATEX_BLOCK_RE.sub(lambda m: _replace(m, "formula"), text)
+    text = _CODE_FENCE_RE.sub(lambda m: _replace(m, "code"), text)
+
     blocks: list[dict] = []
     current_type: str = "paragraph"
     current_lines: list[str] = []
@@ -310,7 +327,11 @@ def _split_into_blocks(text: str) -> list[dict]:
     for line in text.splitlines(keepends=True):
         stripped = line.strip()
 
-        if re.match(r'^#{1,4}\s+\S', stripped):
+        if stripped in sentinel_map:
+            flush()
+            current_type = "paragraph"
+            blocks.append(sentinel_map[stripped])
+        elif re.match(r'^#{1,4}\s+\S', stripped):
             flush()
             blocks.append({"type": "heading", "text": stripped})
         elif stripped.startswith("|"):
@@ -320,12 +341,10 @@ def _split_into_blocks(text: str) -> list[dict]:
             current_lines.append(line)
         else:
             if current_type == "table":
-                # Una riga vuota o non-tabella chiude la tabella
                 if not stripped:
                     flush()
                     current_type = "paragraph"
                 else:
-                    # Riga di testo subito dopo tabella (es. nota): chiudi tabella
                     flush()
                     current_type = "paragraph"
                     current_lines.append(line)
@@ -540,8 +559,8 @@ def build_parent_child_chunks(
                 parents.append(parent)
 
                 # Genera child chunk dal parent
-                if btype == "table" or wc <= _CHILD_WORDS:
-                    # Tabelle e blocchi piccoli: un solo child = il parent intero
+                if btype in ("table", "formula", "code") or wc <= _CHILD_WORDS:
+                    # Tabelle, formule, code block e blocchi piccoli: un solo child = il parent intero
                     child = _make_child(
                         parent["id"], doc_id, page_num, 0,
                         parent_text, current_section, chunk_type=btype,

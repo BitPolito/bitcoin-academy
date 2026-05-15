@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { sendChatMessage, type Citation, type HistoryEntry } from '@/lib/services/chat';
+import { sendChatMessageStream, submitFeedback, type Citation, type HistoryEntry } from '@/lib/services/chat';
 import { sendStudyAction } from '@/lib/services/study';
 import type { ApiCitationOut, ApiStudyResponse, StudyAction } from '@/lib/api/types';
 import type { Lesson } from '@/lib/services/courses';
@@ -232,8 +232,10 @@ export function OutputPane({
   const [showEvidence, setShowEvidence] = useState(false);
   const [showInspect, setShowInspect] = useState(false);
   const [ragOnly, setRagOnly] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState<Set<number>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const didAutoFireRef = useRef(false);
+  const sessionIdRef = useRef<string>(typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36));
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -257,20 +259,42 @@ export function OutputPane({
     setMessages((prev) => [...prev, { role: 'user', content: question }]);
     setLoading(true);
     setActiveAction(null);
+
+    // Insert an empty assistant message that will be filled token-by-token.
+    const assistantIdx = messages.length + 1; // +1 for the user message just added
+    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+
     try {
-      const result = await sendChatMessage(courseId, question, accessToken, history);
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: result.answer, citations: result.citations },
-      ]);
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: err instanceof Error ? `Error: ${err.message}` : 'Could not fetch a response.',
+      await sendChatMessageStream(
+        courseId,
+        question,
+        (token) => {
+          setMessages((prev) =>
+            prev.map((m, mi) =>
+              mi === assistantIdx && m.role === 'assistant'
+                ? { ...m, content: m.content + token }
+                : m
+            )
+          );
         },
-      ]);
+        (citations) => {
+          setMessages((prev) =>
+            prev.map((m, mi) =>
+              mi === assistantIdx && m.role === 'assistant' ? { ...m, citations } : m
+            )
+          );
+        },
+        accessToken,
+        history,
+      );
+    } catch (err) {
+      setMessages((prev) =>
+        prev.map((m, mi) =>
+          mi === assistantIdx && m.role === 'assistant'
+            ? { ...m, content: err instanceof Error ? `Error: ${err.message}` : 'Could not fetch a response.' }
+            : m
+        )
+      );
     } finally {
       setLoading(false);
     }
@@ -511,6 +535,35 @@ export function OutputPane({
                           </div>
                         ))}
                       </div>
+                    )}
+                  </div>
+                )}
+                {msg.role === 'assistant' && (
+                  <div className="mt-2 flex items-center gap-1">
+                    {feedbackSent.has(i) ? (
+                      <span className="font-mono text-[10px] opacity-50">Thanks for the feedback</span>
+                    ) : (
+                      <>
+                        {([1, -1] as const).map((rating) => (
+                          <button
+                            key={rating}
+                            onClick={async () => {
+                              const prevMsg = messages[i - 1];
+                              const question = prevMsg?.role === 'user' ? prevMsg.content : '';
+                              try {
+                                await submitFeedback(courseId, sessionIdRef.current, question, msg.content, rating, accessToken);
+                              } catch {
+                                // best-effort
+                              }
+                              setFeedbackSent((prev) => new Set([...prev, i]));
+                            }}
+                            className="w-6 h-6 flex items-center justify-center rounded b-thin opacity-50 hover:opacity-100 transition-opacity text-sm"
+                            title={rating === 1 ? 'Helpful' : 'Not helpful'}
+                          >
+                            {rating === 1 ? '↑' : '↓'}
+                          </button>
+                        ))}
+                      </>
                     )}
                   </div>
                 )}

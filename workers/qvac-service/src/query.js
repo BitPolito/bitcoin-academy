@@ -128,6 +128,54 @@ export async function generateFromContext(question, contextBlocks, systemPrompt 
 
 
 /**
+ * Like generateFromContext but yields raw token strings via an async generator.
+ * Sends SSE-compatible chunks: each yield is a raw token string.
+ * Falls back to yielding the full answer at once when no LLM is loaded.
+ *
+ * @param {string} question
+ * @param {{ label: string, text: string }[]} contextBlocks
+ * @param {string|null} [systemPrompt]
+ * @yields {string} individual tokens as they are produced
+ */
+export async function* streamFromContext(question, contextBlocks, systemPrompt = null) {
+  const llmId = getLlmModelId();
+
+  if (!llmId) {
+    const raw = contextBlocks[0]?.text ?? "";
+    const snippet = raw.length > 600 ? raw.slice(0, 600).trimEnd() + "…" : raw;
+    yield raw
+      ? "Generazione LLM disabilitata. Passaggio più rilevante trovato:\n\n" + snippet
+      : "Nessun contesto disponibile.";
+    return;
+  }
+
+  const { completion } = await import("@qvac/sdk");
+
+  const contextStr = contextBlocks
+    .map((b, i) => {
+      const label = b.label ? ` [${b.label}]` : "";
+      return `[${i + 1}]${label}\n${b.text}`;
+    })
+    .join("\n\n---\n\n");
+
+  const history = [
+    { role: "system", content: systemPrompt || DEFAULT_SYSTEM_PROMPT },
+    {
+      role: "user",
+      content: contextStr
+        ? `Contesto:\n${contextStr}\n\nDomanda: ${question}`
+        : `Domanda: ${question}`,
+    },
+  ];
+
+  const result = completion({ modelId: llmId, history, stream: true });
+  for await (const token of result.tokenStream) {
+    yield token;
+  }
+}
+
+
+/**
  * RAG query: semantic search over the workspace, then optionally generate
  * an answer with the LLM.  When no LLM is configured, returns the raw
  * retrieved chunks instead so the pipeline is still usable end-to-end.

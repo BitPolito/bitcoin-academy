@@ -1,7 +1,7 @@
 import { createServer } from "http";
 import { initModels, shutdownModels } from "./models.js";
 import { ingestFromJsonl } from "./ingest.js";
-import { queryRag, retrieveChunks, generateFromContext } from "./query.js";
+import { queryRag, retrieveChunks, generateFromContext, streamFromContext } from "./query.js";
 
 const PORT = parseInt(process.env.QVAC_PORT ?? "3001", 10);
 
@@ -59,6 +59,28 @@ const server = createServer(async (req, res) => {
       const { question, context = [], systemPrompt = null } = await readBody(req);
       const result = await generateFromContext(question, context, systemPrompt);
       return send(res, 200, result);
+    }
+
+    // POST /stream  { question: string, context: [{ label, text }], systemPrompt?: string }
+    // Server-Sent Events stream — writes tokens as "data: <token>\n\n" until done.
+    // Client should consume with EventSource or fetch + ReadableStream.
+    if (req.method === "POST" && req.url === "/stream") {
+      const { question, context = [], systemPrompt = null } = await readBody(req);
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "Transfer-Encoding": "chunked",
+      });
+      try {
+        for await (const token of streamFromContext(question, context, systemPrompt)) {
+          res.write(`data: ${JSON.stringify(token)}\n\n`);
+        }
+        res.write("data: [DONE]\n\n");
+      } catch (err) {
+        res.write(`data: ${JSON.stringify("[ERROR] " + err.message)}\n\n`);
+      }
+      return res.end();
     }
 
     // GET /health — used by FastAPI to detect whether the service is up.

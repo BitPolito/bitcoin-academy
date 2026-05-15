@@ -14,6 +14,7 @@ from app.api.certificates_api import router as certificates_router
 from app.api.chat_api import router as chat_router
 from app.api.courses_api import router as courses_router
 from app.api.documents_api import router as documents_router
+from app.api.feedback_api import router as feedback_router
 from app.api.progress_api import router as progress_router
 from app.api.quizzes_api import router as quizzes_router
 from app.api.study_api import router as study_router
@@ -146,6 +147,7 @@ app.include_router(certificates_router)
 app.include_router(chat_router)
 app.include_router(courses_router)
 app.include_router(documents_router)
+app.include_router(feedback_router)
 app.include_router(progress_router)
 app.include_router(quizzes_router)
 app.include_router(study_router)

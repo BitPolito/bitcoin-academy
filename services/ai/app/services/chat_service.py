@@ -127,6 +127,7 @@ async def answer(
     """Hybrid RAG answer: dense (QVAC) + sparse (BM25) → RRF → rerank → parent context → LLM.
 
     Flow:
+      0. Semantic cache lookup (skip full pipeline on cache hit)
       1. /retrieve  — top-20 dense chunks from QVAC
       2. BM25 sparse search on local index
       3. RRF fusion → unified top-20
@@ -137,8 +138,18 @@ async def answer(
     """
     from app.services import hybrid_search, reranker, parent_expansion  # noqa: PLC0415
     from app.rag.query_rewriter import expand_query  # noqa: PLC0415
+    from app.services.cache_service import get_cached, set_cached  # noqa: PLC0415
 
-    # 0. Query expansion (HyDE / rewrite) — original question kept for generation.
+    # 0. Semantic cache — return cached answer for near-duplicate queries.
+    cached = get_cached(question, course_id)
+    if cached is not None:
+        return ChatResult(
+            answer=cached["answer"],
+            citations=[Citation(**c) for c in cached.get("citations", [])],
+            retrieval_used=cached.get("retrieval_used", True),
+        )
+
+    # 0b. Query expansion (HyDE / rewrite) — original question kept for generation.
     retrieval_query = await expand_query(question)
 
     # 1. Dense retrieval
@@ -240,4 +251,134 @@ async def answer(
         for c in reranked
     ]
 
-    return ChatResult(answer=answer_text, citations=citations, retrieval_used=bool(reranked))
+    result = ChatResult(answer=answer_text, citations=citations, retrieval_used=bool(reranked))
+
+    # Store in semantic cache for future near-duplicate queries.
+    set_cached(question, course_id, {
+        "answer": answer_text,
+        "citations": [
+            {"snippet": c.snippet, "score": c.score, "label": c.label,
+             "page": c.page, "slide": c.slide, "section": c.section, "doc_id": c.doc_id}
+            for c in citations
+        ],
+        "retrieval_used": bool(reranked),
+    })
+
+    return result
+
+
+async def stream_answer(
+    question: str,
+    course_id: str,
+    history: list[dict] | None = None,
+):
+    """Async generator: same retrieval pipeline as answer(), but streams tokens from QVAC /stream.
+
+    Yields strings — each is a raw token from the LLM.  Terminates with a
+    special JSON sentinel object {"citations": [...], "retrieval_used": bool}
+    so the client can render citations after streaming completes.
+    Falls back to answer() when QVAC /stream is unavailable.
+    """
+    import json as _json  # noqa: PLC0415
+    from app.services import hybrid_search, reranker, parent_expansion  # noqa: PLC0415
+    from app.rag.query_rewriter import expand_query  # noqa: PLC0415
+
+    retrieval_query = await expand_query(question)
+
+    try:
+        resp = await _client.post(
+            "/retrieve",
+            json={"question": retrieval_query, "workspace": course_id, "topK": _TOP_K_RETRIEVE},
+        )
+        resp.raise_for_status()
+        dense_dicts: list[dict] = resp.json().get("chunks", [])
+    except httpx.HTTPError:
+        fallback = _chroma_chat_result(question, course_id)
+        yield fallback.answer
+        return
+
+    dense_chunks = [_qvac_dict_to_chunk(d) for d in dense_dicts if d.get("chunk_id")]
+    bm25_hits = hybrid_search.bm25_search(question, course_id, top_k=_TOP_K_RETRIEVE)
+
+    if bm25_hits:
+        index_data = hybrid_search.load_bm25_index(course_id)
+        corpus = index_data[2] if index_data else {}
+        merged = hybrid_search.rrf_fuse(dense_chunks, bm25_hits, corpus, top_k=_TOP_K_RETRIEVE)
+    else:
+        merged = dense_chunks[:_TOP_K_RETRIEVE]
+
+    reranked_all = reranker.rerank(question, merged)
+    reranked = reranker.mmr_select(reranked_all, _TOP_K_GENERATE)
+    context_chunks = parent_expansion.expand_to_parents(reranked)
+
+    context_blocks = []
+    total_est_tokens = 0
+    for c in context_chunks:
+        clean_text = _strip_markdown(c.text)
+        est_tokens = int(len(clean_text.split()) * 1.3)
+        if total_est_tokens + est_tokens > _MAX_CONTEXT_TOKENS:
+            break
+        total_est_tokens += est_tokens
+        loc = (
+            f"p.{c.anchor.page}" if c.anchor.page
+            else (f"slide {c.anchor.slide}" if c.anchor.slide else "")
+        )
+        label = f"{c.anchor.doc_name} · {loc}" if loc else c.anchor.doc_name
+        context_blocks.append({"label": label, "text": clean_text})
+
+    if history:
+        history_lines = [
+            f"{'Student' if m['role'] == 'user' else 'Tutor'}: {m['content'][:500]}"
+            for m in history[-4:]
+        ]
+        context_blocks.insert(0, {"label": "Cronologia conversazione", "text": "\n".join(history_lines)})
+
+    citations = [
+        Citation(
+            snippet=c.text[:200],
+            score=c.score,
+            label=c.anchor.doc_name,
+            page=c.anchor.page or 0,
+            slide=c.anchor.slide or 0,
+            section=c.anchor.section or "",
+            doc_id=c.anchor.doc_id,
+        )
+        for c in reranked
+    ]
+
+    try:
+        async with _client.stream(
+            "POST", "/stream",
+            json={"question": question, "context": context_blocks},
+            timeout=120.0,
+        ) as stream_resp:
+            stream_resp.raise_for_status()
+            async for line in stream_resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                payload = line[6:]
+                if payload == "[DONE]":
+                    break
+                try:
+                    token = _json.loads(payload)
+                    yield token
+                except Exception:
+                    yield payload
+    except httpx.HTTPError as exc:
+        logger.warning("QVAC /stream failed (%s) — falling back to buffered generate", exc)
+        try:
+            gen_resp = await _client.post(
+                "/generate",
+                json={"question": question, "context": context_blocks},
+            )
+            gen_resp.raise_for_status()
+            yield _clean_answer(gen_resp.json().get("answer", "Risposta non disponibile."))
+        except httpx.HTTPError:
+            yield "Risposta non disponibile."
+
+    # Emit citations as the final SSE event so the client can display them.
+    yield "\x00CITATIONS\x00" + _json.dumps([
+        {"snippet": c.snippet, "score": c.score, "label": c.label,
+         "page": c.page, "slide": c.slide, "section": c.section, "doc_id": c.doc_id}
+        for c in citations
+    ])
