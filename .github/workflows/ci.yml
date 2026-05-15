@@ -47,13 +47,13 @@ jobs:
         run: mypy app
         env:
           DATABASE_URL: postgresql://bitcoin_academy:bitcoin_academy@localhost:5432/bitcoin_academy
-          SECRET_KEY: ci-secret-key-32-chars-minimum!!
+          SECRET_KEY: ci-pipeline-test-key-32chars-only!!
 
       - name: Run tests (pytest)
         run: pytest
         env:
           DATABASE_URL: postgresql://bitcoin_academy:bitcoin_academy@localhost:5432/bitcoin_academy
-          SECRET_KEY: ci-secret-key-32-chars-minimum!!
+          SECRET_KEY: ci-pipeline-test-key-32chars-only!!
           ENVIRONMENT: development
 
   frontend:
