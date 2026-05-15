@@ -50,7 +50,8 @@ jest.mock('@/lib/api/documents', () => ({
 }));
 
 jest.mock('@/lib/services/chat', () => ({
-  sendChatMessage: jest.fn(),
+  sendChatMessageStream: jest.fn(),
+  submitFeedback: jest.fn(),
 }));
 
 // ── Imports after mocks ─────────────────────────────────────────────────────
@@ -59,7 +60,7 @@ import { getCourse, getCourseLessons } from '@/lib/services/courses';
 import { getCourseProgress, markLessonComplete } from '@/lib/services/progress';
 import { getDocuments } from '@/lib/services/documents';
 import { getDocumentPreviewView, getDocumentListRows } from '@/lib/api/documents';
-import { sendChatMessage } from '@/lib/services/chat';
+import { sendChatMessageStream } from '@/lib/services/chat';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const StudyPage = require('../../src/app/courses/[courseId]/study/page').default;
@@ -257,11 +258,7 @@ describe('Study Flow Integration', () => {
 
   describe('chat integration', () => {
     it('sends a message to the chat service with correct courseId', async () => {
-      (sendChatMessage as jest.Mock).mockResolvedValue({
-        answer: 'Bitcoin was created in 2009.',
-        citations: [],
-        retrievalUsed: false,
-      });
+      (sendChatMessageStream as jest.Mock).mockImplementation(async () => {});
 
       render(<StudyPage />);
 
@@ -274,19 +271,20 @@ describe('Study Flow Integration', () => {
       fireEvent.click(screen.getByRole('button', { name: /send message/i }));
 
       await waitFor(() => {
-        expect(sendChatMessage).toHaveBeenCalledWith(
+        expect(sendChatMessageStream).toHaveBeenCalledWith(
           'course-123',
           'When was Bitcoin created?',
-          'test-token'
+          expect.any(Function),
+          expect.any(Function),
+          'test-token',
+          expect.any(Array),
         );
       });
     });
 
     it('displays the AI response in the chat thread', async () => {
-      (sendChatMessage as jest.Mock).mockResolvedValue({
-        answer: 'Satoshi Nakamoto created Bitcoin.',
-        citations: [],
-        retrievalUsed: false,
+      (sendChatMessageStream as jest.Mock).mockImplementation(async (_c: string, _m: string, onToken: (t: string) => void) => {
+        onToken('Satoshi Nakamoto created Bitcoin.');
       });
 
       render(<StudyPage />);
@@ -305,10 +303,13 @@ describe('Study Flow Integration', () => {
     });
 
     it('shows citations returned with the AI response', async () => {
-      (sendChatMessage as jest.Mock).mockResolvedValue({
-        answer: 'Bitcoin uses proof of work.',
-        citations: [{ snippet: 'Proof of work is the consensus mechanism.', score: 0.88 }],
-        retrievalUsed: true,
+      (sendChatMessageStream as jest.Mock).mockImplementation(async (
+        _c: string, _m: string,
+        onToken: (t: string) => void,
+        onCitations: (c: unknown[]) => void,
+      ) => {
+        onToken('Bitcoin uses proof of work.');
+        onCitations([{ snippet: 'Proof of work is the consensus mechanism.', score: 0.88 }]);
       });
 
       render(<StudyPage />);
@@ -323,6 +324,9 @@ describe('Study Flow Integration', () => {
       );
       fireEvent.click(screen.getByRole('button', { name: /send message/i }));
 
+      await waitFor(() => {
+        fireEvent.click(screen.getByRole('button', { name: /show 1 source/i }));
+      });
       await waitFor(() => {
         expect(screen.getByText(/proof of work is the consensus mechanism/i)).toBeInTheDocument();
         expect(screen.getByText(/88%/)).toBeInTheDocument();

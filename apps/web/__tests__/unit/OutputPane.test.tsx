@@ -10,11 +10,12 @@ beforeAll(() => {
 
 // Mock the chat service so no real HTTP calls are made
 jest.mock('../../src/lib/services/chat', () => ({
-  sendChatMessage: jest.fn(),
+  sendChatMessageStream: jest.fn(),
+  submitFeedback: jest.fn(),
 }));
 
-import { sendChatMessage } from '../../src/lib/services/chat';
-const mockSend = sendChatMessage as jest.MockedFunction<typeof sendChatMessage>;
+import { sendChatMessageStream } from '../../src/lib/services/chat';
+const mockSend = sendChatMessageStream as jest.MockedFunction<typeof sendChatMessageStream>;
 
 describe('OutputPane', () => {
   const defaultProps = { courseId: 'course-123', accessToken: 'tok' };
@@ -70,7 +71,7 @@ describe('OutputPane', () => {
     });
 
     it('shows user message in the thread after send', async () => {
-      mockSend.mockResolvedValue({ answer: 'A UTXO is an unspent output.', citations: [], retrievalUsed: false });
+      mockSend.mockImplementation(async () => {});
 
       render(<OutputPane {...defaultProps} />);
       const textarea = screen.getByRole('textbox', { name: /message input/i });
@@ -81,7 +82,7 @@ describe('OutputPane', () => {
     });
 
     it('clears the input after send', async () => {
-      mockSend.mockResolvedValue({ answer: 'Answer.', citations: [], retrievalUsed: false });
+      mockSend.mockImplementation(async () => {});
 
       render(<OutputPane {...defaultProps} />);
       const textarea = screen.getByRole('textbox', { name: /message input/i });
@@ -103,10 +104,8 @@ describe('OutputPane', () => {
     });
 
     it('shows assistant reply after response arrives', async () => {
-      mockSend.mockResolvedValue({
-        answer: 'Bitcoin is a peer-to-peer currency.',
-        citations: [],
-        retrievalUsed: false,
+      mockSend.mockImplementation(async (_c, _m, onToken) => {
+        onToken('Bitcoin is a peer-to-peer currency.');
       });
 
       render(<OutputPane {...defaultProps} />);
@@ -120,36 +119,49 @@ describe('OutputPane', () => {
     });
 
     it('sends via Enter key (without Shift)', async () => {
-      mockSend.mockResolvedValue({ answer: 'Answer.', citations: [], retrievalUsed: false });
+      mockSend.mockImplementation(async () => {});
 
       render(<OutputPane {...defaultProps} />);
       const textarea = screen.getByRole('textbox', { name: /message input/i });
       await userEvent.type(textarea, 'Question?{Enter}');
 
-      expect(mockSend).toHaveBeenCalledWith('course-123', 'Question?', 'tok');
+      expect(mockSend).toHaveBeenCalledWith(
+        'course-123',
+        'Question?',
+        expect.any(Function),
+        expect.any(Function),
+        'tok',
+        expect.any(Array),
+      );
     });
 
-    it('calls sendChatMessage with correct courseId and accessToken', async () => {
-      mockSend.mockResolvedValue({ answer: 'Ok.', citations: [], retrievalUsed: false });
+    it('calls sendChatMessageStream with correct courseId and accessToken', async () => {
+      mockSend.mockImplementation(async () => {});
 
       render(<OutputPane courseId="my-course" accessToken="my-token" />);
       const textarea = screen.getByRole('textbox', { name: /message input/i });
       await userEvent.type(textarea, 'Test question');
       fireEvent.click(screen.getByRole('button', { name: /send message/i }));
 
-      expect(mockSend).toHaveBeenCalledWith('my-course', 'Test question', 'my-token');
+      expect(mockSend).toHaveBeenCalledWith(
+        'my-course',
+        'Test question',
+        expect.any(Function),
+        expect.any(Function),
+        'my-token',
+        expect.any(Array),
+      );
     });
   });
 
   describe('citations', () => {
     it('renders citation snippets when the response includes sources', async () => {
-      mockSend.mockResolvedValue({
-        answer: 'Answer with sources.',
-        citations: [
+      mockSend.mockImplementation(async (_c, _m, onToken, onCitations) => {
+        onToken('Answer with sources.');
+        onCitations([
           { snippet: 'The first source text.', score: 0.95 },
           { snippet: 'The second source text.', score: 0.80 },
-        ],
-        retrievalUsed: true,
+        ]);
       });
 
       render(<OutputPane {...defaultProps} />);
@@ -158,16 +170,18 @@ describe('OutputPane', () => {
       fireEvent.click(screen.getByRole('button', { name: /send message/i }));
 
       await waitFor(() => {
+        fireEvent.click(screen.getByRole('button', { name: /show 2 sources/i }));
+      });
+      await waitFor(() => {
         expect(screen.getByText(/the first source text/i)).toBeInTheDocument();
         expect(screen.getByText(/the second source text/i)).toBeInTheDocument();
       });
     });
 
     it('shows relevance percentage for each citation', async () => {
-      mockSend.mockResolvedValue({
-        answer: 'Answer.',
-        citations: [{ snippet: 'Snippet.', score: 0.92 }],
-        retrievalUsed: true,
+      mockSend.mockImplementation(async (_c, _m, onToken, onCitations) => {
+        onToken('Answer.');
+        onCitations([{ snippet: 'Snippet.', score: 0.92 }]);
       });
 
       render(<OutputPane {...defaultProps} />);
@@ -178,15 +192,17 @@ describe('OutputPane', () => {
       fireEvent.click(screen.getByRole('button', { name: /send message/i }));
 
       await waitFor(() => {
+        fireEvent.click(screen.getByRole('button', { name: /show 1 source/i }));
+      });
+      await waitFor(() => {
         expect(screen.getByText(/92%/)).toBeInTheDocument();
       });
     });
 
-    it('shows "Sources" heading when citations are present', async () => {
-      mockSend.mockResolvedValue({
-        answer: 'Answer.',
-        citations: [{ snippet: 'Source.', score: 0.9 }],
-        retrievalUsed: true,
+    it('shows source toggle button when citations are present', async () => {
+      mockSend.mockImplementation(async (_c, _m, onToken, onCitations) => {
+        onToken('Answer.');
+        onCitations([{ snippet: 'Source.', score: 0.9 }]);
       });
 
       render(<OutputPane {...defaultProps} />);
@@ -197,12 +213,12 @@ describe('OutputPane', () => {
       fireEvent.click(screen.getByRole('button', { name: /send message/i }));
 
       await waitFor(() => {
-        expect(screen.getByText('Sources')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /show 1 source/i })).toBeInTheDocument();
       });
     });
 
     it('does not render Sources section when citations array is empty', async () => {
-      mockSend.mockResolvedValue({ answer: 'No sources.', citations: [], retrievalUsed: false });
+      mockSend.mockImplementation(async () => {});
 
       render(<OutputPane {...defaultProps} />);
       await userEvent.type(
@@ -212,7 +228,7 @@ describe('OutputPane', () => {
       fireEvent.click(screen.getByRole('button', { name: /send message/i }));
 
       await waitFor(() => {
-        expect(screen.queryByText('Sources')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /show.*source/i })).not.toBeInTheDocument();
       });
     });
   });
