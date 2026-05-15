@@ -19,11 +19,44 @@ except ImportError:
     fitz = None
 
 try:
-    from docling.document_converter import DocumentConverter
+    from docling.document_converter import DocumentConverter, PdfFormatOption
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import PdfPipelineOptions, EasyOcrOptions
 except ImportError:
     DocumentConverter = None
+    PdfFormatOption = None
+    InputFormat = None
+    PdfPipelineOptions = None
+    EasyOcrOptions = None
+
+try:
+    from pptx.enum.shapes import MSO_SHAPE_TYPE as _MSO_SHAPE_TYPE
+except ImportError:
+    _MSO_SHAPE_TYPE = None
 
 logger = logging.getLogger(__name__)
+
+_ocr_reader = None
+
+def _get_ocr_reader():
+    global _ocr_reader
+    if _ocr_reader is None:
+        import easyocr
+        _ocr_reader = easyocr.Reader(["en", "it"], gpu=False, verbose=False)
+    return _ocr_reader
+
+def _ocr_image_blob(blob: bytes) -> str:
+    import numpy as np
+    from PIL import Image
+    import io
+    try:
+        img = Image.open(io.BytesIO(blob)).convert("RGB")
+        arr = np.array(img)
+        results = _get_ocr_reader().readtext(arr, detail=0, paragraph=True)
+        return " ".join(str(t).strip() for t in results if str(t).strip())
+    except Exception as exc:
+        logger.debug("OCR on image blob failed: %s", exc)
+        return ""
 
 class StructuralParser:
     def __init__(
@@ -78,7 +111,19 @@ class StructuralParser:
             DocItemLabel.CODE:           (BlockType.CODE_BLOCK, None),
         }
 
-        converter = DocumentConverter()
+        format_options = {}
+        if PdfFormatOption and PdfPipelineOptions and EasyOcrOptions and InputFormat:
+            pdf_opts = PdfPipelineOptions(
+                do_ocr=True,
+                ocr_options=EasyOcrOptions(
+                    lang=["en", "it"],
+                    force_full_page_ocr=True,
+                    confidence_threshold=0.4,
+                ),
+            )
+            format_options[InputFormat.PDF] = PdfFormatOption(pipeline_options=pdf_opts)
+
+        converter = DocumentConverter(format_options=format_options or None)
         doc = converter.convert(self.file_path).document
         blocks = []
 
@@ -122,6 +167,38 @@ class StructuralParser:
             ))
 
         page_count = len({b.position.page for b in blocks if b.position.page is not None}) or None
+
+        # Supplemental OCR pass: extract text from PICTURE shapes that Docling's
+        # MsPowerpointDocumentBackend silently discards (no image pipeline for PPTX).
+        if self.file_path and self.file_path.lower().endswith((".pptx", ".ppt")):
+            try:
+                from pptx import Presentation
+                from pptx.enum.shapes import MSO_SHAPE_TYPE as _MSO
+                prs = Presentation(self.file_path)
+                for slide_num, slide in enumerate(prs.slides, 1):
+                    for shape in slide.shapes:
+                        if getattr(shape, "shape_type", None) not in (
+                            _MSO.PICTURE, _MSO.LINKED_PICTURE
+                        ):
+                            continue
+                        try:
+                            ocr_text = self._sanitize_text(_ocr_image_blob(shape.image.blob))
+                            if ocr_text:
+                                blocks.append(DocumentBlock(
+                                    block_id=str(uuid.uuid4()),
+                                    block_type=BlockType.PARAGRAPH,
+                                    text=ocr_text,
+                                    position=BlockPosition(
+                                        page=slide_num,
+                                        section_path=[f"Slide {slide_num}"],
+                                    ),
+                                ))
+                        except Exception as exc:
+                            logger.debug(
+                                "OCR failed for image shape on slide %d: %s", slide_num, exc
+                            )
+            except Exception as exc:
+                logger.warning("Supplemental PPTX OCR pass failed: %s", exc)
 
         return NormalizedDocument(
             doc_id=self.document_id,
@@ -173,16 +250,30 @@ class StructuralParser:
                 ))
 
                 for shape in slide.shapes:
-                    if not shape.has_text_frame or shape == slide.shapes.title:
-                        continue
-                    body_text = self._sanitize_text(shape.text.strip())
-                    if body_text:
-                        blocks.append(DocumentBlock(
-                            block_id=str(uuid.uuid4()),
-                            block_type=BlockType.SLIDE_BODY,
-                            text=body_text,
-                            position=BlockPosition(slide=slide_num, section_path=self.current_section_path.copy())
-                        ))
+                    if shape.has_text_frame and shape != slide.shapes.title:
+                        body_text = self._sanitize_text(shape.text.strip())
+                        if body_text:
+                            blocks.append(DocumentBlock(
+                                block_id=str(uuid.uuid4()),
+                                block_type=BlockType.SLIDE_BODY,
+                                text=body_text,
+                                position=BlockPosition(slide=slide_num, section_path=self.current_section_path.copy())
+                            ))
+                    elif _MSO_SHAPE_TYPE and getattr(shape, "shape_type", None) in (
+                        _MSO_SHAPE_TYPE.PICTURE,
+                        _MSO_SHAPE_TYPE.LINKED_PICTURE,
+                    ):
+                        try:
+                            ocr_text = self._sanitize_text(_ocr_image_blob(shape.image.blob))
+                            if ocr_text:
+                                blocks.append(DocumentBlock(
+                                    block_id=str(uuid.uuid4()),
+                                    block_type=BlockType.SLIDE_BODY,
+                                    text=ocr_text,
+                                    position=BlockPosition(slide=slide_num, section_path=self.current_section_path.copy())
+                                ))
+                        except Exception as exc:
+                            logger.debug("Skipping image shape on slide %d: %s", slide_num, exc)
 
                 # Speaker notes often contain the actual explanations
                 try:

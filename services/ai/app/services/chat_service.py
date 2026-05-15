@@ -1,7 +1,7 @@
 """Chat service — hybrid RAG pipeline: QVAC dense + BM25 sparse + reranker + parent context."""
-import asyncio
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import List
 
@@ -10,6 +10,17 @@ import httpx
 from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_markdown(text: str) -> str:
+    """Remove Markdown syntax from a text block before passing it to the LLM."""
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\*{1,3}([^*\n]+)\*{1,3}', r'\1', text)
+    text = re.sub(r'_{1,3}([^_\n]+)_{1,3}', r'\1', text)
+    text = re.sub(r'^\|[\s|:-]+\|\s*$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
 
 _QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "")
 # RAG_RETRIEVE_K: total candidates fetched from dense + sparse pool.
@@ -85,7 +96,7 @@ def _chroma_chat_result(question: str, course_id: str) -> ChatResult:
         for s in sources
     ]
     answer_text = (
-        "\n\n---\n\n".join(s["snippet"] for s in sources)
+        f"Found {len(sources)} relevant passage{'s' if len(sources) != 1 else ''} (LLM generation unavailable)."
         if sources
         else "No relevant content found."
     )
@@ -154,9 +165,9 @@ async def answer(question: str, course_id: str) -> ChatResult:
     # 6. Expand child chunks → parent context (richer LLM context window)
     context_chunks = parent_expansion.expand_to_parents(reranked)
 
-    # 7. Build context blocks for LLM generation
+    # 7. Build context blocks for LLM generation (strip Markdown to avoid symbol pollution)
     context_blocks = [
-        {"label": c.anchor.doc_name, "text": c.text}
+        {"label": c.anchor.doc_name, "text": _strip_markdown(c.text)}
         for c in context_chunks
     ]
 
@@ -170,8 +181,13 @@ async def answer(question: str, course_id: str) -> ChatResult:
         gen_resp.raise_for_status()
         answer_text = gen_resp.json().get("answer", "")
     except httpx.HTTPError as exc:
-        logger.warning("QVAC /generate failed (%s) — returning first context block", exc)
-        answer_text = context_blocks[0]["text"] if context_blocks else "Risposta non disponibile."
+        logger.warning("QVAC /generate failed (%s) — returning truncated context snippet", exc)
+        if context_blocks:
+            raw = context_blocks[0]["text"]
+            snippet = raw[:600].rstrip() + ("…" if len(raw) > 600 else "")
+            answer_text = f"Generazione LLM non disponibile. Passaggio più rilevante:\n\n{snippet}"
+        else:
+            answer_text = "Risposta non disponibile."
 
     # 9. Citations from child chunks (preserves page/slide precision)
     citations = [

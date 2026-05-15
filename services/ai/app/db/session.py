@@ -6,14 +6,23 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
-from app.db.models import Badge, Base
+from app.db.models import Badge
 
 # Create engine
+_pool_kwargs: dict = {}
+if "postgresql" in settings.DATABASE_URL:
+    _pool_kwargs = dict(
+        pool_size=10,
+        max_overflow=20,
+        pool_recycle=3600,
+        pool_pre_ping=True,
+    )
+
 engine = create_engine(
     settings.DATABASE_URL,
-    connect_args={
-        "check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
+    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
     echo=False,
+    **_pool_kwargs,
 )
 
 # Create session factory
@@ -44,8 +53,14 @@ def _seed_badges(db: Session) -> None:
 
 
 def init_db() -> None:
-    """Initialize the database by creating all tables and seeding static data."""
-    Base.metadata.create_all(bind=engine)
+    """Run pending Alembic migrations, then seed static data."""
+    from pathlib import Path  # noqa: PLC0415
+    from alembic.config import Config  # noqa: PLC0415
+    from alembic import command  # noqa: PLC0415
+
+    alembic_cfg = Config(str(Path(__file__).resolve().parents[3] / "alembic.ini"))
+    command.upgrade(alembic_cfg, "head")
+
     db = SessionLocal()
     try:
         _seed_badges(db)

@@ -53,12 +53,25 @@ export async function retrieveChunks(question, workspace, topK = 20) {
 }
 
 
+function _stripMarkdown(text) {
+  return text
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*{1,3}([^*\n]+)\*{1,3}/g, "$1")
+    .replace(/_{1,3}([^_\n]+)_{1,3}/g, "$1")
+    .replace(/^\|[\s|:-]+\|\s*$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/(===+|---+)\s*$/g, "")
+    .trim();
+}
+
 const DEFAULT_SYSTEM_PROMPT =
   "Sei un assistente educativo per BitPolito Academy. " +
   "Rispondi SOLO usando il contesto fornito. " +
-  "Cita sempre la fonte (es. \"p. 7\", \"Slide 3\") quando fai riferimento a contenuti specifici. " +
+  "Scrivi in testo semplice senza markdown (no **, no #, no trattini come elenchi puntati). " +
+  "Sintetizza tutto il contesto in UNA SOLA risposta coerente, non una risposta per fonte. " +
+  "Cita la fonte tra parentesi (es. 'p. 7', 'Slide 3') quando ti riferisci a contenuti specifici. " +
   "Se la risposta non è nel contesto, dillo esplicitamente. " +
-  "Sii conciso: massimo 3 frasi salvo complessità della domanda.";
+  "Sii conciso: massimo 4 frasi salvo complessità eccezionale della domanda.";
 
 /**
  * LLM generation from pre-built context — no retrieval.
@@ -73,7 +86,13 @@ export async function generateFromContext(question, contextBlocks, systemPrompt 
   const llmId = getLlmModelId();
 
   if (!llmId) {
-    return { answer: contextBlocks[0]?.text ?? "Nessun contesto disponibile." };
+    const raw = contextBlocks[0]?.text ?? "";
+    const snippet = raw.length > 600 ? raw.slice(0, 600).trimEnd() + "…" : raw;
+    return {
+      answer: raw
+        ? "Generazione LLM disabilitata. Passaggio più rilevante trovato:\n\n" + snippet
+        : "Nessun contesto disponibile.",
+    };
   }
 
   const { completion } = await import("@qvac/sdk");
@@ -104,7 +123,7 @@ export async function generateFromContext(question, contextBlocks, systemPrompt 
     answer += token;
   }
 
-  return { answer };
+  return { answer: _stripMarkdown(answer) };
 }
 
 
@@ -149,7 +168,12 @@ export async function queryRag(question, workspace, topK = 5, topKGenerate = 5) 
 
   const llmId = getLlmModelId();
   if (!llmId) {
-    return { answer: chunks[0].content, sources: sources.slice(0, 1) };
+    const raw = chunks[0].content;
+    const snippet = raw.length > 600 ? raw.slice(0, 600).trimEnd() + "…" : raw;
+    return {
+      answer: "Generazione LLM disabilitata. Passaggio più rilevante trovato:\n\n" + snippet,
+      sources: sources.slice(0, 1),
+    };
   }
 
   // Build context for LLM (capped at topKGenerate chunks).

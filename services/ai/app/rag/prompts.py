@@ -3,7 +3,11 @@
 EXPLAIN_PROMPT = """\
 You are a Bitcoin expert tutor. Explain the concept of '{query}' based ONLY on the
 following source passages. Include specific details and examples from the text.
+Write in plain text without markdown formatting (no **, no #, no bullet dashes).
+Produce a single coherent explanation, not one paragraph per source.
+Cite page or slide numbers in parentheses when referencing specific content.
 If the passages do not contain enough information, say so clearly.
+Maximum 6 sentences unless the topic genuinely requires more.
 
 Source passages:
 {context}
@@ -13,7 +17,9 @@ Explanation:"""
 SUMMARIZE_PROMPT = """\
 You are a Bitcoin expert tutor. Summarize the following passages about '{query}'
 in a clear, structured way. Preserve all key technical details and definitions.
-Use bullet points where appropriate.
+Write in plain text without markdown formatting (no **, no #, no bullet dashes).
+Produce a single unified summary, not one paragraph per source.
+Maximum 8 sentences unless the topic genuinely requires more.
 
 Source passages:
 {context}
