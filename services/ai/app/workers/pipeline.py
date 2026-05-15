@@ -708,8 +708,9 @@ def _build_bm25_index(child_chunks: list[dict], workspace: str, doc_id: str) -> 
     with corpus_path.open("w", encoding="utf-8") as f:
         json.dump(corpus, f, ensure_ascii=False)
 
+    from app.services.hybrid_search import _tokenize  # noqa: PLC0415
     ids = list(corpus.keys())
-    tokenized = [corpus[i]["text"].lower().split() for i in ids]
+    tokenized = [_tokenize(corpus[i]["text"]) for i in ids]
     bm25 = BM25Okapi(tokenized)
 
     import pickle

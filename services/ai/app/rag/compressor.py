@@ -16,7 +16,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_ENABLED = os.getenv("RAG_COMPRESS_CONTEXT", "").lower() in ("true", "1", "yes")
+_ENABLED = os.getenv("RAG_COMPRESS_CONTEXT", "true").lower() in ("true", "1", "yes")
 _QVAC_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 _QVAC_LLM_ENABLED = os.getenv("QVAC_LLM_ENABLED", "true").lower() != "false"
 _TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))

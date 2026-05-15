@@ -22,6 +22,30 @@ _QVAC_INGEST_DIR = Path(os.getenv("QVAC_INGEST_DIR", str(_SERVICES_AI / "qvac_in
 _RRF_K = 60  # Cormack & Clarke 2009 constant
 _SAFE_COURSE_ID = re.compile(r'^[A-Za-z0-9_-]+$')
 
+_BITCOIN_SYNONYMS: dict[str, list[str]] = {
+    "utxo": ["utxo", "unspent", "transaction", "output"],
+    "ecdsa": ["ecdsa", "elliptic", "curve", "digital", "signature"],
+    "p2pkh": ["p2pkh", "pay", "public", "key", "hash"],
+    "p2wpkh": ["p2wpkh", "pay", "witness", "public", "key", "hash"],
+    "p2sh": ["p2sh", "pay", "script", "hash"],
+    "segwit": ["segwit", "segregated", "witness"],
+    "sha256": ["sha256", "sha", "256"],
+    "sha-256": ["sha256", "sha", "256"],
+    "txid": ["txid", "transaction", "id"],
+    "scriptpubkey": ["scriptpubkey", "script", "public", "key"],
+    "scriptsig": ["scriptsig", "script", "signature"],
+}
+
+
+def _tokenize(text: str) -> list[str]:
+    """Tokenize with CamelCase splitting, hyphen normalisation and Bitcoin synonym expansion."""
+    text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
+    tokens = re.sub(r'[-_]', ' ', text).lower().split()
+    expanded: list[str] = []
+    for tok in tokens:
+        expanded.extend(_BITCOIN_SYNONYMS.get(tok, [tok]))
+    return expanded
+
 
 def _index_paths(course_id: str) -> tuple[Path, Path]:
     if not _SAFE_COURSE_ID.match(course_id):
@@ -58,7 +82,7 @@ def bm25_search(query: str, course_id: str, top_k: int) -> List[Tuple[str, float
     if result is None:
         return []
     bm25, ids, _ = result
-    scores = bm25.get_scores(query.lower().split())
+    scores = bm25.get_scores(_tokenize(query))
     ranked = sorted(zip(ids, scores.tolist()), key=lambda x: x[1], reverse=True)
     return [(cid, float(s)) for cid, s in ranked[:top_k] if s > 0.0]
 
