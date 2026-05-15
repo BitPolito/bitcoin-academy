@@ -147,6 +147,6 @@ def rrf_fuse(
     logger.debug(
         "RRF fusion: %d dense + %d BM25 → %d merged for course '%s'",
         len(dense_chunks), len(bm25_hits), len(result),
-        next(iter(corpus.values()), {}).get("doc_id", "?") if corpus else "?",
+        next(iter(corpus.values()), {}).get("doc_id", "?") if corpus else "?",  # type: ignore[call-overload]
     )
     return result

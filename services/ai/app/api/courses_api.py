@@ -28,7 +28,7 @@ class ReindexResponse(BaseModel):
 def create_course(
     body: CreateCourseBody,
     db: Session = Depends(get_db),
-) -> CourseSchema:
+):
     """Create a new course workspace."""
     return course_service.create_course(db, title=body.title, description=body.description)
 
@@ -38,7 +38,7 @@ def get_courses(
     skip: int = Query(default=0, ge=0, le=1000, description="Number of courses to skip"),
     limit: int = Query(default=100, ge=1, le=100, description="Maximum number of courses to return"),
     db: Session = Depends(get_db),
-) -> List[CourseSchema]:
+):
     """Get a list of all available courses."""
     return course_service.list_courses(db, skip=skip, limit=limit)
 
@@ -47,7 +47,7 @@ def get_courses(
 def get_course(
     course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
     db: Session = Depends(get_db),
-) -> CourseSchema:
+):
     """Get details of a specific course by UUID."""
     try:
         UUID(course_id)
@@ -67,7 +67,7 @@ def get_course(
 def get_course_lessons(
     course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
     db: Session = Depends(get_db),
-) -> List[LessonSchema]:
+):
     """Get all lessons for a specific course."""
     try:
         UUID(course_id)
@@ -142,7 +142,7 @@ async def reindex_course(
 def get_lesson(
     lesson_id: str = Path(..., min_length=1, max_length=36, description="Lesson UUID"),
     db: Session = Depends(get_db),
-) -> LessonSchema:
+):
     """Get details of a specific lesson by UUID."""
     try:
         UUID(lesson_id)

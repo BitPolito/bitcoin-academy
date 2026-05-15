@@ -76,7 +76,7 @@ app = FastAPI(
 
 # Add rate limiter state to app
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 # Register global exception handlers for security
 register_exception_handlers(app)

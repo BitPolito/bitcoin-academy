@@ -1,5 +1,6 @@
 """Authentication API controller - HTTP endpoints for auth operations."""
 from datetime import datetime, timezone
+from typing import Optional
 from fastapi import APIRouter, Depends, Request, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -180,7 +181,7 @@ def get_current_user_info(
     from app.db.models import UserRole
     return UserResponse(
         id=user.id,
-        email=user.email,
+        email=user.email,  # type: ignore[arg-type]
         display_name=user.display_name,
         role=user.role.value if isinstance(user.role, UserRole) else user.role,
     )
@@ -195,7 +196,7 @@ def get_current_user_info(
     },
 )
 def logout(
-    data: LogoutRequest = None,
+    data: Optional[LogoutRequest] = None,
     current_user: TokenPayload = Depends(get_current_user),
 ) -> dict:
     """

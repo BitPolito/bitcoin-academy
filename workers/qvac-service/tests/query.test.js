@@ -6,7 +6,7 @@
  *
  * @qvac/sdk and src/models.js are fully mocked.
  */
-import { describe, it, before, beforeEach, mock } from "node:test";
+import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 
 // ---------------------------------------------------------------------------
@@ -250,56 +250,17 @@ describe("generateFromContext — no LLM", () => {
 // ---------------------------------------------------------------------------
 
 describe("generateFromContext — with LLM configured", () => {
-  // Override getLlmModelId to return a real ID for this describe block.
-  // We re-mock @qvac/sdk with a completion function that streams tokens.
-
-  let mockCompletion;
-
   const fakeTokens = ["Bitcoin", " is", " decentralised", "."];
 
   async function* fakeTokenStream() {
     for (const t of fakeTokens) yield t;
   }
 
-  before(async () => {
-    mockCompletion = mock.fn(() => ({ tokenStream: fakeTokenStream() }));
-    await mock.module("@qvac/sdk", {
-      namedExports: {
-        ragSearch: mockRagSearch,
-        ragIngest: mock.fn(),
-        ragDeleteWorkspace: mock.fn(),
-        completion: mockCompletion,
-        loadModel: mock.fn(),
-        unloadModel: mock.fn(),
-        startQVACProvider: mock.fn(),
-        stopQVACProvider: mock.fn(),
-        close: mock.fn(),
-        GTE_LARGE_FP16: {},
-        QWEN3_4B_INST_Q4_K_M: {},
-      },
-    });
-    // Reload models mock with LLM loaded
-    await mock.module(import.meta.resolve("../src/models.js"), {
-      namedExports: {
-        getEmbeddingModelId: mockGetEmbeddingModelId,
-        getLlmModelId: () => "test-llm-id",
-        initModels: mock.fn(),
-        shutdownModels: mock.fn(),
-      },
-    });
-  });
-
-  it("calls completion when LLM is configured", async () => {
-    const { generateFromContext: genWithLLM } = await import("../src/query.js?v=llm");
-    // Since dynamic re-import is not trivial in node:test, we test the contract
-    // by verifying the no-LLM guard: passing a non-null llmId means completion runs.
-    // This test documents expected behaviour; the mock wiring above covers the path.
+  it("generateFromContext is exported as a function", () => {
     assert.ok(typeof generateFromContext === "function");
   });
 
   it("concatenates token stream into the answer", async () => {
-    // Test token joining logic independently from module re-loading constraints.
-    // The real implementation uses: for await (const t of tokenStream) answer += t
     let answer = "";
     for await (const token of fakeTokenStream()) {
       answer += token;
