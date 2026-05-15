@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, rag]
   pull_request:
-    branches: [main]
+    branches: [main, rag]
 
 jobs:
   backend:
@@ -38,10 +38,10 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: services/ai/requirements.txt
+          cache-dependency-path: services/ai/pyproject.toml
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -e ".[dev]"
 
       - name: Type check (mypy)
         run: mypy .
