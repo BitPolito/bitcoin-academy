@@ -80,8 +80,10 @@ out/
 .env.*.local
 .env.production.local
 
-# Lock files (optional - uncomment if you want to exclude)
+# Lock files — ignore root-level, but track app lock files for reproducible CI
 package-lock.json
+!apps/web/package-lock.json
+!workers/qvac-service/package-lock.json
 # yarn.lock
 # pnpm-lock.yaml
 
