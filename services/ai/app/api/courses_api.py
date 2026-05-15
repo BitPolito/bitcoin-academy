@@ -2,7 +2,7 @@
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,11 @@ router = APIRouter(prefix="/api", tags=["Courses"])
 class CreateCourseBody(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=500)
+
+
+class ReindexResponse(BaseModel):
+    enqueued: int
+    skipped: int
 
 
 @router.post("/courses", response_model=CourseSchema, status_code=201)
@@ -77,6 +82,60 @@ def get_course_lessons(
         raise NotFoundError(resource="Course", identifier=course_id)
 
     return course_service.get_course_lessons(db, course_id)
+
+
+@router.post("/courses/{course_id}/reindex", response_model=ReindexResponse)
+async def reindex_course(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
+    db: Session = Depends(get_db),
+) -> ReindexResponse:
+    """Re-ingest all documents in a course (full parse → chunk → BM25 → QVAC)."""
+    from app.services import document_service
+    from app.workers import pipeline
+    from app.workers.pipeline import UPLOADS_DIR
+
+    try:
+        UUID(course_id)
+    except ValueError:
+        raise ValidationError_(
+            message="Invalid course ID format. Expected UUID.",
+            details={"course_id": course_id},
+        )
+
+    documents = document_service.list_documents(db, course_id)
+    arq_pool = getattr(request.app.state, "arq_pool", None)
+    enqueued = 0
+    skipped = 0
+
+    for doc in documents:
+        file_path = UPLOADS_DIR / course_id / f"{doc.id}_{doc.filename}"
+        if not file_path.exists():
+            skipped += 1
+            continue
+        document_service.reset_status(db, doc.id)
+        if arq_pool is not None:
+            await arq_pool.enqueue_job(
+                "ingest_document",
+                document_id=doc.id,
+                course_id=course_id,
+                filename=doc.filename,
+                file_path=str(file_path),
+                material_type=doc.document_type,
+            )
+        else:
+            background_tasks.add_task(
+                pipeline.run,
+                document_id=doc.id,
+                course_id=course_id,
+                filename=doc.filename,
+                file_path=str(file_path),
+                material_type=doc.document_type,
+            )
+        enqueued += 1
+
+    return ReindexResponse(enqueued=enqueued, skipped=skipped)
 
 
 @router.get("/lessons/{lesson_id}", response_model=LessonSchema)

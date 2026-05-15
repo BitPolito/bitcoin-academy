@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useToast } from '@/components/ui/Toast';
 import { sendChatMessageStream, submitFeedback, type Citation, type HistoryEntry } from '@/lib/services/chat';
 import { sendStudyAction } from '@/lib/services/study';
 import type { ApiCitationOut, ApiStudyResponse, StudyAction } from '@/lib/api/types';
@@ -239,6 +240,8 @@ export function OutputPane({
   // Captures the index of the in-flight assistant message inside the functional
   // setMessages updater so it stays correct across React's concurrent-mode batching.
   const assistantIdxRef = useRef(-1);
+  const [retryQuestion, setRetryQuestion] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -249,24 +252,27 @@ export function OutputPane({
     .reverse()
     .find((m): m is ActionMessage => m.role === 'action-result');
 
-  async function handleSend() {
-    const question = input.trim();
-    if (!question || loading) return;
+  // Core send logic — shared by handleSend and handleRetry.
+  // trimFailedPair: slice the last 2 messages (failed user + assistant) before appending.
+  async function executeSend(question: string, opts?: { trimFailedPair?: boolean }) {
+    const trimFailedPair = opts?.trimFailedPair ?? false;
 
-    // Build conversation history from prior chat turns (user + assistant only)
-    const history: HistoryEntry[] = messages
+    // Build history from current messages (exclude the failed pair when retrying).
+    const baseMessages = trimFailedPair ? messages.slice(0, -2) : messages;
+    const history: HistoryEntry[] = baseMessages
       .filter((m): m is ChatMessage => m.role === 'user' || m.role === 'assistant')
       .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
-    setInput('');
     setLoading(true);
     setActiveAction(null);
+    setRetryQuestion(null);
 
     // Add user + empty assistant messages atomically; capture assistant index inside
     // the updater to avoid stale closure values in concurrent-mode React (A6).
     setMessages((prev) => {
-      assistantIdxRef.current = prev.length + 1;
-      return [...prev, { role: 'user', content: question }, { role: 'assistant', content: '' }];
+      const base = trimFailedPair ? prev.slice(0, -2) : prev;
+      assistantIdxRef.current = base.length + 1;
+      return [...base, { role: 'user', content: question }, { role: 'assistant', content: '' }];
     });
 
     try {
@@ -306,9 +312,23 @@ export function OutputPane({
             : m
         )
       );
+      showToast('Connection lost — try again.', 'warn');
+      setRetryQuestion(question);
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleSend() {
+    const question = input.trim();
+    if (!question || loading) return;
+    setInput('');
+    await executeSend(question);
+  }
+
+  function handleRetry() {
+    if (!retryQuestion || loading) return;
+    executeSend(retryQuestion, { trimFailedPair: true });
   }
 
   async function handleAction(action: StudyAction, queryOverride?: string) {
@@ -553,7 +573,7 @@ export function OutputPane({
                 {msg.role === 'assistant' && (
                   <div className="mt-2 flex items-center gap-1">
                     {feedbackSent.has(i) ? (
-                      <span className="font-mono text-[10px] opacity-50">Thanks for the feedback</span>
+                      <span className="font-mono text-[10px] opacity-50 transition-opacity">Thanks for the feedback</span>
                     ) : (
                       <>
                         {([1, -1] as const).map((rating) => (
@@ -564,10 +584,10 @@ export function OutputPane({
                               const question = prevMsg?.role === 'user' ? prevMsg.content : '';
                               try {
                                 await submitFeedback(courseId, sessionIdRef.current, question, msg.content, rating, accessToken);
+                                setFeedbackSent((prev) => new Set([...prev, i]));
                               } catch {
-                                // best-effort
+                                showToast('Could not save feedback.', 'err');
                               }
-                              setFeedbackSent((prev) => new Set([...prev, i]));
                             }}
                             className="w-6 h-6 flex items-center justify-center rounded b-thin opacity-50 hover:opacity-100 transition-opacity text-sm"
                             title={rating === 1 ? 'Helpful' : 'Not helpful'}
@@ -577,6 +597,17 @@ export function OutputPane({
                         ))}
                       </>
                     )}
+                  </div>
+                )}
+                {msg.role === 'assistant' && retryQuestion !== null && isLast && (
+                  <div className="mt-2 pt-2 b-thin-t">
+                    <button
+                      onClick={handleRetry}
+                      disabled={loading}
+                      className="font-mono text-[10px] tracking-[0.14em] uppercase opacity-60 hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
+                    >
+                      ↺ Retry
+                    </button>
                   </div>
                 )}
               </div>

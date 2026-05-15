@@ -80,6 +80,16 @@ export async function retryDocument(
   });
 }
 
+export async function reindexCourse(
+  courseId: string,
+  accessToken?: string
+): Promise<{ enqueued: number; skipped: number }> {
+  return apiFetch<{ enqueued: number; skipped: number }>(`/courses/${courseId}/reindex`, {
+    method: 'POST',
+    accessToken,
+  });
+}
+
 export async function deleteDocument(
   documentId: string,
   accessToken?: string

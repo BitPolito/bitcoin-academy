@@ -6,9 +6,10 @@ import { useSession } from 'next-auth/react';
 import { getCourse, type Course } from '@/lib/services/courses';
 import { DocumentUpload } from '@/components/documents/DocumentUpload';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
-import { getDocumentListRows } from '@/lib/api/documents';
+import { getDocumentListRows, deleteDocument, reindexCourse } from '@/lib/api/documents';
 import type { DocumentListRow } from '@/lib/api/types';
 import { DocumentProcessingPanel } from '@/components/documents/DocumentProcessingPanel';
+import { useToast } from '@/components/ui/Toast';
 
 type DocFilter = 'all' | 'ready' | 'processing' | 'error';
 
@@ -77,6 +78,7 @@ export default function CourseWorkspacePage() {
   const { data: session } = useSession();
   const accessToken = session?.user?.accessToken;
 
+  const { showToast } = useToast();
   const [course, setCourse] = useState<Course | null>(null);
   const [docs, setDocs] = useState<DocumentListRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,8 +87,28 @@ export default function CourseWorkspacePage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<DocFilter>('all');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [reindexing, setReindexing] = useState(false);
 
   const refreshDocuments = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  async function handleReindexAll() {
+    if (reindexing) return;
+    setReindexing(true);
+    try {
+      const { enqueued, skipped } = await reindexCourse(courseId, accessToken);
+      showToast(
+        skipped > 0
+          ? `Queued ${enqueued} documents (${skipped} skipped — file missing).`
+          : `Queued ${enqueued} documents for re-ingestion.`,
+        'ok',
+      );
+      refreshDocuments();
+    } catch {
+      showToast('Could not start re-indexing. Try again.', 'err');
+    } finally {
+      setReindexing(false);
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -205,6 +227,14 @@ export default function CourseWorkspacePage() {
           >
             Open viewer
           </button>
+          <button
+            className="btn-ghost"
+            onClick={handleReindexAll}
+            disabled={reindexing || docs.length === 0}
+            title="Re-ingest all documents (full parse → chunk → BM25 → QVAC)"
+          >
+            {reindexing ? 'Queuing…' : '↺ Reindex all'}
+          </button>
           <button className="btn-primary" onClick={() => router.push(`/courses/${courseId}/study`)}>
             Study →
           </button>
@@ -256,7 +286,7 @@ export default function CourseWorkspacePage() {
 
           {/* Document list */}
           <div className="b-hard rounded-lg bg-white dark:bg-blue-dark/30 overflow-hidden">
-            <div className="grid grid-cols-[1fr_100px_120px_30px] gap-3 px-4 py-2.5 b-thin-b font-mono text-[10px] tracking-[0.18em] uppercase opacity-70">
+            <div className="grid grid-cols-[1fr_100px_120px_56px] gap-3 px-4 py-2.5 b-thin-b font-mono text-[10px] tracking-[0.18em] uppercase opacity-70">
               <div>Document</div>
               <div>Size</div>
               <div>Status</div>
@@ -281,6 +311,8 @@ export default function CourseWorkspacePage() {
                   selected={doc.id === selectedId}
                   onSelect={() => setSelectedId(doc.id)}
                   onOpen={() => router.push(`/courses/${courseId}/documents/${doc.id}/preview`)}
+                  onDeleted={refreshDocuments}
+                  accessToken={accessToken}
                 />
               ))
             )}
@@ -393,19 +425,38 @@ function DocRow({
   selected,
   onSelect,
   onOpen,
+  onDeleted,
+  accessToken,
 }: {
   doc: DocumentListRow;
   selected: boolean;
   onSelect: () => void;
   onOpen: () => void;
+  onDeleted?: () => void;
+  accessToken?: string;
 }) {
+  const { showToast } = useToast();
+  const [deleting, setDeleting] = useState(false);
   const dot = STATE_DOT[doc.status] || '#7a7f9a';
   const animated = doc.status === 'processing' || doc.status === 'uploading';
+
+  async function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirm(`Delete "${doc.filename}"?`)) return;
+    setDeleting(true);
+    try {
+      await deleteDocument(doc.id, accessToken);
+      onDeleted?.();
+    } catch {
+      showToast('Could not delete document. Try again.', 'err');
+      setDeleting(false);
+    }
+  }
 
   return (
     <div
       onClick={onSelect}
-      className={`grid grid-cols-[1fr_100px_120px_30px] gap-3 px-4 py-3 b-thin-b items-center cursor-pointer transition-colors ${
+      className={`grid grid-cols-[1fr_100px_120px_56px] gap-3 px-4 py-3 b-thin-b items-center cursor-pointer transition-colors group ${
         selected ? 'bg-blue-dark/8 dark:bg-white/10' : 'hover:bg-blue-dark/5 dark:hover:bg-white/5'
       }`}
     >
@@ -431,15 +482,35 @@ function DocRow({
         </span>
       </div>
 
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpen();
-        }}
-        className="font-mono text-sm opacity-60 hover:opacity-100"
-      >
-        →
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen();
+          }}
+          className="font-mono text-sm opacity-60 hover:opacity-100"
+          title="Open preview"
+        >
+          →
+        </button>
+        <button
+          onClick={handleDelete}
+          disabled={deleting}
+          className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 disabled:cursor-not-allowed"
+          title="Delete document"
+        >
+          {deleting ? (
+            <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+          ) : (
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+            </svg>
+          )}
+        </button>
+      </div>
     </div>
   );
 }
