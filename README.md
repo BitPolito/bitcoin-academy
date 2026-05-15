@@ -109,7 +109,7 @@ Set `ENVIRONMENT=development` to restore development mode (Swagger UI, relaxed C
 | `RAG_RETRIEVE_K` | `20` | Candidates fetched from dense + sparse pool |
 | `RAG_MAX_CONTEXT_TOKENS` | `6000` | Token budget for context blocks |
 | `RAG_HYDE` | `true` | Hypothetical Document Embedding query expansion |
-| `RAG_COMPRESS_CONTEXT` | `true` | Compress context to query-relevant sentences |
+| `RAG_COMPRESS_CONTEXT` | `false` | Compress context to query-relevant sentences |
 | `RAG_CONTEXTUAL_CHUNKS` | `false` | AI-generated context prefix at ingest |
 | `RAG_SEMANTIC_CACHE` | `true` | Enable semantic cache (requires Redis) |
 | `RAG_CACHE_THRESHOLD` | `0.92` | Cosine similarity threshold for cache hit |
