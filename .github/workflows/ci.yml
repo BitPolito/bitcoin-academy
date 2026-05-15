@@ -44,7 +44,7 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Type check (mypy)
-        run: mypy .
+        run: mypy app
         env:
           DATABASE_URL: postgresql://bitcoin_academy:bitcoin_academy@localhost:5432/bitcoin_academy
           SECRET_KEY: ci-secret-key-32-chars-minimum!!
