@@ -26,7 +26,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _REWRITE_ENABLED = os.getenv("RAG_QUERY_REWRITE", "").lower() in ("true", "1", "yes")
-_HYDE_ENABLED = os.getenv("RAG_HYDE", "").lower() in ("true", "1", "yes")
+_HYDE_ENABLED = os.getenv("RAG_HYDE", "true").lower() not in ("false", "0", "no")
 _QVAC_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 _QVAC_LLM_ENABLED = os.getenv("QVAC_LLM_ENABLED", "true").lower() != "false"
 _TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))

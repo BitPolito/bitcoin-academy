@@ -22,11 +22,23 @@ def _strip_markdown(text: str) -> str:
     return text.strip()
 
 
+def _clean_answer(text: str) -> str:
+    """Post-process raw LLM output: strip artefacts, trailing delimiters, markdown."""
+    text = text.strip()
+    text = re.sub(r'(===+|---+)\s*$', '', text).strip()
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text if text else "Risposta non disponibile."
+
+
 _QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "")
 # RAG_RETRIEVE_K: total candidates fetched from dense + sparse pool.
 # RAG_TOP_K: chunks handed to the LLM after reranking (context window budget).
 _TOP_K_RETRIEVE = int(os.getenv("RAG_RETRIEVE_K", "20"))
 _TOP_K_GENERATE = int(os.getenv("RAG_TOP_K", "5"))
+# RAG_MAX_CONTEXT_TOKENS: rough token budget (words × 1.3) for context blocks.
+_MAX_CONTEXT_TOKENS = int(os.getenv("RAG_MAX_CONTEXT_TOKENS", "6000"))
 
 _client = httpx.AsyncClient(base_url=_QVAC_SERVICE_URL, timeout=60.0)
 
@@ -165,11 +177,21 @@ async def answer(question: str, course_id: str) -> ChatResult:
     # 6. Expand child chunks → parent context (richer LLM context window)
     context_chunks = parent_expansion.expand_to_parents(reranked)
 
-    # 7. Build context blocks for LLM generation (strip Markdown to avoid symbol pollution)
-    context_blocks = [
-        {"label": c.anchor.doc_name, "text": _strip_markdown(c.text)}
-        for c in context_chunks
-    ]
+    # 7. Build context blocks: strip Markdown, deduplicate by parent_id, enforce token budget
+    context_blocks = []
+    total_est_tokens = 0
+    for c in context_chunks:
+        clean_text = _strip_markdown(c.text)
+        est_tokens = int(len(clean_text.split()) * 1.3)
+        if total_est_tokens + est_tokens > _MAX_CONTEXT_TOKENS:
+            break
+        total_est_tokens += est_tokens
+        loc = (
+            f"p.{c.anchor.page}" if c.anchor.page
+            else (f"slide {c.anchor.slide}" if c.anchor.slide else "")
+        )
+        label = f"{c.anchor.doc_name} · {loc}" if loc else c.anchor.doc_name
+        context_blocks.append({"label": label, "text": clean_text})
 
     # 8. LLM generation
     answer_text = ""
@@ -179,7 +201,7 @@ async def answer(question: str, course_id: str) -> ChatResult:
             json={"question": question, "context": context_blocks},
         )
         gen_resp.raise_for_status()
-        answer_text = gen_resp.json().get("answer", "")
+        answer_text = _clean_answer(gen_resp.json().get("answer", ""))
     except httpx.HTTPError as exc:
         logger.warning("QVAC /generate failed (%s) — returning truncated context snippet", exc)
         if context_blocks:

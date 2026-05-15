@@ -66,6 +66,7 @@ _register_module_aliases()
 # ---------------------------------------------------------------------------
 _PARENT_WORDS = 1200    # parent chunk: LLM context window (≈ 1500 tokens)
 _CHILD_WORDS = 150      # child chunk: retrieval unit (≈ 200 tokens)
+_CHILD_MAX_WORDS = 350  # hard cap: single long sentence can exceed 150-word target; 350 ≈ 455 tokens (GTE-Large limit 512)
 _CHILD_OVERLAP = 30     # overlap between consecutive child chunks (words)
 _MAX_WORDS = 400        # legacy: only used by chunk_pages() (no longer called by run())
 _OVERLAP_WORDS = 50     # legacy: overlap used by chunk_pages()
@@ -548,15 +549,34 @@ def build_parent_child_chunks(
                     child_subs = _split_paragraph(
                         parent_text, _CHILD_WORDS, overlap_words=_CHILD_OVERLAP
                     )
-                    for ci, child_text in enumerate(child_subs):
+                    ci = 0
+                    for child_text in child_subs:
                         child_text = child_text.strip()
-                        if _word_count(child_text) >= _MIN_WORDS:
+                        if _word_count(child_text) < _MIN_WORDS:
+                            continue
+                        # Hard cap: single long sentences can exceed the target;
+                        # split further by words so no chunk exceeds 512 tokens.
+                        if _word_count(child_text) > _CHILD_MAX_WORDS:
+                            words = child_text.split()
+                            step = _CHILD_MAX_WORDS - _CHILD_OVERLAP
+                            for j in range(0, len(words), step):
+                                seg = " ".join(words[j : j + _CHILD_MAX_WORDS])
+                                if _word_count(seg) >= _MIN_WORDS:
+                                    children.append(
+                                        _make_child(
+                                            parent["id"], doc_id, page_num, ci,
+                                            seg, current_section,
+                                        )
+                                    )
+                                    ci += 1
+                        else:
                             children.append(
                                 _make_child(
                                     parent["id"], doc_id, page_num, ci,
                                     child_text, current_section,
                                 )
                             )
+                            ci += 1
 
                 parent_idx += 1
 
