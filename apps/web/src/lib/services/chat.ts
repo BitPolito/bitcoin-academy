@@ -11,14 +11,20 @@ export interface ChatResponse {
   retrievalUsed: boolean;
 }
 
+export interface HistoryEntry {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export async function sendChatMessage(
   courseId: string,
   message: string,
-  accessToken?: string
+  accessToken?: string,
+  history?: HistoryEntry[],
 ): Promise<ChatResponse> {
   const raw = await apiFetch<Record<string, unknown>>(`/courses/${courseId}/chat`, {
     method: 'POST',
-    body: { message },
+    body: { message, history: history ?? [] },
     accessToken,
   });
   return {

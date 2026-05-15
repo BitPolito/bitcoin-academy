@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { sendChatMessage, type Citation } from '@/lib/services/chat';
+import { sendChatMessage, type Citation, type HistoryEntry } from '@/lib/services/chat';
 import { sendStudyAction } from '@/lib/services/study';
 import type { ApiCitationOut, ApiStudyResponse, StudyAction } from '@/lib/api/types';
 import type { Lesson } from '@/lib/services/courses';
@@ -15,6 +15,7 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   citations?: Citation[];
+  showSources?: boolean;
 }
 
 interface ActionMessage {
@@ -246,12 +247,18 @@ export function OutputPane({
   async function handleSend() {
     const question = input.trim();
     if (!question || loading) return;
+
+    // Build conversation history from prior chat turns (user + assistant only)
+    const history: HistoryEntry[] = messages
+      .filter((m): m is ChatMessage => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
     setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: question }]);
     setLoading(true);
     setActiveAction(null);
     try {
-      const result = await sendChatMessage(courseId, question, accessToken);
+      const result = await sendChatMessage(courseId, question, accessToken, history);
       setMessages((prev) => [
         ...prev,
         { role: 'assistant', content: result.answer, citations: result.citations },
@@ -464,23 +471,47 @@ export function OutputPane({
               >
                 <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                 {msg.role === 'assistant' && msg.citations && msg.citations.length > 0 && (
-                  <div className="mt-3 space-y-2 b-thin-t pt-2">
-                    <p className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-70">
-                      Sources
-                    </p>
-                    {msg.citations.map((citation, ci) => (
-                      <div
-                        key={ci}
-                        className="b-thin rounded-md px-3 py-2 bg-white dark:bg-blue-dark/20"
+                  <div className="mt-2">
+                    <button
+                      onClick={() =>
+                        setMessages((prev) =>
+                          prev.map((m, mi) =>
+                            mi === i && m.role === 'assistant'
+                              ? { ...m, showSources: !m.showSources }
+                              : m
+                          )
+                        )
+                      }
+                      className="flex items-center gap-1 font-mono text-[10px] tracking-[0.14em] uppercase opacity-60 hover:opacity-100 transition-opacity"
+                    >
+                      <svg
+                        className={`h-2.5 w-2.5 transition-transform ${msg.showSources ? 'rotate-90' : ''}`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2.5}
+                        stroke="currentColor"
                       >
-                        <p className="text-xs line-clamp-3 leading-relaxed opacity-90">
-                          &ldquo;{citation.snippet}&rdquo;
-                        </p>
-                        <p className="mt-1 font-mono text-[10px] opacity-60">
-                          score · {Math.round(citation.score * 100)}%
-                        </p>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                      </svg>
+                      {msg.showSources ? 'Hide' : 'Show'} {msg.citations.length} source{msg.citations.length !== 1 ? 's' : ''}
+                    </button>
+                    {msg.showSources && (
+                      <div className="mt-2 space-y-2">
+                        {msg.citations.map((citation, ci) => (
+                          <div
+                            key={ci}
+                            className="b-thin rounded-md px-3 py-2 bg-white dark:bg-blue-dark/20"
+                          >
+                            <p className="text-xs line-clamp-3 leading-relaxed opacity-90">
+                              &ldquo;{citation.snippet}&rdquo;
+                            </p>
+                            <p className="mt-1 font-mono text-[10px] opacity-60">
+                              score · {Math.round(citation.score * 100)}%
+                            </p>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </div>

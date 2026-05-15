@@ -255,6 +255,63 @@ async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple
         return "", evidence_pack_service.build_from_chunks(question, action.value, candidates)
 
 
+_AND_SPLIT = re.compile(
+    r'\b(?:vs\.?|versus|compare(?:d\s+to)?|differ(?:ence)?(?:\s+between)?|between\s+.+\s+and)\b',
+    re.IGNORECASE,
+)
+
+
+async def _retrieve_multi(
+    question: str, course_id: str, action: StudyAction
+) -> tuple[str, EvidencePack]:
+    """Parallel two-hop retrieval for COMPARE/DERIVE actions with multi-entity queries.
+
+    Splits the question on comparison keywords, runs one sub-retrieval per entity,
+    merges by chunk_id, and builds a unified EvidencePack covering both concepts.
+    Falls back to standard single retrieval when fewer than two parts are detected
+    or for any other action type.
+    """
+    import asyncio  # noqa: PLC0415
+
+    if action not in (StudyAction.COMPARE, StudyAction.DERIVE):
+        return await _retrieve(question, course_id, action)
+
+    parts = [p.strip() for p in _AND_SPLIT.split(question) if len(p.strip()) >= 3]
+    if len(parts) < 2:
+        return await _retrieve(question, course_id, action)
+
+    results = await asyncio.gather(
+        *[_retrieve(p, course_id, action) for p in parts[:2]],
+        return_exceptions=True,
+    )
+
+    merged: dict[str, EvidenceChunk] = {}
+    raw_answers: list[str] = []
+    for res in results:
+        if isinstance(res, BaseException):
+            logger.warning("Two-hop sub-retrieval failed: %s", res)
+            continue
+        raw_ans, pack = res  # type: ignore[misc]
+        if raw_ans:
+            raw_answers.append(raw_ans)
+        for chunk in pack.chunks:
+            if chunk.chunk_id not in merged:
+                merged[chunk.chunk_id] = chunk
+
+    if not merged:
+        logger.info("Two-hop produced no chunks — falling back to single retrieval")
+        return await _retrieve(question, course_id, action)
+
+    logger.debug(
+        "Two-hop retrieval for '%s': %d unique chunks from %d sub-queries",
+        action.value, len(merged), len(parts[:2]),
+    )
+    combined = evidence_pack_service.build_from_chunks(
+        question, action.value, list(merged.values())
+    )
+    return raw_answers[0] if raw_answers else "", combined
+
+
 async def _generate(action: StudyAction, question: str, context: str) -> Optional[str]:
     """Call QVAC /generate with the action-specific system prompt (local LLM via QVAC SDK).
 
@@ -297,7 +354,7 @@ async def _route(
 
     if meta.retrieval_required:
         trace.retrieval_ran = True
-        raw_answer, pack = await _retrieve(question, course_id, action)
+        raw_answer, pack = await _retrieve_multi(question, course_id, action)
         trace.chunks_found = len(pack.chunks)
 
     # Step 2 — skip generation when the action doesn't need it, OR when rag_only is active.

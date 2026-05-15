@@ -15,12 +15,22 @@ router = APIRouter(prefix="/api", tags=["Chat"])
 # Request / Response schemas
 # ---------------------------------------------------------------------------
 
+class HistoryEntry(BaseModel):
+    role: str = Field(..., pattern="^(user|assistant)$")
+    content: str = Field(..., max_length=2000)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(
         ...,
         min_length=5,
         max_length=2000,
         description="Student question (min 5 characters)",
+    )
+    history: List[HistoryEntry] = Field(
+        default_factory=list,
+        max_length=10,
+        description="Previous conversation turns (up to 10 messages)",
     )
 
 
@@ -61,7 +71,8 @@ async def chat(
     course_id: str = Path(..., description="Course whose documents to search"),
     _current_user: CurrentUser = Depends(get_current_user),
 ) -> ChatResponse:
-    result = await chat_service.answer(question=body.message, course_id=course_id)
+    history = [{"role": h.role, "content": h.content} for h in body.history]
+    result = await chat_service.answer(question=body.message, course_id=course_id, history=history)
     return ChatResponse(
         answer=result.answer,
         citations=[

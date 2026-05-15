@@ -73,6 +73,9 @@ _OVERLAP_WORDS = 50     # legacy: overlap used by chunk_pages()
 _MIN_WORDS = 25         # paragraph threshold: shorter chunks are discarded
 _MIN_WORDS_TABLE = 4    # table threshold: one data row is enough (cells are short)
 
+_RAG_CONTEXTUAL_CHUNKS = os.getenv("RAG_CONTEXTUAL_CHUNKS", "false").lower() == "true"
+_CONTEXTUAL_TIMEOUT = float(os.getenv("QVAC_CONTEXTUAL_TIMEOUT", "25"))
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -614,6 +617,54 @@ def filter_chunks(chunks: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Contextual chunk enrichment (Anthropic method — RAG_CONTEXTUAL_CHUNKS=true)
+# ---------------------------------------------------------------------------
+
+def _enrich_with_context(
+    child_chunks: list[dict],
+    doc_summary: str,
+    qvac_url: str,
+) -> list[dict]:
+    """Prepend a short AI-generated context sentence to each child chunk before embedding.
+
+    Calls QVAC /generate once per chunk. Each chunk whose enrichment call fails
+    is returned unchanged (fail-open: best-effort, never blocks ingest).
+    Only active when RAG_CONTEXTUAL_CHUNKS=true.
+    """
+    _PROMPT = (
+        "Scrivi in una frase (max 25 parole) il contesto di questo estratto: "
+        "indica l'argomento e la sezione. Usa la stessa lingua del testo."
+    )
+    enriched: list[dict] = []
+    for chunk in child_chunks:
+        chunk_text = chunk["text"]
+        ctx_input = f"Documento:\n{doc_summary[:400]}\n\nEstratto:\n{chunk_text[:600]}"
+        try:
+            with httpx.Client(timeout=_CONTEXTUAL_TIMEOUT) as client:
+                resp = client.post(
+                    f"{qvac_url}/generate",
+                    json={"question": _PROMPT, "context": [{"label": "estratto", "text": ctx_input}]},
+                )
+                resp.raise_for_status()
+                ctx_sentence = resp.json().get("answer", "").strip()
+        except Exception as exc:
+            logger.debug("Contextual enrichment skipped for chunk %s: %s", chunk.get("id"), exc)
+            ctx_sentence = ""
+
+        if ctx_sentence and 5 < len(ctx_sentence) < 300:
+            enriched.append({**chunk, "text": f"{ctx_sentence}\n\n{chunk_text}"})
+        else:
+            enriched.append(chunk)
+
+    logger.info(
+        "Contextual enrichment done for %d chunks (%d enriched)",
+        len(child_chunks),
+        sum(1 for o, n in zip(child_chunks, enriched) if o["text"] != n["text"]),
+    )
+    return enriched
+
+
+# ---------------------------------------------------------------------------
 # BM25 index
 # ---------------------------------------------------------------------------
 
@@ -837,7 +888,18 @@ def run(
             )
 
             # ------------------------------------------------------------------
-            # Stage 3c — SAVE PARENTS TO DB
+            # Stage 3c — CONTEXTUAL ENRICHMENT (opt-in: RAG_CONTEXTUAL_CHUNKS=true)
+            # ------------------------------------------------------------------
+            if _RAG_CONTEXTUAL_CHUNKS and chunks:
+                doc_summary = "\n".join(p["text"][:200] for p in pages[:3])
+                logger.info(
+                    "Contextual enrichment enabled — enriching %d chunks for %s",
+                    len(chunks), document_id,
+                )
+                chunks = _enrich_with_context(chunks, doc_summary, QVAC_SERVICE_URL)
+
+            # ------------------------------------------------------------------
+            # Stage 3d — SAVE PARENTS TO DB
             # ------------------------------------------------------------------
             try:
                 _save_parents_to_db(parent_chunks, course_id, db)

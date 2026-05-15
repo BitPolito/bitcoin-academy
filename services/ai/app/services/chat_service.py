@@ -119,7 +119,11 @@ def _chroma_chat_result(question: str, course_id: str) -> ChatResult:
 # Public API
 # ---------------------------------------------------------------------------
 
-async def answer(question: str, course_id: str) -> ChatResult:
+async def answer(
+    question: str,
+    course_id: str,
+    history: list[dict] | None = None,
+) -> ChatResult:
     """Hybrid RAG answer: dense (QVAC) + sparse (BM25) → RRF → rerank → parent context → LLM.
 
     Flow:
@@ -170,9 +174,9 @@ async def answer(question: str, course_id: str) -> ChatResult:
         logger.debug("BM25 index absent for course '%s' — dense-only retrieval", course_id)
         merged = dense_chunks[:_TOP_K_RETRIEVE]
 
-    # 5. Rerank with FlashRank cross-encoder → keep top _TOP_K_GENERATE
+    # 5. Rerank with FlashRank cross-encoder → MMR diversity selection → top _TOP_K_GENERATE
     reranked_all = reranker.rerank(question, merged)
-    reranked = reranked_all[:_TOP_K_GENERATE]
+    reranked = reranker.mmr_select(reranked_all, _TOP_K_GENERATE)
 
     # 6. Expand child chunks → parent context (richer LLM context window)
     context_chunks = parent_expansion.expand_to_parents(reranked)
@@ -192,6 +196,17 @@ async def answer(question: str, course_id: str) -> ChatResult:
         )
         label = f"{c.anchor.doc_name} · {loc}" if loc else c.anchor.doc_name
         context_blocks.append({"label": label, "text": clean_text})
+
+    # 7b. Prepend conversation history as first context block (Q1)
+    if history:
+        history_lines = [
+            f"{'Student' if m['role'] == 'user' else 'Tutor'}: {m['content'][:500]}"
+            for m in history[-4:]
+        ]
+        context_blocks.insert(0, {
+            "label": "Cronologia conversazione",
+            "text": "\n".join(history_lines),
+        })
 
     # 8. LLM generation
     answer_text = ""

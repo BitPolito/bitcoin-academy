@@ -18,11 +18,14 @@ logger = logging.getLogger(__name__)
 _FLASHRANK_MODEL = "ms-marco-MiniLM-L-12-v2"
 _CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 _FLASHRANK_CACHE = "/tmp/flashrank"
+_MMR_EMB_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 _flashrank_ranker = None
 _flashrank_attempted = False
 _cross_encoder = None
 _cross_encoder_attempted = False
+_mmr_emb = None
+_mmr_emb_attempted = False
 
 
 def _get_flashrank():
@@ -131,3 +134,78 @@ def rerank(query: str, chunks: List[EvidenceChunk]) -> List[EvidenceChunk]:
             logger.warning("CrossEncoder inference failed — reverting to vector order: %s", exc)
 
     return chunks
+
+
+def _get_mmr_emb():
+    global _mmr_emb, _mmr_emb_attempted
+    if _mmr_emb_attempted:
+        return _mmr_emb
+    _mmr_emb_attempted = True
+    try:
+        from fastembed import TextEmbedding  # type: ignore[import]
+        _mmr_emb = TextEmbedding(_MMR_EMB_MODEL)
+        logger.info("MMR embedding model loaded: %s", _MMR_EMB_MODEL)
+    except Exception as exc:
+        logger.warning("MMR fastembed unavailable (%s) — mmr_select will use top-k fallback", exc)
+        _mmr_emb = None
+    return _mmr_emb
+
+
+def mmr_select(chunks: List[EvidenceChunk], top_k: int, lambda_: float = 0.6) -> List[EvidenceChunk]:
+    """Select top_k chunks using Maximum Marginal Relevance post-reranking.
+
+    Penalises candidates that are semantically redundant with already-selected
+    chunks, so the LLM receives diverse context instead of five near-identical
+    passages from adjacent pages.
+
+    Args:
+        chunks:  Chunks sorted by rerank_score (output of rerank()).
+        top_k:   Number of chunks to return.
+        lambda_: 1.0 = pure relevance, 0.0 = pure diversity. 0.6 is a safe default.
+    """
+    if not chunks or top_k >= len(chunks):
+        return chunks[:top_k]
+
+    import numpy as np
+
+    model = _get_mmr_emb()
+    if model is None:
+        return chunks[:top_k]
+
+    try:
+        embs = [np.asarray(e, dtype=float) for e in model.embed([c.text for c in chunks])]
+    except Exception as exc:
+        logger.warning("MMR embed failed (%s) — fallback to top-k slice", exc)
+        return chunks[:top_k]
+
+    # Use rerank_score when available; fall back to vector score when reranker did not run.
+    use_rerank = any(c.rerank_score != 0.0 for c in chunks)
+
+    def relevance(i: int) -> float:
+        return chunks[i].rerank_score if use_rerank else chunks[i].score
+
+    selected: list[int] = []
+    remaining = list(range(len(chunks)))
+
+    while remaining and len(selected) < top_k:
+        if not selected:
+            best = max(remaining, key=relevance)
+        else:
+            sel_embs = [embs[j] for j in selected]
+
+            def mmr_score(i: int, _sel: list = sel_embs) -> float:
+                a = embs[i]
+                norm_a = float(np.linalg.norm(a)) + 1e-8
+                sims = [
+                    float(np.dot(a, b) / (norm_a * (float(np.linalg.norm(b)) + 1e-8)))
+                    for b in _sel
+                ]
+                return lambda_ * relevance(i) - (1 - lambda_) * max(sims)
+
+            best = max(remaining, key=mmr_score)
+
+        selected.append(best)
+        remaining.remove(best)
+
+    logger.debug("MMR: selected %d/%d chunks (lambda=%.1f)", len(selected), len(chunks), lambda_)
+    return [chunks[i] for i in selected]
