@@ -87,96 +87,27 @@ def _qvac_dict_to_chunk(d: dict) -> EvidenceChunk:
     )
 
 
-# ---------------------------------------------------------------------------
-# ChromaDB fallback
-# ---------------------------------------------------------------------------
-
-def _chroma_chat_result(question: str, course_id: str) -> ChatResult:
-    """Query ChromaDB and return a ChatResult with raw snippets as answer."""
-    from app.services.chroma_retrieval import query_chroma  # noqa: PLC0415
-    sources = query_chroma(question, course_id, top_k=_TOP_K_GENERATE)
-    citations = [
-        Citation(
-            snippet=s["snippet"],
-            score=s["score"],
-            label=s["label"],
-            page=s["page"],
-            slide=s["slide"],
-            section=s["section"],
-            doc_id=s["doc_id"],
-        )
-        for s in sources
-    ]
-    answer_text = (
-        f"Found {len(sources)} relevant passage{'s' if len(sources) != 1 else ''} (LLM generation unavailable)."
-        if sources
-        else "No relevant content found."
-    )
-    return ChatResult(answer=answer_text, citations=citations, retrieval_used=bool(citations))
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-async def answer(
+async def _retrieve_and_rank(
     question: str,
     course_id: str,
-    history: list[dict] | None = None,
-) -> ChatResult:
-    """Hybrid RAG answer: dense (QVAC) + sparse (BM25) → RRF → rerank → parent context → LLM.
+    retrieval_query: str,
+) -> tuple[list[dict], list[Citation]]:
+    """Dense + sparse retrieval, RRF, rerank, MMR, parent expansion → (context_blocks, citations).
 
-    Flow:
-      0. Semantic cache lookup (skip full pipeline on cache hit)
-      1. /retrieve  — top-20 dense chunks from QVAC
-      2. BM25 sparse search on local index
-      3. RRF fusion → unified top-20
-      4. Cross-encoder rerank (FlashRank) → top-5
-      5. Parent context expansion (child text → 1200-word parent block)
-      6. /generate  — LLM answer from parent contexts
-    Falls back to ChromaDB when QVAC is unavailable.
+    Raises httpx.HTTPError when QVAC /retrieve is unavailable so callers can
+    return a structured error instead of silently degrading.
     """
     from app.services import hybrid_search, reranker, parent_expansion  # noqa: PLC0415
-    from app.rag.query_rewriter import expand_query  # noqa: PLC0415
-    from app.services.cache_service import get_cached, set_cached  # noqa: PLC0415
 
-    # 0. Semantic cache — return cached answer for near-duplicate queries.
-    cached = get_cached(question, course_id)
-    if cached is not None:
-        return ChatResult(
-            answer=cached["answer"],
-            citations=[Citation(**c) for c in cached.get("citations", [])],
-            retrieval_used=cached.get("retrieval_used", True),
-        )
-
-    # 0b. Query expansion (HyDE / rewrite) — original question kept for generation.
-    retrieval_query = await expand_query(question)
-
-    # 1. Dense retrieval
-    try:
-        resp = await _client.post(
-            "/retrieve",
-            json={"question": retrieval_query, "workspace": course_id, "topK": _TOP_K_RETRIEVE},
-        )
-        resp.raise_for_status()
-        dense_dicts: list[dict] = resp.json().get("chunks", [])
-    except httpx.HTTPError as exc:
-        logger.warning("QVAC /retrieve unavailable (%s) — trying ChromaDB fallback", exc)
-        return _chroma_chat_result(question, course_id)
-
-    if not dense_dicts:
-        logger.info("QVAC returned 0 chunks for course '%s', trying ChromaDB fallback", course_id)
-        fallback = _chroma_chat_result(question, course_id)
-        if fallback.citations:
-            return fallback
-
-    # 2. Convert QVAC dicts → EvidenceChunk for unified processing
+    resp = await _client.post(
+        "/retrieve",
+        json={"question": retrieval_query, "workspace": course_id, "topK": _TOP_K_RETRIEVE},
+    )
+    resp.raise_for_status()
+    dense_dicts: list[dict] = resp.json().get("chunks", [])
     dense_chunks = [_qvac_dict_to_chunk(d) for d in dense_dicts if d.get("chunk_id")]
 
-    # 3. BM25 sparse retrieval
     bm25_hits = hybrid_search.bm25_search(question, course_id, top_k=_TOP_K_RETRIEVE)
-
-    # 4. RRF fusion — falls back to dense-only when BM25 index is absent
     if bm25_hits:
         index_data = hybrid_search.load_bm25_index(course_id)
         corpus = index_data[2] if index_data else {}
@@ -185,15 +116,11 @@ async def answer(
         logger.debug("BM25 index absent for course '%s' — dense-only retrieval", course_id)
         merged = dense_chunks[:_TOP_K_RETRIEVE]
 
-    # 5. Rerank with FlashRank cross-encoder → MMR diversity selection → top _TOP_K_GENERATE
     reranked_all = reranker.rerank(question, merged)
     reranked = reranker.mmr_select(reranked_all, _TOP_K_GENERATE)
-
-    # 6. Expand child chunks → parent context (richer LLM context window)
     context_chunks = parent_expansion.expand_to_parents(reranked)
 
-    # 7. Build context blocks: strip Markdown, deduplicate by parent_id, enforce token budget
-    context_blocks = []
+    context_blocks: list[dict] = []
     total_est_tokens = 0
     for c in context_chunks:
         clean_text = _strip_markdown(c.text)
@@ -208,7 +135,55 @@ async def answer(
         label = f"{c.anchor.doc_name} · {loc}" if loc else c.anchor.doc_name
         context_blocks.append({"label": label, "text": clean_text})
 
-    # 7b. Prepend conversation history as first context block (Q1)
+    citations = [
+        Citation(
+            snippet=c.text[:200],
+            score=c.score,
+            label=c.anchor.doc_name,
+            page=c.anchor.page or 0,
+            slide=c.anchor.slide or 0,
+            section=c.anchor.section or "",
+            doc_id=c.anchor.doc_id,
+        )
+        for c in reranked
+    ]
+    return context_blocks, citations
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+async def answer(
+    question: str,
+    course_id: str,
+    history: list[dict] | None = None,
+) -> ChatResult:
+    """Hybrid RAG answer: dense (QVAC) + sparse (BM25) → RRF → rerank → parent context → LLM."""
+    from app.rag.query_rewriter import expand_query  # noqa: PLC0415
+    from app.services.cache_service import get_cached, set_cached  # noqa: PLC0415
+
+    # Semantic cache — skip pipeline on near-duplicate query.
+    cached = get_cached(question, course_id)
+    if cached is not None:
+        return ChatResult(
+            answer=cached["answer"],
+            citations=[Citation(**c) for c in cached.get("citations", [])],
+            retrieval_used=cached.get("retrieval_used", True),
+        )
+
+    retrieval_query = await expand_query(question)
+
+    try:
+        context_blocks, citations = await _retrieve_and_rank(question, course_id, retrieval_query)
+    except httpx.HTTPError as exc:
+        logger.warning("QVAC /retrieve unavailable (%s)", exc)
+        return ChatResult(
+            answer="Il servizio di ricerca non è disponibile. Riprova tra qualche istante.",
+            citations=[],
+            retrieval_used=False,
+        )
+
     if history:
         history_lines = [
             f"{'Student' if m['role'] == 'user' else 'Tutor'}: {m['content'][:500]}"
@@ -219,7 +194,6 @@ async def answer(
             "text": "\n".join(history_lines),
         })
 
-    # 8. LLM generation
     answer_text = ""
     try:
         gen_resp = await _client.post(
@@ -237,34 +211,18 @@ async def answer(
         else:
             answer_text = "Risposta non disponibile."
 
-    # 9. Citations from child chunks (preserves page/slide precision)
-    citations = [
-        Citation(
-            snippet=c.text[:200],
-            score=c.score,
-            label=c.anchor.doc_name,
-            page=c.anchor.page or 0,
-            slide=c.anchor.slide or 0,
-            section=c.anchor.section or "",
-            doc_id=c.anchor.doc_id,
-        )
-        for c in reranked
+    citations_json = [
+        {"snippet": c.snippet, "score": c.score, "label": c.label,
+         "page": c.page, "slide": c.slide, "section": c.section, "doc_id": c.doc_id}
+        for c in citations
     ]
-
-    result = ChatResult(answer=answer_text, citations=citations, retrieval_used=bool(reranked))
-
-    # Store in semantic cache for future near-duplicate queries.
     set_cached(question, course_id, {
         "answer": answer_text,
-        "citations": [
-            {"snippet": c.snippet, "score": c.score, "label": c.label,
-             "page": c.page, "slide": c.slide, "section": c.section, "doc_id": c.doc_id}
-            for c in citations
-        ],
-        "retrieval_used": bool(reranked),
+        "citations": citations_json,
+        "retrieval_used": bool(citations),
     })
 
-    return result
+    return ChatResult(answer=answer_text, citations=citations, retrieval_used=bool(citations))
 
 
 async def stream_answer(
@@ -272,79 +230,49 @@ async def stream_answer(
     course_id: str,
     history: list[dict] | None = None,
 ):
-    """Async generator: same retrieval pipeline as answer(), but streams tokens from QVAC /stream.
+    """Stream tokens from QVAC /stream using the same retrieval pipeline as answer().
 
-    Yields strings — each is a raw token from the LLM.  Terminates with a
-    special JSON sentinel object {"citations": [...], "retrieval_used": bool}
-    so the client can render citations after streaming completes.
-    Falls back to answer() when QVAC /stream is unavailable.
+    Yields raw token strings.  Ends with a special "\x00CITATIONS\x00<json>"
+    sentinel so the client can render citations after streaming completes.
+    Falls back to buffered /generate when QVAC /stream is unavailable.
+    Serves cached answer as a single burst when a near-duplicate query hits the cache.
     """
     import json as _json  # noqa: PLC0415
-    from app.services import hybrid_search, reranker, parent_expansion  # noqa: PLC0415
     from app.rag.query_rewriter import expand_query  # noqa: PLC0415
+    from app.services.cache_service import get_cached, set_cached  # noqa: PLC0415
+
+    cached = get_cached(question, course_id)
+    if cached is not None:
+        yield cached["answer"]
+        yield "\x00CITATIONS\x00" + _json.dumps(cached.get("citations", []))
+        return
 
     retrieval_query = await expand_query(question)
 
     try:
-        resp = await _client.post(
-            "/retrieve",
-            json={"question": retrieval_query, "workspace": course_id, "topK": _TOP_K_RETRIEVE},
-        )
-        resp.raise_for_status()
-        dense_dicts: list[dict] = resp.json().get("chunks", [])
-    except httpx.HTTPError:
-        fallback = _chroma_chat_result(question, course_id)
-        yield fallback.answer
+        context_blocks, citations = await _retrieve_and_rank(question, course_id, retrieval_query)
+    except httpx.HTTPError as exc:
+        logger.warning("QVAC /retrieve unavailable (%s)", exc)
+        yield "Il servizio di ricerca non è disponibile. Riprova tra qualche istante."
         return
-
-    dense_chunks = [_qvac_dict_to_chunk(d) for d in dense_dicts if d.get("chunk_id")]
-    bm25_hits = hybrid_search.bm25_search(question, course_id, top_k=_TOP_K_RETRIEVE)
-
-    if bm25_hits:
-        index_data = hybrid_search.load_bm25_index(course_id)
-        corpus = index_data[2] if index_data else {}
-        merged = hybrid_search.rrf_fuse(dense_chunks, bm25_hits, corpus, top_k=_TOP_K_RETRIEVE)
-    else:
-        merged = dense_chunks[:_TOP_K_RETRIEVE]
-
-    reranked_all = reranker.rerank(question, merged)
-    reranked = reranker.mmr_select(reranked_all, _TOP_K_GENERATE)
-    context_chunks = parent_expansion.expand_to_parents(reranked)
-
-    context_blocks = []
-    total_est_tokens = 0
-    for c in context_chunks:
-        clean_text = _strip_markdown(c.text)
-        est_tokens = int(len(clean_text.split()) * 1.3)
-        if total_est_tokens + est_tokens > _MAX_CONTEXT_TOKENS:
-            break
-        total_est_tokens += est_tokens
-        loc = (
-            f"p.{c.anchor.page}" if c.anchor.page
-            else (f"slide {c.anchor.slide}" if c.anchor.slide else "")
-        )
-        label = f"{c.anchor.doc_name} · {loc}" if loc else c.anchor.doc_name
-        context_blocks.append({"label": label, "text": clean_text})
 
     if history:
         history_lines = [
             f"{'Student' if m['role'] == 'user' else 'Tutor'}: {m['content'][:500]}"
             for m in history[-4:]
         ]
-        context_blocks.insert(0, {"label": "Cronologia conversazione", "text": "\n".join(history_lines)})
+        context_blocks.insert(0, {
+            "label": "Cronologia conversazione",
+            "text": "\n".join(history_lines),
+        })
 
-    citations = [
-        Citation(
-            snippet=c.text[:200],
-            score=c.score,
-            label=c.anchor.doc_name,
-            page=c.anchor.page or 0,
-            slide=c.anchor.slide or 0,
-            section=c.anchor.section or "",
-            doc_id=c.anchor.doc_id,
-        )
-        for c in reranked
+    citations_json = [
+        {"snippet": c.snippet, "score": c.score, "label": c.label,
+         "page": c.page, "slide": c.slide, "section": c.section, "doc_id": c.doc_id}
+        for c in citations
     ]
+
+    accumulated: list[str] = []
 
     try:
         async with _client.stream(
@@ -362,8 +290,10 @@ async def stream_answer(
                 try:
                     token = _json.loads(payload)
                     yield token
+                    accumulated.append(token)
                 except Exception:
                     yield payload
+                    accumulated.append(payload)
     except httpx.HTTPError as exc:
         logger.warning("QVAC /stream failed (%s) — falling back to buffered generate", exc)
         try:
@@ -372,13 +302,18 @@ async def stream_answer(
                 json={"question": question, "context": context_blocks},
             )
             gen_resp.raise_for_status()
-            yield _clean_answer(gen_resp.json().get("answer", "Risposta non disponibile."))
+            token = _clean_answer(gen_resp.json().get("answer", "Risposta non disponibile."))
+            yield token
+            accumulated.append(token)
         except httpx.HTTPError:
             yield "Risposta non disponibile."
 
-    # Emit citations as the final SSE event so the client can display them.
-    yield "\x00CITATIONS\x00" + _json.dumps([
-        {"snippet": c.snippet, "score": c.score, "label": c.label,
-         "page": c.page, "slide": c.slide, "section": c.section, "doc_id": c.doc_id}
-        for c in citations
-    ])
+    full_answer = "".join(accumulated)
+    if full_answer:
+        set_cached(question, course_id, {
+            "answer": full_answer,
+            "citations": citations_json,
+            "retrieval_used": bool(citations),
+        })
+
+    yield "\x00CITATIONS\x00" + _json.dumps(citations_json)

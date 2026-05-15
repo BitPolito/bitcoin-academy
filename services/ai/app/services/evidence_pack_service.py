@@ -2,7 +2,6 @@
 import logging
 
 from app.schemas.evidence_pack import EvidenceChunk, EvidencePack
-from app.services import retrieval_service
 
 logger = logging.getLogger(__name__)
 
@@ -98,12 +97,6 @@ def build_from_chunks(
         truncated=truncated,
         sources=sources,
     )
-
-
-def build(query: str, action: str, course_id: str, top_k: int = 10) -> EvidencePack:
-    """Build from ChromaDB — used by the debug API endpoint."""
-    candidates = retrieval_service.search(query, course_id, top_k=top_k)
-    return build_from_chunks(query, action, candidates)
 
 
 def _deduplicate(chunks: list[EvidenceChunk]) -> list[EvidenceChunk]:

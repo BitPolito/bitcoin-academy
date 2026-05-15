@@ -236,6 +236,9 @@ export function OutputPane({
   const bottomRef = useRef<HTMLDivElement>(null);
   const didAutoFireRef = useRef(false);
   const sessionIdRef = useRef<string>(typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36));
+  // Captures the index of the in-flight assistant message inside the functional
+  // setMessages updater so it stays correct across React's concurrent-mode batching.
+  const assistantIdxRef = useRef(-1);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -256,13 +259,15 @@ export function OutputPane({
       .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
     setInput('');
-    setMessages((prev) => [...prev, { role: 'user', content: question }]);
     setLoading(true);
     setActiveAction(null);
 
-    // Insert an empty assistant message that will be filled token-by-token.
-    const assistantIdx = messages.length + 1; // +1 for the user message just added
-    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+    // Add user + empty assistant messages atomically; capture assistant index inside
+    // the updater to avoid stale closure values in concurrent-mode React (A6).
+    setMessages((prev) => {
+      assistantIdxRef.current = prev.length + 1;
+      return [...prev, { role: 'user', content: question }, { role: 'assistant', content: '' }];
+    });
 
     try {
       await sendChatMessageStream(
@@ -271,7 +276,7 @@ export function OutputPane({
         (token) => {
           setMessages((prev) =>
             prev.map((m, mi) =>
-              mi === assistantIdx && m.role === 'assistant'
+              mi === assistantIdxRef.current && m.role === 'assistant'
                 ? { ...m, content: m.content + token }
                 : m
             )
@@ -280,7 +285,7 @@ export function OutputPane({
         (citations) => {
           setMessages((prev) =>
             prev.map((m, mi) =>
-              mi === assistantIdx && m.role === 'assistant' ? { ...m, citations } : m
+              mi === assistantIdxRef.current && m.role === 'assistant' ? { ...m, citations } : m
             )
           );
         },
@@ -288,10 +293,16 @@ export function OutputPane({
         history,
       );
     } catch (err) {
+      // Append error notice after any tokens already streamed (A9).
       setMessages((prev) =>
         prev.map((m, mi) =>
-          mi === assistantIdx && m.role === 'assistant'
-            ? { ...m, content: err instanceof Error ? `Error: ${err.message}` : 'Could not fetch a response.' }
+          mi === assistantIdxRef.current && m.role === 'assistant'
+            ? {
+                ...m,
+                content:
+                  (m.content ? m.content + '\n\n' : '') +
+                  (err instanceof Error ? `⚠ ${err.message}` : '⚠ Could not complete response.'),
+              }
             : m
         )
       );
@@ -493,6 +504,7 @@ export function OutputPane({
                     : 'b-thin bg-white dark:bg-blue-dark/40'
                 }`}
               >
+                {/* Chat renders as plain text — the LLM system prompt requests no Markdown. */}
                 <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                 {msg.role === 'assistant' && msg.citations && msg.citations.length > 0 && (
                   <div className="mt-2">

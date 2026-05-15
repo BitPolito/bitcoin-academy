@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.core.rate_limit import limiter
 from app.db.models import AnswerFeedback
-from app.db.session import get_db
+from app.db.session import get_db_context
 from app.middleware.auth import CurrentUser, get_current_user
 
 router = APIRouter(prefix="/api", tags=["Feedback"])
@@ -44,8 +44,7 @@ async def submit_feedback(
         from fastapi import HTTPException  # noqa: PLC0415
         raise HTTPException(status_code=422, detail="rating must be 1 or -1")
 
-    db = next(get_db())
-    try:
+    with get_db_context() as db:
         record = AnswerFeedback(
             id=str(uuid.uuid4()),
             session_id=body.session_id,
@@ -58,5 +57,3 @@ async def submit_feedback(
         db.add(record)
         db.commit()
         return FeedbackResponse(id=record.id)
-    finally:
-        db.close()

@@ -1,8 +1,4 @@
-import { apiFetch } from '@/lib/api';
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  (process.env.NEXT_PUBLIC_API_URL ? `${process.env.NEXT_PUBLIC_API_URL}/api` : 'http://localhost:8000/api');
+import { apiFetch, API_BASE_URL } from '@/lib/api';
 
 export interface Citation {
   snippet: string;

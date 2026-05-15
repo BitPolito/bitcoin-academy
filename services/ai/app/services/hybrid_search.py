@@ -1,7 +1,6 @@
 """Hybrid retrieval helpers — BM25 scoring and RRF fusion.
 
-Called by retrieval_service.search(); never imports from retrieval_service
-to avoid circular dependencies.
+Standalone module; never imports from service modules to avoid circular dependencies.
 """
 import json
 import logging

@@ -177,28 +177,6 @@ def _parse_citations(text: str, pack: EvidencePack) -> List[SourceChunk]:
     ]
 
 
-def _chroma_evidence(question: str, course_id: str) -> List[EvidenceChunk]:
-    """Query ChromaDB and return EvidenceChunk list (same shape as QVAC results)."""
-    from app.services.chroma_retrieval import query_chroma  # lazy — avoids circular import
-    return [
-        EvidenceChunk(
-            chunk_id=f"chroma_{s.get('doc_id', 'unk')}_{i}",
-            text=s["snippet"],
-            score=s["score"],
-            anchor=CitationAnchor(
-                doc_id=s["doc_id"],
-                doc_name=s["label"],
-                section=s["section"] or None,
-                page=int(s["page"]) if s.get("page") else None,
-                slide=int(s["slide"]) if s.get("slide") else None,
-                chunk_id=f"chroma_{s.get('doc_id', 'unk')}_{i}",
-                chunk_type="paragraph",
-            ),
-        )
-        for i, s in enumerate(query_chroma(question, course_id, top_k=_TOP_K))
-    ]
-
-
 async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple[str, EvidencePack]:
     """Call QVAC /query, wrap response into a structured EvidencePack.
 
@@ -206,9 +184,9 @@ async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple
     (used as fallback when the LLM is unavailable); pack is the canonical
     interface for generation and citation display.
 
-    ChromaDB is queried as a fallback when QVAC returns zero chunks or fails.
     The retrieval query may be rewritten or HyDE-expanded before hitting QVAC;
     the original *question* is preserved for generation prompts and citations.
+    Returns an empty pack when QVAC is unavailable.
     """
     from app.rag.query_rewriter import expand_query
     retrieval_query = await expand_query(question)
@@ -241,18 +219,14 @@ async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple
         ]
 
         if not candidates:
-            logger.info(
-                "QVAC returned 0 chunks for course '%s', trying ChromaDB fallback", course_id
-            )
-            candidates = _chroma_evidence(question, course_id)
+            logger.info("QVAC returned 0 chunks for course '%s'", course_id)
 
         pack = evidence_pack_service.build_from_chunks(question, action.value, candidates)
         return raw_answer, pack
 
     except (httpx.HTTPError, ValueError, KeyError) as exc:
-        logger.warning("QVAC retrieval failed (%s) — trying ChromaDB fallback", exc)
-        candidates = _chroma_evidence(question, course_id)
-        return "", evidence_pack_service.build_from_chunks(question, action.value, candidates)
+        logger.warning("QVAC retrieval failed (%s) — returning empty pack", exc)
+        return "", _empty_pack(question, action)
 
 
 _AND_SPLIT = re.compile(
@@ -443,8 +417,26 @@ async def dispatch(
     )
 
     try:
+        # Semantic cache — include action in key so QUIZ and EXPLAIN don't collide.
+        # Skip cache when rag_only changes the output format.
+        cache_key = f"{question} [action:{action.value}]" + (" [rag_only]" if rag_only else "")
+        from app.services.cache_service import get_cached, set_cached  # noqa: PLC0415
+        cached = get_cached(cache_key, course_id)
+        if cached is not None:
+            return DispatchResult(
+                answer=cached["answer"],
+                citations=[SourceChunk(**c) for c in cached.get("citations", [])],
+                retrieval_used=cached.get("retrieval_used", True),
+            )
+
         result = await _route(question, course_id, action, trace, rag_only=rag_only)
         trace.output_length = len(result.answer)
+
+        set_cached(cache_key, course_id, {
+            "answer": result.answer,
+            "citations": [dataclasses.asdict(c) for c in result.citations],
+            "retrieval_used": result.retrieval_used,
+        })
         return result
     except Exception as exc:
         trace.error = str(exc)
