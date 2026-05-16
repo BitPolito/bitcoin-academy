@@ -159,3 +159,4 @@ chroma_db/
 # AI service runtime artifacts
 services/ai/uploads/
 services/ai/qvac_ingest/
+services/ai/rag_test_results*.json

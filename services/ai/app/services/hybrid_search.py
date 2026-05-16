@@ -1,4 +1,4 @@
-"""Hybrid retrieval helpers — BM25 scoring and RRF fusion.
+"""Hybrid retrieval helpers — BM25 scoring and normalized hybrid fusion.
 
 Standalone module; never imports from service modules to avoid circular dependencies.
 """
@@ -18,21 +18,68 @@ _HERE = Path(__file__).resolve()
 _SERVICES_AI = _HERE.parents[2]
 _QVAC_INGEST_DIR = Path(os.getenv("QVAC_INGEST_DIR", str(_SERVICES_AI / "qvac_ingest")))
 
-_RRF_K = 60  # Cormack & Clarke 2009 constant
+_RRF_K = 60  # kept for rrf_fuse (legacy)
+_DENSE_WEIGHT = 0.6   # weight for dense (QVAC/ChromaDB) score in normalized fusion
+_SPARSE_WEIGHT = 0.4  # weight for BM25 score in normalized fusion
 _SAFE_COURSE_ID = re.compile(r'^[A-Za-z0-9_-]+$')
 
 _BITCOIN_SYNONYMS: dict[str, list[str]] = {
-    "utxo": ["utxo", "unspent", "transaction", "output"],
-    "ecdsa": ["ecdsa", "elliptic", "curve", "digital", "signature"],
-    "p2pkh": ["p2pkh", "pay", "public", "key", "hash"],
-    "p2wpkh": ["p2wpkh", "pay", "witness", "public", "key", "hash"],
-    "p2sh": ["p2sh", "pay", "script", "hash"],
-    "segwit": ["segwit", "segregated", "witness"],
-    "sha256": ["sha256", "sha", "256"],
-    "sha-256": ["sha256", "sha", "256"],
-    "txid": ["txid", "transaction", "id"],
+    # Transaction model
+    "utxo":         ["utxo", "unspent", "transaction", "output"],
+    "txid":         ["txid", "transaction", "id"],
+    "coinbase":     ["coinbase", "block", "reward", "mining"],
+    "mempool":      ["mempool", "memory", "pool", "pending"],
+    "fee":          ["fee", "transaction", "cost"],
+    # Cryptography
+    "ecdsa":        ["ecdsa", "elliptic", "curve", "digital", "signature"],
+    "sha256":       ["sha256", "sha", "256", "hash"],
+    "sha-256":      ["sha256", "sha", "256", "hash"],
+    "ripemd160":    ["ripemd160", "ripemd", "hash", "digest"],
+    "merkle":       ["merkle", "tree", "root", "proof"],
+    # Script / addresses
+    "p2pkh":        ["p2pkh", "pay", "public", "key", "hash"],
+    "p2wpkh":       ["p2wpkh", "pay", "witness", "public", "key", "hash"],
+    "p2sh":         ["p2sh", "pay", "script", "hash"],
+    "p2tr":         ["p2tr", "taproot", "pay", "taproot"],
+    "p2wsh":        ["p2wsh", "pay", "witness", "script", "hash"],
+    "segwit":       ["segwit", "segregated", "witness"],
+    "taproot":      ["taproot", "schnorr", "merkle", "script"],
     "scriptpubkey": ["scriptpubkey", "script", "public", "key"],
-    "scriptsig": ["scriptsig", "script", "signature"],
+    "scriptsig":    ["scriptsig", "script", "signature"],
+    "opcode":       ["opcode", "script", "operation"],
+    "witness":      ["witness", "segwit", "signature", "data"],
+    # Mining / consensus
+    "nonce":        ["nonce", "number", "once", "mining"],
+    "difficulty":   ["difficulty", "target", "proof", "work"],
+    "pow":          ["pow", "proof", "work", "mining"],
+    "hashrate":     ["hashrate", "hash", "rate", "mining", "power"],
+    "halving":      ["halving", "block", "reward", "supply"],
+    # Network / Lightning
+    "lightning":    ["lightning", "channel", "payment", "network"],
+    "htlc":         ["htlc", "hash", "time", "locked", "contract"],
+    "channel":      ["channel", "lightning", "payment"],
+    # Economics
+    "seigniorage":  ["seigniorage", "money", "creation", "profit"],
+    "hardness":     ["hardness", "hard", "sound", "money", "salability", "stock", "flow"],
+    # Monetary properties (Ammous vocabulary: salability across scales/space/time)
+    "divisibility":     ["divisibility", "divisible", "scales", "salable", "denomination", "unit"],
+    "portability":      ["portability", "portable", "space", "transport", "carry"],
+    "durability":       ["durability", "durable", "time", "salable", "perishable", "store"],
+    "verifiability":    ["verifiability", "verify", "counterfeit", "genuine", "authentication"],
+    "fungibility":      ["fungibility", "fungible", "interchangeable", "identical", "unit"],
+    "salability":       ["salability", "salable", "exchange", "scales", "space", "time", "sell"],
+    "scarcity":         ["scarcity", "scarce", "supply", "limit", "fixed", "21million", "cap"],
+    "debasement":       ["debasement", "inflate", "inflation", "currency", "expand", "supply"],
+    "inflation":        ["inflation", "debasement", "currency", "expand", "supply", "monetary"],
+    "deflation":        ["deflation", "decline", "price", "sound", "money", "savings"],
+    # Energy / mining
+    "energy":           ["energy", "electricity", "power", "cost", "mining", "consumption"],
+    "electricity":      ["electricity", "energy", "power", "usage", "kilowatt", "watt"],
+    "waste":            ["waste", "energy", "electricity", "inefficient", "cost", "mining"],
+    # Decentralization / network
+    "decentralization": ["decentralization", "decentralized", "distributed", "peer", "node"],
+    "node":             ["node", "peer", "network", "validate", "full", "run"],
+    "censorship":       ["censorship", "censor", "resistant", "permissionless", "authority"],
 }
 
 
@@ -86,67 +133,96 @@ def bm25_search(query: str, course_id: str, top_k: int) -> List[Tuple[str, float
     return [(cid, float(s)) for cid, s in ranked[:top_k] if s > 0.0]
 
 
+def _reconstruct_from_corpus(cid: str, score: float, corpus: dict) -> EvidenceChunk | None:
+    """Build an EvidenceChunk from a BM25-only corpus entry."""
+    entry = corpus.get(cid)
+    if not entry:
+        return None
+    return EvidenceChunk(
+        chunk_id=cid,
+        text=entry["text"],
+        score=round(score, 6),
+        anchor=CitationAnchor(
+            doc_id=entry.get("doc_id", ""),
+            doc_name=entry.get("label", ""),
+            section=entry.get("section") or None,
+            page=int(entry["page"]) if entry.get("page") else None,
+            slide=None,
+            chunk_id=cid,
+            chunk_type="paragraph",
+        ),
+    )
+
+
+def normalized_hybrid_fuse(
+    dense_chunks: List[EvidenceChunk],
+    bm25_hits: List[Tuple[str, float]],
+    corpus: dict,
+    top_k: int,
+) -> List[EvidenceChunk]:
+    """Normalized score fusion: preserves magnitude of dense similarity vs BM25 relevance.
+
+    Dense scores (cosine similarity ∈ [0,1]) and BM25 scores (raw OkapiBM25, variable scale)
+    are both normalized to [0,1] then combined with configurable weights:
+        hybrid = DENSE_WEIGHT × dense_norm + SPARSE_WEIGHT × bm25_norm
+
+    Chunks present in only one source receive only that source's contribution,
+    so a highly confident dense-only hit (0.95 → 0.57) ranks above an average
+    BM25-only hit. Pure-BM25 corpus hits are included via corpus reconstruction.
+    """
+    dense_map = {c.chunk_id: c for c in dense_chunks}
+    dense_score = {c.chunk_id: float(c.score) for c in dense_chunks}
+
+    # Normalize BM25 scores to [0, 1]
+    max_bm25 = max((s for _, s in bm25_hits), default=1.0) or 1.0
+    bm25_norm = {cid: s / max_bm25 for cid, s in bm25_hits}
+
+    all_ids = set(dense_score) | set(bm25_norm)
+    hybrid: dict[str, float] = {
+        cid: _DENSE_WEIGHT * dense_score.get(cid, 0.0) + _SPARSE_WEIGHT * bm25_norm.get(cid, 0.0)
+        for cid in all_ids
+    }
+
+    result: List[EvidenceChunk] = []
+    for cid in sorted(hybrid, key=hybrid.__getitem__, reverse=True)[:top_k]:
+        if cid in dense_map:
+            result.append(dense_map[cid].model_copy(update={"score": round(hybrid[cid], 6)}))
+        else:
+            chunk = _reconstruct_from_corpus(cid, hybrid[cid], corpus)
+            if chunk:
+                result.append(chunk)
+
+    logger.debug(
+        "Normalized hybrid fusion: %d dense + %d BM25 → %d merged",
+        len(dense_chunks), len(bm25_hits), len(result),
+    )
+    return result
+
+
 def rrf_fuse(
     dense_chunks: List[EvidenceChunk],
     bm25_hits: List[Tuple[str, float]],
     corpus: dict,
     top_k: int,
 ) -> List[EvidenceChunk]:
-    """Reciprocal Rank Fusion of dense-vector and BM25 sparse rankings.
-
-    RRF score: Σ 1 / (k + rank_i)  where k=60, rank is 1-based.
-
-    Args:
-        dense_chunks: Vector-search results, already sorted by descending similarity.
-        bm25_hits:    [(chunk_id, bm25_score)] sorted by BM25 descending.
-        corpus:       {chunk_id: entry_dict} — used to reconstruct EvidenceChunks
-                      for BM25-only hits that don't appear in dense_chunks.
-        top_k:        Maximum number of results to return.
-
-    Returns merged list sorted by RRF score descending.
-    """
+    """Reciprocal Rank Fusion (legacy — kept for reference). Use normalized_hybrid_fuse instead."""
     dense_rank = {c.chunk_id: i + 1 for i, c in enumerate(dense_chunks)}
     bm25_rank = {cid: i + 1 for i, (cid, _) in enumerate(bm25_hits)}
     dense_map = {c.chunk_id: c for c in dense_chunks}
 
     all_ids = set(dense_rank) | set(bm25_rank)
-    rrf: dict[str, float] = {}
-    for cid in all_ids:
-        score = 0.0
-        if cid in dense_rank:
-            score += 1.0 / (_RRF_K + dense_rank[cid])
-        if cid in bm25_rank:
-            score += 1.0 / (_RRF_K + bm25_rank[cid])
-        rrf[cid] = score
-
-    sorted_ids = sorted(rrf, key=rrf.__getitem__, reverse=True)
+    rrf: dict[str, float] = {
+        cid: (1.0 / (_RRF_K + dense_rank[cid]) if cid in dense_rank else 0.0)
+           + (1.0 / (_RRF_K + bm25_rank[cid]) if cid in bm25_rank else 0.0)
+        for cid in all_ids
+    }
 
     result: List[EvidenceChunk] = []
-    for cid in sorted_ids[:top_k]:
+    for cid in sorted(rrf, key=rrf.__getitem__, reverse=True)[:top_k]:
         if cid in dense_map:
-            # Update score to RRF value; preserve all other fields.
             result.append(dense_map[cid].model_copy(update={"score": round(rrf[cid], 6)}))
-        elif cid in corpus:
-            # BM25-only hit — reconstruct from corpus entry.
-            entry = corpus[cid]
-            result.append(EvidenceChunk(
-                chunk_id=cid,
-                text=entry["text"],
-                score=round(rrf[cid], 6),
-                anchor=CitationAnchor(
-                    doc_id=entry.get("doc_id", ""),
-                    doc_name=entry.get("label", ""),
-                    section=entry.get("section") or None,
-                    page=int(entry["page"]) if entry.get("page") else None,
-                    slide=None,
-                    chunk_id=cid,
-                    chunk_type="paragraph",
-                ),
-            ))
-
-    logger.debug(
-        "RRF fusion: %d dense + %d BM25 → %d merged for course '%s'",
-        len(dense_chunks), len(bm25_hits), len(result),
-        next(iter(corpus.values()), {}).get("doc_id", "?") if corpus else "?",  # type: ignore[call-overload]
-    )
+        else:
+            chunk = _reconstruct_from_corpus(cid, rrf[cid], corpus)
+            if chunk:
+                result.append(chunk)
     return result

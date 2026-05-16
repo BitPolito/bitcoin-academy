@@ -92,6 +92,15 @@ _STRIP_PATTERNS = [
     re.compile(r'www\.\S+\.com/?\s*\n', re.IGNORECASE),          # altri watermark URL inline
     re.compile(r'^\s*\d+\s*\|\s*Chapter[^\n]*', re.MULTILINE),   # "8 | Chapter 1: Introduction"
     re.compile(r'[­​‌‍﻿]'),                                         # unicode invisibili (soft-hyphen, ZWS, ecc.)
+    # PDF running-header artifacts produced by pymupdf4llm for LaTeX books:
+    # "## 32"  — even-page running header (just a page number formatted as heading)
+    # "## 34 T H E B I T C O I N S T A N D A R D" — odd-page: page# + spaced book title
+    re.compile(r'^#{1,4}\s+\d+(?:\s+(?:[A-Z]\s+)+[A-Z]+)?\s*$', re.MULTILINE),
+    # Standalone book page numbers in paragraph text (e.g. "219" alone on a line)
+    re.compile(r'^\d{1,4}\s*$', re.MULTILINE),
+    # LaTeX source metadata lines injected by pymupdf4llm (typesetting artefacts):
+    # "Ammous c01.tex V1 - 03/05/2018 1:08pm Page 10"
+    re.compile(r'^[A-Za-z]+\s+\w+\.tex\s+V\d+[^\n]*$', re.MULTILINE),
 ]
 
 # Regex per sentence splitting (fine frase + inizio maiuscola)
@@ -295,6 +304,34 @@ def clean_page(text: str, boilerplate: set[str]) -> str:
 _LATEX_BLOCK_RE = re.compile(r'\$\$.+?\$\$', re.DOTALL)
 _CODE_FENCE_RE = re.compile(r'```.*?```', re.DOTALL)
 
+# Spurious headings emitted by pymupdf4llm from LaTeX running headers / artifacts:
+#   - Pure page number:                 "32", "44"
+#   - Page + spaced book title:         "34 T H E B I T C O I N S T A N D A R D"
+#   - Pure spaced-caps (section name):  "P R O L O G U E", "B I B L I O G R A P H Y"
+#   - Roman-numeral + spaced-caps:      "viii C O N T E N T S"
+#   - Decorative strikethrough:         "~~k~~" (PDF ornament converted to markdown)
+#   - Lowercase Roman numeral labels:   "xiv", "xviii" (front-matter page labels)
+_SPURIOUS_HEADING_RE = re.compile(
+    r'^\d+(?:\s+(?:[A-Z]\s+)+[A-Z]+)?\s*$'         # digit or digit + spaced-caps
+    r'|'
+    r'^(?:[a-z]+\s+)?(?:[A-Z]\s+){3,}[A-Z]+\s*$',  # pure/roman-prefix spaced-caps (≥4 caps)
+)
+_ROMAN_NUMERAL_RE = re.compile(r'^[ivxlcdm]+$')  # lowercase Roman numerals (front-matter labels)
+
+
+def _is_spurious_heading(heading_text: str) -> bool:
+    """Returns True for PDF running-header lines formatted as markdown headings."""
+    bare = re.sub(r'^#{1,4}\s+', '', heading_text).strip()
+    if _SPURIOUS_HEADING_RE.match(bare):
+        return True
+    # Strikethrough-only content — decorative PDF artifacts (e.g. "~~k~~")
+    if not re.sub(r'~~[^~]*~~', '', bare).strip():
+        return True
+    # Standalone lowercase Roman numeral (front-matter page labels: xiv, xviii …)
+    if _ROMAN_NUMERAL_RE.match(bare):
+        return True
+    return False
+
 
 def _split_into_blocks(text: str) -> list[dict]:
     """Segmenta il testo in blocchi tipizzati: heading | table | formula | code | paragraph.
@@ -333,6 +370,8 @@ def _split_into_blocks(text: str) -> list[dict]:
             current_type = "paragraph"
             blocks.append(sentinel_map[stripped])
         elif re.match(r'^#{1,4}\s+\S', stripped):
+            if _is_spurious_heading(stripped):
+                continue  # discard page-number / running-header fake headings
             flush()
             blocks.append({"type": "heading", "text": stripped})
         elif stripped.startswith("|"):
@@ -966,7 +1005,7 @@ def run(
                     for c in chunks
                 ]
                 if ids:
-                    collection.add(
+                    collection.upsert(
                         ids=ids,
                         embeddings=embeddings,
                         documents=texts,
