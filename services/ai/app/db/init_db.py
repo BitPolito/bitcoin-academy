@@ -85,6 +85,15 @@ def init_db():
         Base.metadata.create_all(engine)
         print("Database schema applied successfully.")
 
+        # Stamp Alembic version so that `alembic upgrade head` at runtime
+        # sees the schema as already up-to-date and does not re-run migrations.
+        from alembic.config import Config  # noqa: PLC0415
+        from alembic import command  # noqa: PLC0415
+        alembic_ini = Path(__file__).resolve().parents[2] / "alembic.ini"
+        alembic_cfg = Config(str(alembic_ini))
+        command.stamp(alembic_cfg, "head")
+        print("Alembic version stamped to head.")
+
         # Seed test users for development
         print("\nSeeding test users...")
         seed_test_users(engine)

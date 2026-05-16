@@ -175,7 +175,8 @@ def parse_pdf_pages(file_path: str) -> tuple[list[dict], int]:
     for p in raw:
         meta = p.get("metadata", {}) if isinstance(p, dict) else {}
         # get_metadata in pymupdf4llm sets page = pno + 1 (already 1-indexed)
-        page_num = meta.get("page", 0)
+        # pymupdf4llm ≥1.27 uses "page_number" (1-indexed); older builds used "page"
+        page_num = meta.get("page_number") or meta.get("page") or 0
         text = p.get("text", "") if isinstance(p, dict) else str(p)
         pages.append({"page": page_num, "text": text})
 

@@ -83,6 +83,7 @@ def get_preview(db: Session, document_id: str) -> Optional[Dict[str, Any]]:
         "filename": doc.filename,
         "extracted_text_preview": doc.extracted_text_preview,
         "page_count": doc.page_count,
+        "chunk_count": doc.chunk_count,
         "sections": sections,
         "sample_chunks": sample_chunks,
     }

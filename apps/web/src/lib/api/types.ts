@@ -78,6 +78,7 @@ export interface ApiDocumentPreview {
   filename: string;
   extracted_text_preview: string | null;
   page_count: number | null;
+  chunk_count: number | null;
   sections: string[] | null;
   sample_chunks: ApiPreviewChunk[] | null;
 }
@@ -187,6 +188,7 @@ export interface DocumentPreviewView {
   filename: string;
   extractedTextPreview: string | null;
   pageCount: number | null;
+  chunkCount: number | null;
   sections: string[] | null;
   sampleChunks: ApiPreviewChunk[] | null;
 }

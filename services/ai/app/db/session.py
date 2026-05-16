@@ -58,7 +58,7 @@ def init_db() -> None:
     from alembic.config import Config  # noqa: PLC0415
     from alembic import command  # noqa: PLC0415
 
-    alembic_cfg = Config(str(Path(__file__).resolve().parents[3] / "alembic.ini"))
+    alembic_cfg = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     command.upgrade(alembic_cfg, "head")
 
     db = SessionLocal()

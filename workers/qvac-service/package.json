@@ -13,5 +13,8 @@
   "license": "ISC",
   "dependencies": {
     "@qvac/sdk": "^0.9.1"
+  },
+  "optionalDependencies": {
+    "bare-runtime-darwin-arm64": "^1.28.5"
   }
 }
