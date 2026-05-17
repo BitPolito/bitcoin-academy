@@ -11,10 +11,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
+// Temp directory — must be created and registered BEFORE ingest.js is
+// imported, because INGEST_DIR is evaluated at module-load time.
+// ---------------------------------------------------------------------------
+
+const TMP = join(tmpdir(), `qvac-ingest-test-${Date.now()}`);
+mkdirSync(TMP, { recursive: true });
+process.env.QVAC_INGEST_DIR = TMP;
+
+// ---------------------------------------------------------------------------
 // SDK mock — registered before ingest.js is imported
 // ---------------------------------------------------------------------------
 
-const mockRagIngest = mock.fn(async () => ({ processed: ["id1", "id2"] }));
+const mockRagIngest = mock.fn(async () => ({
+  processed: [
+    { status: "fulfilled", id: "qvac-id-1" },
+    { status: "fulfilled", id: "qvac-id-2" },
+  ],
+  droppedIndices: [],
+}));
 const mockRagDeleteWorkspace = mock.fn(async () => {});
 
 await mock.module("@qvac/sdk", {
@@ -51,9 +66,6 @@ const { ingestFromJsonl } = await import("../src/ingest.js");
 // Fixture helpers
 // ---------------------------------------------------------------------------
 
-const TMP = join(tmpdir(), `qvac-ingest-test-${Date.now()}`);
-mkdirSync(TMP, { recursive: true });
-
 function writeJsonl(name, chunks) {
   const path = join(TMP, name);
   writeFileSync(path, chunks.map((c) => JSON.stringify(c)).join("\n"));
@@ -62,6 +74,7 @@ function writeJsonl(name, chunks) {
 
 const PARA  = { chunk_type: "paragraph", text: "Bitcoin uses UTXO." };
 const PARA2 = { chunk_type: "paragraph", text: "Proof-of-work secures the chain." };
+const TABLE = { chunk_type: "table",     text: "| Col1 | Col2 |\n| A    | B    |" };
 const SEC   = { chunk_type: "section",   text: "1. Transactions" };
 const MICRO = { chunk_type: "micro",     text: "UTXO." };
 
@@ -99,19 +112,20 @@ describe("ingestFromJsonl", () => {
     assert.equal(mockRagIngest.mock.calls[0].arguments[0].modelId, "test-emb-id");
   });
 
-  it("returns the ragIngest result", async () => {
+  it("returns the ragIngest result with processed array", async () => {
     const path = writeJsonl("result.jsonl", [PARA]);
     const result = await ingestFromJsonl(path, "WS1");
-    assert.deepEqual(result.processed, ["id1", "id2"]);
+    assert.equal(result.processed.length, 2);
+    assert.equal(result.processed[0].status, "fulfilled");
   });
 
   // --- filtering ---
 
-  it("indexes only paragraph chunks — discards section and micro", async () => {
-    const path = writeJsonl("mixed.jsonl", [PARA, SEC, MICRO]);
+  it("indexes paragraph and table chunks — discards section and micro", async () => {
+    const path = writeJsonl("mixed.jsonl", [PARA, TABLE, SEC, MICRO]);
     await ingestFromJsonl(path, "WS1");
     const docs = mockRagIngest.mock.calls[0].arguments[0].documents;
-    assert.deepEqual(docs, [PARA.text]);
+    assert.deepEqual(docs, [PARA.text, TABLE.text]);
   });
 
   it("indexes all paragraph chunks when multiple are present", async () => {
@@ -121,7 +135,14 @@ describe("ingestFromJsonl", () => {
     assert.deepEqual(docs, [PARA.text, PARA2.text]);
   });
 
-  it("skips ragIngest entirely when no paragraph chunks are found", async () => {
+  it("indexes table chunks alongside paragraphs", async () => {
+    const path = writeJsonl("with-table.jsonl", [PARA, TABLE]);
+    await ingestFromJsonl(path, "WS1");
+    const docs = mockRagIngest.mock.calls[0].arguments[0].documents;
+    assert.deepEqual(docs, [PARA.text, TABLE.text]);
+  });
+
+  it("skips ragIngest entirely when no indexable chunks are found", async () => {
     const path = writeJsonl("no-para.jsonl", [SEC, MICRO]);
     await ingestFromJsonl(path, "WS1");
     assert.equal(mockRagIngest.mock.calls.length, 0);
@@ -143,7 +164,7 @@ describe("ingestFromJsonl", () => {
     });
     mockRagIngest.mock.mockImplementationOnce(async () => {
       callOrder.push("ingest");
-      return { processed: [] };
+      return { processed: [], droppedIndices: [] };
     });
 
     const path = writeJsonl("order.jsonl", [PARA]);

@@ -1,5 +1,6 @@
 """Authentication API controller - HTTP endpoints for auth operations."""
 from datetime import datetime, timezone
+from typing import Optional
 from fastapi import APIRouter, Depends, Request, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -7,7 +8,7 @@ from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.middleware.auth import CurrentUser, get_current_user
 from app.middleware.security import lockout_manager
-from app.core.config import TokenPayload
+from app.core.config import TokenPayload, decode_token
 from app.core.token_blacklist import blacklist_token
 from app.core.errors import (
     AuthenticationError,
@@ -180,7 +181,7 @@ def get_current_user_info(
     from app.db.models import UserRole
     return UserResponse(
         id=user.id,
-        email=user.email,
+        email=user.email,  # type: ignore[arg-type]
         display_name=user.display_name,
         role=user.role.value if isinstance(user.role, UserRole) else user.role,
     )
@@ -195,7 +196,7 @@ def get_current_user_info(
     },
 )
 def logout(
-    data: LogoutRequest = None,
+    data: Optional[LogoutRequest] = None,
     current_user: TokenPayload = Depends(get_current_user),
 ) -> dict:
     """
@@ -207,11 +208,16 @@ def logout(
     - **refresh_token**: Optional refresh token to invalidate
     """
     if data and data.refresh_token:
-        # Blacklist the refresh token
-        # Use current user's expiration as an approximation
-        blacklist_token(
-            token_id=data.refresh_token[:32],  # Use first 32 chars as ID
-            expires_at=current_user.exp
-        )
+        token_data = decode_token(data.refresh_token)
+        if token_data:
+            jti = token_data.get("jti") or data.refresh_token[:32]
+            exp_ts = token_data.get("exp")
+            expires_at = (
+                datetime.fromtimestamp(exp_ts, tz=timezone.utc) if exp_ts else current_user.exp
+            )
+        else:
+            jti = data.refresh_token[:32]
+            expires_at = current_user.exp
+        blacklist_token(token_id=jti, expires_at=expires_at)
 
     return {"message": "Successfully logged out"}

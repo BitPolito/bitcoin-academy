@@ -54,6 +54,7 @@ class DocumentPreview(BaseModel):
     filename: str
     extracted_text_preview: Optional[str] = None
     page_count: Optional[int] = None
+    chunk_count: Optional[int] = None
     sections: Optional[List[str]] = None
     sample_chunks: Optional[List[Dict[str, Any]]] = None
 

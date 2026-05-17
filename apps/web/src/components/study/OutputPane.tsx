@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { sendChatMessage, type Citation } from '@/lib/services/chat';
+import { useToast } from '@/components/ui/Toast';
+import { sendChatMessageStream, submitFeedback, type Citation, type HistoryEntry } from '@/lib/services/chat';
 import { sendStudyAction } from '@/lib/services/study';
 import type { ApiCitationOut, ApiStudyResponse, StudyAction } from '@/lib/api/types';
 import type { Lesson } from '@/lib/services/courses';
@@ -15,6 +16,7 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   citations?: Citation[];
+  showSources?: boolean;
 }
 
 interface ActionMessage {
@@ -230,8 +232,16 @@ export function OutputPane({
   const [activeAction, setActiveAction] = useState<StudyAction | null>(null);
   const [showEvidence, setShowEvidence] = useState(false);
   const [showInspect, setShowInspect] = useState(false);
+  const [ragOnly, setRagOnly] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState<Set<number>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const didAutoFireRef = useRef(false);
+  const sessionIdRef = useRef<string>(typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36));
+  // Captures the index of the in-flight assistant message inside the functional
+  // setMessages updater so it stays correct across React's concurrent-mode batching.
+  const assistantIdxRef = useRef(-1);
+  const [retryQuestion, setRetryQuestion] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -242,30 +252,83 @@ export function OutputPane({
     .reverse()
     .find((m): m is ActionMessage => m.role === 'action-result');
 
+  // Core send logic — shared by handleSend and handleRetry.
+  // trimFailedPair: slice the last 2 messages (failed user + assistant) before appending.
+  async function executeSend(question: string, opts?: { trimFailedPair?: boolean }) {
+    const trimFailedPair = opts?.trimFailedPair ?? false;
+
+    // Build history from current messages (exclude the failed pair when retrying).
+    const baseMessages = trimFailedPair ? messages.slice(0, -2) : messages;
+    const history: HistoryEntry[] = baseMessages
+      .filter((m): m is ChatMessage => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
+    setLoading(true);
+    setActiveAction(null);
+    setRetryQuestion(null);
+
+    // Add user + empty assistant messages atomically; capture assistant index inside
+    // the updater to avoid stale closure values in concurrent-mode React (A6).
+    setMessages((prev) => {
+      const base = trimFailedPair ? prev.slice(0, -2) : prev;
+      assistantIdxRef.current = base.length + 1;
+      return [...base, { role: 'user', content: question }, { role: 'assistant', content: '' }];
+    });
+
+    try {
+      await sendChatMessageStream(
+        courseId,
+        question,
+        (token) => {
+          setMessages((prev) =>
+            prev.map((m, mi) =>
+              mi === assistantIdxRef.current && m.role === 'assistant'
+                ? { ...m, content: m.content + token }
+                : m
+            )
+          );
+        },
+        (citations) => {
+          setMessages((prev) =>
+            prev.map((m, mi) =>
+              mi === assistantIdxRef.current && m.role === 'assistant' ? { ...m, citations } : m
+            )
+          );
+        },
+        accessToken,
+        history,
+      );
+    } catch (err) {
+      // Append error notice after any tokens already streamed (A9).
+      setMessages((prev) =>
+        prev.map((m, mi) =>
+          mi === assistantIdxRef.current && m.role === 'assistant'
+            ? {
+                ...m,
+                content:
+                  (m.content ? m.content + '\n\n' : '') +
+                  (err instanceof Error ? `⚠ ${err.message}` : '⚠ Could not complete response.'),
+              }
+            : m
+        )
+      );
+      showToast('Connection lost — try again.', 'warn');
+      setRetryQuestion(question);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleSend() {
     const question = input.trim();
     if (!question || loading) return;
     setInput('');
-    setMessages((prev) => [...prev, { role: 'user', content: question }]);
-    setLoading(true);
-    setActiveAction(null);
-    try {
-      const result = await sendChatMessage(courseId, question, accessToken);
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: result.answer, citations: result.citations },
-      ]);
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: err instanceof Error ? `Error: ${err.message}` : 'Could not fetch a response.',
-        },
-      ]);
-    } finally {
-      setLoading(false);
-    }
+    await executeSend(question);
+  }
+
+  function handleRetry() {
+    if (!retryQuestion || loading) return;
+    executeSend(retryQuestion, { trimFailedPair: true });
   }
 
   async function handleAction(action: StudyAction, queryOverride?: string) {
@@ -275,7 +338,7 @@ export function OutputPane({
     setMessages((prev) => [...prev, { role: 'user', content: `[${action}] ${query}` }]);
     const t0 = Date.now();
     try {
-      const result = await sendStudyAction(courseId, action, query, accessToken);
+      const result = await sendStudyAction(courseId, action, query, accessToken, ragOnly);
       const durationMs = Date.now() - t0;
       setMessages((prev) => [
         ...prev,
@@ -461,25 +524,90 @@ export function OutputPane({
                     : 'b-thin bg-white dark:bg-blue-dark/40'
                 }`}
               >
+                {/* Chat renders as plain text — the LLM system prompt requests no Markdown. */}
                 <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                 {msg.role === 'assistant' && msg.citations && msg.citations.length > 0 && (
-                  <div className="mt-3 space-y-2 b-thin-t pt-2">
-                    <p className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-70">
-                      Sources
-                    </p>
-                    {msg.citations.map((citation, ci) => (
-                      <div
-                        key={ci}
-                        className="b-thin rounded-md px-3 py-2 bg-white dark:bg-blue-dark/20"
+                  <div className="mt-2">
+                    <button
+                      onClick={() =>
+                        setMessages((prev) =>
+                          prev.map((m, mi) =>
+                            mi === i && m.role === 'assistant'
+                              ? { ...m, showSources: !m.showSources }
+                              : m
+                          )
+                        )
+                      }
+                      className="flex items-center gap-1 font-mono text-[10px] tracking-[0.14em] uppercase opacity-60 hover:opacity-100 transition-opacity"
+                    >
+                      <svg
+                        className={`h-2.5 w-2.5 transition-transform ${msg.showSources ? 'rotate-90' : ''}`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2.5}
+                        stroke="currentColor"
                       >
-                        <p className="text-xs line-clamp-3 leading-relaxed opacity-90">
-                          &ldquo;{citation.snippet}&rdquo;
-                        </p>
-                        <p className="mt-1 font-mono text-[10px] opacity-60">
-                          score · {Math.round(citation.score * 100)}%
-                        </p>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                      </svg>
+                      {msg.showSources ? 'Hide' : 'Show'} {msg.citations.length} source{msg.citations.length !== 1 ? 's' : ''}
+                    </button>
+                    {msg.showSources && (
+                      <div className="mt-2 space-y-2">
+                        {msg.citations.map((citation, ci) => (
+                          <div
+                            key={ci}
+                            className="b-thin rounded-md px-3 py-2 bg-white dark:bg-blue-dark/20"
+                          >
+                            <p className="text-xs line-clamp-3 leading-relaxed opacity-90">
+                              &ldquo;{citation.snippet}&rdquo;
+                            </p>
+                            <p className="mt-1 font-mono text-[10px] opacity-60">
+                              score · {Math.round(citation.score * 100)}%
+                            </p>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
+                  </div>
+                )}
+                {msg.role === 'assistant' && (
+                  <div className="mt-2 flex items-center gap-1">
+                    {feedbackSent.has(i) ? (
+                      <span className="font-mono text-[10px] opacity-50 transition-opacity">Thanks for the feedback</span>
+                    ) : (
+                      <>
+                        {([1, -1] as const).map((rating) => (
+                          <button
+                            key={rating}
+                            onClick={async () => {
+                              const prevMsg = messages[i - 1];
+                              const question = prevMsg?.role === 'user' ? prevMsg.content : '';
+                              try {
+                                await submitFeedback(courseId, sessionIdRef.current, question, msg.content, rating, accessToken);
+                                setFeedbackSent((prev) => new Set([...prev, i]));
+                              } catch {
+                                showToast('Could not save feedback.', 'err');
+                              }
+                            }}
+                            className="w-6 h-6 flex items-center justify-center rounded b-thin opacity-50 hover:opacity-100 transition-opacity text-sm"
+                            title={rating === 1 ? 'Helpful' : 'Not helpful'}
+                          >
+                            {rating === 1 ? '↑' : '↓'}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+                {msg.role === 'assistant' && retryQuestion !== null && isLast && (
+                  <div className="mt-2 pt-2 b-thin-t">
+                    <button
+                      onClick={handleRetry}
+                      disabled={loading}
+                      className="font-mono text-[10px] tracking-[0.14em] uppercase opacity-60 hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
+                    >
+                      ↺ Retry
+                    </button>
                   </div>
                 )}
               </div>
@@ -488,10 +616,10 @@ export function OutputPane({
         })}
 
         {loading && (
-          <div className="flex justify-start w-full" aria-live="polite">
+          <div className="flex justify-start w-full" aria-live="polite" aria-label="Loading response">
             <div className="b-thin rounded-lg px-4 py-3 w-full max-w-[85%] space-y-2">
               <p className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-60 mb-1">
-                Retrieving · generating…
+                {ragOnly ? 'Retrieving…' : 'Retrieving · generating…'}
               </p>
               <div
                 className="h-1.5 rounded bar-stripes"
@@ -528,6 +656,18 @@ export function OutputPane({
           <span className="chip text-[10px]" style={{ border: '1px solid currentColor' }}>
             k=5 · QVAC
           </span>
+          <button
+            onClick={() => setRagOnly((v) => !v)}
+            title={ragOnly ? 'RAG-only mode active — click to enable LLM generation' : 'Enable RAG-only mode (no LLM)'}
+            className={`chip text-[10px] transition-all ${
+              ragOnly
+                ? 'bg-blue-dark text-white dark:bg-white dark:text-blue-dark'
+                : 'opacity-60 hover:opacity-100'
+            }`}
+            style={{ border: '1px solid currentColor' }}
+          >
+            ⌖ RAG only
+          </button>
           {lastActionResult && (
             <span className="ml-auto font-mono text-[10px] opacity-50">
               {lastActionResult.result.citations.length} sources ·{' '}
@@ -543,11 +683,13 @@ export function OutputPane({
             placeholder={placeholder}
             rows={2}
             disabled={loading}
+            aria-label="Message input"
             className="flex-1 resize-none rounded-md b-thin px-3 py-2 text-sm placeholder-blue-dark/40 dark:placeholder-white/40 bg-transparent outline-none focus:ring-1 focus:ring-blue-dark dark:focus:ring-white disabled:opacity-50"
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || loading}
+            aria-label="Send message"
             className="flex-shrink-0 inline-flex items-center justify-center h-10 w-10 self-end btn-primary rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <svg

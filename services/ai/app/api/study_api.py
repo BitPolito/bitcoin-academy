@@ -39,6 +39,7 @@ async def study(
         question=body.query,
         course_id=course_id,
         action=body.action,
+        rag_only=body.rag_only,
     )
     return StudyDispatchResponse(
         answer=result.answer,

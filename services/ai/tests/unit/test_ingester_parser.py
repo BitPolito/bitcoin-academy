@@ -15,6 +15,9 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("module_1_ingestor", reason="module_1_ingestor not installed")
+pytest.importorskip("module_2_parser", reason="module_2_parser not installed")
+
 import app.workers.pipeline  # noqa: F401 — triggers alias + sys.path setup
 from module_1_ingestor import RamSafeIngestor  # noqa: E402
 from module_2_parser import StructuralParser  # noqa: E402

@@ -9,6 +9,8 @@ Import order matters:
 """
 import pytest
 
+pytest.importorskip("module_3_micro_chunker", reason="module_3_micro_chunker not installed")
+
 import app.workers.pipeline  # noqa: F401 — sets up sys.modules alias + sys.path
 from module_3_micro_chunker import Chunker  # noqa: E402
 

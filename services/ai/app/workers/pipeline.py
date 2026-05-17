@@ -33,11 +33,48 @@ from app.db.session import get_db_context                                       
 from app.repositories import document_repo                                          # noqa: E402
 
 # ---------------------------------------------------------------------------
+# sys.modules aliasing — dual-import guard
+# ---------------------------------------------------------------------------
+# Register 'services.ai.app.*' as aliases for 'app.*' in sys.modules.
+# This ensures that classes imported via either path are the same objects,
+# preventing silent Pydantic isinstance failures when the worker is invoked
+# from the project root instead of from services/ai/.
+import sys as _sys
+import types as _types
+
+
+def _register_module_aliases() -> None:
+    canonical = "app"
+    alias_root = "services.ai.app"
+
+    for ns_name in ("services", "services.ai", "services.ai.app"):
+        if ns_name not in _sys.modules:
+            ns = _types.ModuleType(ns_name)
+            ns.__path__ = []  # type: ignore[attr-defined]
+            _sys.modules[ns_name] = ns
+
+    for name in list(_sys.modules):
+        if name == canonical or name.startswith(canonical + "."):
+            long_name = alias_root + name[len(canonical):]
+            _sys.modules.setdefault(long_name, _sys.modules[name])
+
+
+_register_module_aliases()
+
+# ---------------------------------------------------------------------------
 # Chunking parameters
 # ---------------------------------------------------------------------------
-_MAX_WORDS = 400        # soft cap per chunk normale (≈ 512 token)
-_MIN_WORDS = 25         # soglia paragrafi: chunk più corti vengono scartati
-_MIN_WORDS_TABLE = 4    # soglia tabelle: basta una riga dati (celle corte)
+_PARENT_WORDS = 1200    # parent chunk: LLM context window (≈ 1500 tokens)
+_CHILD_WORDS = 150      # child chunk: retrieval unit (≈ 200 tokens)
+_CHILD_MAX_WORDS = 350  # hard cap: single long sentence can exceed 150-word target; 350 ≈ 455 tokens (GTE-Large limit 512)
+_CHILD_OVERLAP = 30     # overlap between consecutive child chunks (words)
+_MAX_WORDS = 400        # legacy: only used by chunk_pages() (no longer called by run())
+_OVERLAP_WORDS = 50     # legacy: overlap used by chunk_pages()
+_MIN_WORDS = 25         # paragraph threshold: shorter chunks are discarded
+_MIN_WORDS_TABLE = 4    # table threshold: one data row is enough (cells are short)
+
+_RAG_CONTEXTUAL_CHUNKS = os.getenv("RAG_CONTEXTUAL_CHUNKS", "false").lower() == "true"
+_CONTEXTUAL_TIMEOUT = float(os.getenv("QVAC_CONTEXTUAL_TIMEOUT", "25"))
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,10 +92,79 @@ _STRIP_PATTERNS = [
     re.compile(r'www\.\S+\.com/?\s*\n', re.IGNORECASE),          # altri watermark URL inline
     re.compile(r'^\s*\d+\s*\|\s*Chapter[^\n]*', re.MULTILINE),   # "8 | Chapter 1: Introduction"
     re.compile(r'[­​‌‍﻿]'),                                         # unicode invisibili (soft-hyphen, ZWS, ecc.)
+    # PDF running-header artifacts produced by pymupdf4llm for LaTeX books:
+    # "## 32"  — even-page running header (just a page number formatted as heading)
+    # "## 34 T H E B I T C O I N S T A N D A R D" — odd-page: page# + spaced book title
+    re.compile(r'^#{1,4}\s+\d+(?:\s+(?:[A-Z]\s+)+[A-Z]+)?\s*$', re.MULTILINE),
+    # Standalone book page numbers in paragraph text (e.g. "219" alone on a line)
+    re.compile(r'^\d{1,4}\s*$', re.MULTILINE),
+    # LaTeX source metadata lines injected by pymupdf4llm (typesetting artefacts):
+    # "Ammous c01.tex V1 - 03/05/2018 1:08pm Page 10"
+    re.compile(r'^[A-Za-z]+\s+\w+\.tex\s+V\d+[^\n]*$', re.MULTILINE),
 ]
 
 # Regex per sentence splitting (fine frase + inizio maiuscola)
 _SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?])\s+(?=[A-Z\"])')
+
+
+# ---------------------------------------------------------------------------
+# Stage 0 — Docling PDF parser (optional, activated by USE_DOCLING=true)
+# ---------------------------------------------------------------------------
+
+def _parse_pdf_with_docling(file_path: str) -> tuple[list[dict], int]:
+    """Docling-based PDF parser — returns the same pages format as parse_pdf_pages.
+
+    Docling produces higher-quality structured extraction (better table handling,
+    heading detection, formula recognition) than pymupdf4llm. Activated when
+    USE_DOCLING=true; otherwise parse_pdf_pages (pymupdf4llm) is used.
+
+    Falls back to parse_pdf_pages if Docling is not installed or conversion fails.
+    """
+    from collections import defaultdict
+    from docling.document_converter import DocumentConverter
+
+    converter = DocumentConverter()
+    result = converter.convert(file_path)
+    doc = result.document
+
+    page_texts: dict[int, list[str]] = defaultdict(list)
+
+    for item, _ in doc.iterate_items():
+        prov_list = getattr(item, "prov", None)
+        prov = prov_list[0] if prov_list else None
+        page_no = int(prov.page_no) if prov else 0
+
+        # Tables: export to markdown for structured representation
+        raw_text: str = ""
+        try:
+            from docling_core.types.doc.document import TableItem
+            if isinstance(item, TableItem):
+                try:
+                    raw_text = item.export_to_dataframe().to_markdown(index=False) or ""
+                except Exception:
+                    raw_text = getattr(item, "text", None) or ""
+            else:
+                raw_text = getattr(item, "text", None) or ""
+        except ImportError:
+            raw_text = getattr(item, "text", None) or ""
+
+        text = raw_text.strip()
+        if not text:
+            continue
+        # Fix PDF ligature corruption (same as StructuralParser._sanitize_text)
+        text = text.replace("昀椀", "fi").replace("昀氀", "fl")
+        page_texts[page_no].append(text)
+
+    pages = [
+        {"page": pno, "text": "\n\n".join(blocks)}
+        for pno, blocks in sorted(page_texts.items())
+        if any(b.strip() for b in blocks)
+    ]
+    page_count = len(getattr(doc, "pages", pages))
+    return pages, page_count
+
+
+_USE_DOCLING = os.getenv("USE_DOCLING", "false").lower() == "true"
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +184,8 @@ def parse_pdf_pages(file_path: str) -> tuple[list[dict], int]:
     for p in raw:
         meta = p.get("metadata", {}) if isinstance(p, dict) else {}
         # get_metadata in pymupdf4llm sets page = pno + 1 (already 1-indexed)
-        page_num = meta.get("page", 0)
+        # pymupdf4llm ≥1.27 uses "page_number" (1-indexed); older builds used "page"
+        page_num = meta.get("page_number") or meta.get("page") or 0
         text = p.get("text", "") if isinstance(p, dict) else str(p)
         pages.append({"page": page_num, "text": text})
 
@@ -194,11 +301,56 @@ def clean_page(text: str, boilerplate: set[str]) -> str:
 # Stage 3 — Structure-aware chunker
 # ---------------------------------------------------------------------------
 
-def _split_into_blocks(text: str) -> list[dict]:
-    """Segmenta il testo in blocchi tipizzati: heading | table | paragraph.
+_LATEX_BLOCK_RE = re.compile(r'\$\$.+?\$\$', re.DOTALL)
+_CODE_FENCE_RE = re.compile(r'```.*?```', re.DOTALL)
 
-    Le tabelle markdown (righe con |) vengono preservate come blocco atomico.
+# Spurious headings emitted by pymupdf4llm from LaTeX running headers / artifacts:
+#   - Pure page number:                 "32", "44"
+#   - Page + spaced book title:         "34 T H E B I T C O I N S T A N D A R D"
+#   - Pure spaced-caps (section name):  "P R O L O G U E", "B I B L I O G R A P H Y"
+#   - Roman-numeral + spaced-caps:      "viii C O N T E N T S"
+#   - Decorative strikethrough:         "~~k~~" (PDF ornament converted to markdown)
+#   - Lowercase Roman numeral labels:   "xiv", "xviii" (front-matter page labels)
+_SPURIOUS_HEADING_RE = re.compile(
+    r'^\d+(?:\s+(?:[A-Z]\s+)+[A-Z]+)?\s*$'         # digit or digit + spaced-caps
+    r'|'
+    r'^(?:[a-z]+\s+)?(?:[A-Z]\s+){3,}[A-Z]+\s*$',  # pure/roman-prefix spaced-caps (≥4 caps)
+)
+_ROMAN_NUMERAL_RE = re.compile(r'^[ivxlcdm]+$')  # lowercase Roman numerals (front-matter labels)
+
+
+def _is_spurious_heading(heading_text: str) -> bool:
+    """Returns True for PDF running-header lines formatted as markdown headings."""
+    bare = re.sub(r'^#{1,4}\s+', '', heading_text).strip()
+    if _SPURIOUS_HEADING_RE.match(bare):
+        return True
+    # Strikethrough-only content — decorative PDF artifacts (e.g. "~~k~~")
+    if not re.sub(r'~~[^~]*~~', '', bare).strip():
+        return True
+    # Standalone lowercase Roman numeral (front-matter page labels: xiv, xviii …)
+    if _ROMAN_NUMERAL_RE.match(bare):
+        return True
+    return False
+
+
+def _split_into_blocks(text: str) -> list[dict]:
+    """Segmenta il testo in blocchi tipizzati: heading | table | formula | code | paragraph.
+
+    Formula ($$...$$) e code fence (```...```) vengono estratti come blocchi atomici
+    prima del parsing riga per riga, per preservarli intatti.
     """
+    # Extract LaTeX block formulas and code fences as standalone blocks first,
+    # replacing them with a sentinel so line-by-line parsing is not disrupted.
+    sentinel_map: dict[str, dict] = {}
+
+    def _replace(m: re.Match, block_type: str) -> str:
+        key = f"\x00BLOCK{len(sentinel_map)}\x00"
+        sentinel_map[key] = {"type": block_type, "text": m.group(0).strip()}
+        return f"\n{key}\n"
+
+    text = _LATEX_BLOCK_RE.sub(lambda m: _replace(m, "formula"), text)
+    text = _CODE_FENCE_RE.sub(lambda m: _replace(m, "code"), text)
+
     blocks: list[dict] = []
     current_type: str = "paragraph"
     current_lines: list[str] = []
@@ -213,7 +365,13 @@ def _split_into_blocks(text: str) -> list[dict]:
     for line in text.splitlines(keepends=True):
         stripped = line.strip()
 
-        if re.match(r'^#{1,4}\s+\S', stripped):
+        if stripped in sentinel_map:
+            flush()
+            current_type = "paragraph"
+            blocks.append(sentinel_map[stripped])
+        elif re.match(r'^#{1,4}\s+\S', stripped):
+            if _is_spurious_heading(stripped):
+                continue  # discard page-number / running-header fake headings
             flush()
             blocks.append({"type": "heading", "text": stripped})
         elif stripped.startswith("|"):
@@ -223,12 +381,10 @@ def _split_into_blocks(text: str) -> list[dict]:
             current_lines.append(line)
         else:
             if current_type == "table":
-                # Una riga vuota o non-tabella chiude la tabella
                 if not stripped:
                     flush()
                     current_type = "paragraph"
                 else:
-                    # Riga di testo subito dopo tabella (es. nota): chiudi tabella
                     flush()
                     current_type = "paragraph"
                     current_lines.append(line)
@@ -240,10 +396,11 @@ def _split_into_blocks(text: str) -> list[dict]:
     return blocks
 
 
-def _split_paragraph(text: str, max_words: int) -> list[str]:
+def _split_paragraph(text: str, max_words: int, overlap_words: int = 0) -> list[str]:
     """Divide un paragrafo lungo in sub-chunk ancorati a fine frase.
 
-    Nessun overlap: ogni sub-chunk è autonomo e inizia a inizio frase.
+    overlap_words > 0 aggiunge una sliding window: ogni sub-chunk (tranne il primo)
+    inizia con le ultime ~overlap_words parole del chunk precedente.
     """
     if _word_count(text) <= max_words:
         return [text]
@@ -257,7 +414,20 @@ def _split_paragraph(text: str, max_words: int) -> list[str]:
         sent_words = _word_count(sent)
         if current_words + sent_words > max_words and current:
             result.append(" ".join(current))
-            current, current_words = [], 0
+            if overlap_words > 0:
+                overlap: list[str] = []
+                overlap_count = 0
+                for s in reversed(current):
+                    w = _word_count(s)
+                    if overlap_count + w > overlap_words:
+                        break
+                    overlap.insert(0, s)
+                    overlap_count += w
+                current = overlap
+                current_words = overlap_count
+            else:
+                current = []
+                current_words = 0
         current.append(sent)
         current_words += sent_words
 
@@ -287,11 +457,43 @@ def _make_chunk(
     }
 
 
-def chunk_pages(pages: list[dict], doc_id: str) -> list[dict]:
-    """Chunking structure-aware: heading → table → paragraph con sentence split.
+def _make_parent(doc_id: str, parent_idx: int, page: int, text: str, section: str) -> dict:
+    return {
+        "id": f"{doc_id}_p{parent_idx:04d}",
+        "text": text,
+        "doc_id": doc_id,
+        "citation_label": f"p. {page}",
+        "citation_page": page,
+        "citation_section": section,
+    }
 
-    Ogni chunk porta il numero di pagina e la sezione corrente.
-    Nessun overlap: la sezione corrente è già contesto sufficiente.
+
+def _make_child(
+    parent_id: str,
+    doc_id: str,
+    page: int,
+    child_idx: int,
+    text: str,
+    section: str,
+    chunk_type: str = "paragraph",
+) -> dict:
+    return {
+        "id": f"{parent_id}_c{child_idx:04d}",
+        "text": text,
+        "chunk_type": chunk_type,
+        "parent_id": parent_id,
+        "citation_label": f"p. {page}",
+        "citation_page": page,
+        "citation_slide": 0,
+        "citation_section": section,
+        "doc_id": doc_id,
+    }
+
+
+def chunk_pages(pages: list[dict], doc_id: str) -> list[dict]:
+    """Legacy flat-chunk function. Superseded by build_parent_child_chunks() in run().
+
+    Mantenuta per compatibilità con eventuali chiamate esterne e test.
     """
     chunks: list[dict] = []
     current_section = ""
@@ -315,14 +517,12 @@ def chunk_pages(pages: list[dict], doc_id: str) -> list[dict]:
                 continue
 
             if btype == "heading":
-                # Accumula heading; la sezione viene aggiornata al primo paragrafo/tabella seguente
                 heading_text = re.sub(r'^#{1,4}\s+', '', btext).strip()
                 current_section = heading_text
                 pending_heading = btext
                 continue
 
             if btype == "table":
-                # Prepend heading se in attesa
                 full_text = f"{pending_heading}\n\n{btext}" if pending_heading else btext
                 pending_heading = ""
                 if _word_count(full_text) >= _MIN_WORDS_TABLE:
@@ -330,20 +530,119 @@ def chunk_pages(pages: list[dict], doc_id: str) -> list[dict]:
                     chunk_idx += 1
                 continue
 
-            # Paragrafo — eventualmente prepend heading
             full_text = f"{pending_heading}\n\n{btext}" if pending_heading else btext
             pending_heading = ""
 
-            for sub in _split_paragraph(full_text, _MAX_WORDS):
+            for sub in _split_paragraph(full_text, _MAX_WORDS, overlap_words=_OVERLAP_WORDS):
                 sub = sub.strip()
                 if _word_count(sub) >= _MIN_WORDS:
                     chunks.append(_make_chunk(doc_id, page_num, chunk_idx, sub, "paragraph", current_section))
                     chunk_idx += 1
 
-        # Heading rimasto senza corpo (ultima riga della pagina): ignoralo,
-        # la sezione corrente è già aggiornata per la pagina seguente.
-
     return chunks
+
+
+def build_parent_child_chunks(
+    pages: list[dict],
+    doc_id: str,
+) -> tuple[list[dict], list[dict]]:
+    """Chunking gerarchico: parent (1200 parole) → child (150 parole).
+
+    I child chunk sono le unità di retrieval indicizzate in QVAC.
+    I parent chunk forniscono contesto esteso al LLM dopo il retrieval.
+
+    Ritorna (parent_chunks, child_chunks).
+    """
+    parents: list[dict] = []
+    children: list[dict] = []
+    current_section = ""
+    parent_idx = 0
+
+    for page_data in pages:
+        page_num = page_data["page"]
+        text = page_data["text"]
+
+        if not text.strip():
+            continue
+
+        blocks = _split_into_blocks(text)
+        pending_heading = ""
+
+        for block in blocks:
+            btype = block["type"]
+            btext = block["text"].strip()
+
+            if not btext:
+                continue
+
+            if btype == "heading":
+                heading_text = re.sub(r'^#{1,4}\s+', '', btext).strip()
+                current_section = heading_text
+                pending_heading = btext
+                continue
+
+            full_text = f"{pending_heading}\n\n{btext}" if pending_heading else btext
+            pending_heading = ""
+
+            # Suddividi in parent block (nessun overlap tra parent)
+            for parent_text in _split_paragraph(full_text, _PARENT_WORDS, overlap_words=0):
+                parent_text = parent_text.strip()
+                if not parent_text:
+                    continue
+
+                wc = _word_count(parent_text)
+                min_thresh = _MIN_WORDS_TABLE if btype == "table" else _MIN_WORDS
+                if wc < min_thresh:
+                    continue
+
+                parent = _make_parent(doc_id, parent_idx, page_num, parent_text, current_section)
+                parents.append(parent)
+
+                # Genera child chunk dal parent
+                if btype in ("table", "formula", "code") or wc <= _CHILD_WORDS:
+                    # Tabelle, formule, code block e blocchi piccoli: un solo child = il parent intero
+                    child = _make_child(
+                        parent["id"], doc_id, page_num, 0,
+                        parent_text, current_section, chunk_type=btype,
+                    )
+                    if _word_count(child["text"]) >= min_thresh:
+                        children.append(child)
+                else:
+                    child_subs = _split_paragraph(
+                        parent_text, _CHILD_WORDS, overlap_words=_CHILD_OVERLAP
+                    )
+                    ci = 0
+                    for child_text in child_subs:
+                        child_text = child_text.strip()
+                        if _word_count(child_text) < _MIN_WORDS:
+                            continue
+                        # Hard cap: single long sentences can exceed the target;
+                        # split further by words so no chunk exceeds 512 tokens.
+                        if _word_count(child_text) > _CHILD_MAX_WORDS:
+                            words = child_text.split()
+                            step = _CHILD_MAX_WORDS - _CHILD_OVERLAP
+                            for j in range(0, len(words), step):
+                                seg = " ".join(words[j : j + _CHILD_MAX_WORDS])
+                                if _word_count(seg) >= _MIN_WORDS:
+                                    children.append(
+                                        _make_child(
+                                            parent["id"], doc_id, page_num, ci,
+                                            seg, current_section,
+                                        )
+                                    )
+                                    ci += 1
+                        else:
+                            children.append(
+                                _make_child(
+                                    parent["id"], doc_id, page_num, ci,
+                                    child_text, current_section,
+                                )
+                            )
+                            ci += 1
+
+                parent_idx += 1
+
+    return parents, children
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +673,140 @@ def filter_chunks(chunks: list[dict]) -> list[dict]:
         result.append(c)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Contextual chunk enrichment (Anthropic method — RAG_CONTEXTUAL_CHUNKS=true)
+# ---------------------------------------------------------------------------
+
+def _enrich_with_context(
+    child_chunks: list[dict],
+    doc_summary: str,
+    qvac_url: str,
+) -> list[dict]:
+    """Prepend a short AI-generated context sentence to each child chunk before embedding.
+
+    Calls QVAC /generate once per chunk. Each chunk whose enrichment call fails
+    is returned unchanged (fail-open: best-effort, never blocks ingest).
+    Only active when RAG_CONTEXTUAL_CHUNKS=true.
+    """
+    _PROMPT = (
+        "Scrivi in una frase (max 25 parole) il contesto di questo estratto: "
+        "indica l'argomento e la sezione. Usa la stessa lingua del testo."
+    )
+    enriched: list[dict] = []
+    for chunk in child_chunks:
+        chunk_text = chunk["text"]
+        ctx_input = f"Documento:\n{doc_summary[:400]}\n\nEstratto:\n{chunk_text[:600]}"
+        try:
+            with httpx.Client(timeout=_CONTEXTUAL_TIMEOUT) as client:
+                resp = client.post(
+                    f"{qvac_url}/generate",
+                    json={"question": _PROMPT, "context": [{"label": "estratto", "text": ctx_input}]},
+                )
+                resp.raise_for_status()
+                ctx_sentence = resp.json().get("answer", "").strip()
+        except Exception as exc:
+            logger.debug("Contextual enrichment skipped for chunk %s: %s", chunk.get("id"), exc)
+            ctx_sentence = ""
+
+        if ctx_sentence and 5 < len(ctx_sentence) < 300:
+            enriched.append({**chunk, "text": f"{ctx_sentence}\n\n{chunk_text}"})
+        else:
+            enriched.append(chunk)
+
+    logger.info(
+        "Contextual enrichment done for %d chunks (%d enriched)",
+        len(child_chunks),
+        sum(1 for o, n in zip(child_chunks, enriched) if o["text"] != n["text"]),
+    )
+    return enriched
+
+
+# ---------------------------------------------------------------------------
+# BM25 index
+# ---------------------------------------------------------------------------
+
+def _build_bm25_index(child_chunks: list[dict], workspace: str, doc_id: str) -> None:
+    """Aggiorna il corpus BM25 per il workspace e ricostruisce l'indice su disco.
+
+    Il corpus (corpus.json) accumula i child chunk di tutti i documenti del corso.
+    Su re-ingest dello stesso doc_id, i vecchi entry vengono prima rimossi.
+    """
+    try:
+        from rank_bm25 import BM25Okapi  # type: ignore[import]
+    except ImportError:
+        logger.warning("rank_bm25 non installato — BM25 index non costruito")
+        return
+
+    corpus_path = QVAC_INGEST_DIR / f"{workspace}_corpus.json"
+    bm25_path = QVAC_INGEST_DIR / f"{workspace}_bm25.pkl"
+
+    corpus: dict[str, dict] = {}
+    if corpus_path.exists():
+        try:
+            with corpus_path.open(encoding="utf-8") as f:
+                corpus = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            corpus = {}
+
+    # Rimuovi entry stale per questo doc_id (gestione re-ingest)
+    corpus = {cid: info for cid, info in corpus.items() if info.get("doc_id") != doc_id}
+
+    # Aggiungi nuovi child chunk
+    for c in child_chunks:
+        corpus[c["id"]] = {
+            "text": c["text"],
+            "label": c["citation_label"],
+            "page": c["citation_page"],
+            "section": c["citation_section"],
+            "doc_id": c["doc_id"],
+            "parent_id": c.get("parent_id", ""),
+        }
+
+    with corpus_path.open("w", encoding="utf-8") as f:
+        json.dump(corpus, f, ensure_ascii=False)
+
+    from app.services.hybrid_search import _tokenize  # noqa: PLC0415
+    ids = list(corpus.keys())
+    tokenized = [_tokenize(corpus[i]["text"]) for i in ids]
+    bm25 = BM25Okapi(tokenized)
+
+    import pickle
+    with bm25_path.open("wb") as f:
+        pickle.dump({"ids": ids, "bm25": bm25}, f)
+
+    logger.info("BM25 index aggiornato per workspace '%s': %d chunk totali", workspace, len(ids))
+
+
+# ---------------------------------------------------------------------------
+# Parent DB helpers
+# ---------------------------------------------------------------------------
+
+def _save_parents_to_db(parents: list[dict], course_id: str, db) -> None:
+    """Salva i parent chunk nella tabella ChunkParent (upsert per id)."""
+    from app.db.models import ChunkParent  # noqa: PLC0415
+
+    for p in parents:
+        existing = db.query(ChunkParent).filter_by(id=p["id"]).first()
+        if existing:
+            existing.text = p["text"]
+            existing.course_id = course_id
+            existing.citation_label = p["citation_label"]
+            existing.citation_page = p["citation_page"]
+            existing.citation_section = p["citation_section"]
+        else:
+            db.add(ChunkParent(
+                id=p["id"],
+                doc_id=p["doc_id"],
+                course_id=course_id,
+                text=p["text"],
+                citation_label=p["citation_label"],
+                citation_page=p["citation_page"],
+                citation_section=p["citation_section"],
+            ))
+    db.commit()
+    logger.debug("Saved %d parent chunks to DB for course '%s'", len(parents), course_id)
 
 
 # ---------------------------------------------------------------------------
@@ -463,8 +896,20 @@ def run(
             _set_stage(doc, DocumentProcessingStage.PARSING, db)
 
             if ext == ".pdf":
-                pages, page_count = parse_pdf_pages(file_path)
-                parser_used = "pymupdf4llm-page-chunks"
+                if _USE_DOCLING:
+                    try:
+                        pages, page_count = _parse_pdf_with_docling(file_path)
+                        parser_used = "docling"
+                    except Exception as exc:
+                        logger.warning(
+                            "Docling failed for %s (%s) — falling back to pymupdf4llm",
+                            document_id, exc,
+                        )
+                        pages, page_count = parse_pdf_pages(file_path)
+                        parser_used = "pymupdf4llm-page-chunks"
+                else:
+                    pages, page_count = parse_pdf_pages(file_path)
+                    parser_used = "pymupdf4llm-page-chunks"
             elif ext == ".pptx":
                 pages, page_count = parse_pptx_pages(file_path)
                 parser_used = "python-pptx"
@@ -487,20 +932,39 @@ def run(
                 ]
 
             # ------------------------------------------------------------------
-            # Stage 3 — CHUNKING (structure-aware)
+            # Stage 3 — CHUNKING (parent-child hierarchy)
             # ------------------------------------------------------------------
             _set_stage(doc, DocumentProcessingStage.CHUNKING, db)
-            raw_chunks = chunk_pages(pages, document_id)
+            parent_chunks, raw_children = build_parent_child_chunks(pages, document_id)
 
             # ------------------------------------------------------------------
-            # Stage 4 — QUALITY FILTER
+            # Stage 3b — QUALITY FILTER (child chunks only)
             # ------------------------------------------------------------------
-            chunks = filter_chunks(raw_chunks)
-            dropped = len(raw_chunks) - len(chunks)
+            chunks = filter_chunks(raw_children)
+            dropped = len(raw_children) - len(chunks)
             logger.info(
-                "Chunks for %s: %d raw → %d after filter (%d dropped)",
-                document_id, len(raw_chunks), len(chunks), dropped,
+                "Parent-child for %s: %d parents, %d children raw → %d after filter (%d dropped)",
+                document_id, len(parent_chunks), len(raw_children), len(chunks), dropped,
             )
+
+            # ------------------------------------------------------------------
+            # Stage 3c — CONTEXTUAL ENRICHMENT (opt-in: RAG_CONTEXTUAL_CHUNKS=true)
+            # ------------------------------------------------------------------
+            if _RAG_CONTEXTUAL_CHUNKS and chunks:
+                doc_summary = "\n".join(p["text"][:200] for p in pages[:3])
+                logger.info(
+                    "Contextual enrichment enabled — enriching %d chunks for %s",
+                    len(chunks), document_id,
+                )
+                chunks = _enrich_with_context(chunks, doc_summary, QVAC_SERVICE_URL)
+
+            # ------------------------------------------------------------------
+            # Stage 3d — SAVE PARENTS TO DB
+            # ------------------------------------------------------------------
+            try:
+                _save_parents_to_db(parent_chunks, course_id, db)
+            except Exception as exc:
+                logger.warning("Could not save parent chunks to DB for %s: %s", document_id, exc)
 
             # ------------------------------------------------------------------
             # Stage 5 — INDEXING (ChromaDB — skipped when SKIP_CHROMA_INDEX=true)
@@ -536,11 +1000,12 @@ def run(
                         "page": c["citation_page"],
                         "slide": c["citation_slide"],
                         "chunk_type": c["chunk_type"],
+                        "parent_id": c.get("parent_id", ""),
                     }
                     for c in chunks
                 ]
                 if ids:
-                    collection.add(
+                    collection.upsert(
                         ids=ids,
                         embeddings=embeddings,
                         documents=texts,
@@ -555,6 +1020,14 @@ def run(
             # ------------------------------------------------------------------
             jsonl_path = _write_jsonl(chunks, document_id)
             qvac_ok = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=False)
+
+            # ------------------------------------------------------------------
+            # Stage 6b — BM25 index update (sparse retrieval)
+            # ------------------------------------------------------------------
+            try:
+                _build_bm25_index(chunks, course_id, document_id)
+            except Exception as exc:
+                logger.warning("BM25 index build failed for %s: %s", document_id, exc)
 
             # ------------------------------------------------------------------
             # Finalise DB record

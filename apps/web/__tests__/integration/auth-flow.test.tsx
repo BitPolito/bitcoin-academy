@@ -78,8 +78,8 @@ describe('Authentication Flow Integration', () => {
       // Fill out registration form
       await userEvent.type(screen.getByLabelText(/display name/i), 'New User');
       await userEvent.type(screen.getByLabelText(/email/i), 'newuser@example.com');
-      await userEvent.type(screen.getByLabelText(/^password$/i), 'SecurePass123');
-      await userEvent.type(screen.getByLabelText(/confirm password/i), 'SecurePass123');
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'SecurePass123!');
+      await userEvent.type(screen.getByLabelText(/confirm password/i), 'SecurePass123!');
 
       // Submit form
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
@@ -101,14 +101,14 @@ describe('Authentication Flow Integration', () => {
           'credentials',
           expect.objectContaining({
             email: 'newuser@example.com',
-            password: 'SecurePass123',
+            password: 'SecurePass123!',
           })
         );
       });
 
       // Verify redirect
       await waitFor(() => {
-        expect(mockRouter.push).toHaveBeenCalledWith('/dashboard');
+        expect(mockRouter.push).toHaveBeenCalledWith('/courses');
       });
     });
 
@@ -138,7 +138,7 @@ describe('Authentication Flow Integration', () => {
 
       // Verify redirect
       await waitFor(() => {
-        expect(mockRouter.push).toHaveBeenCalledWith('/dashboard');
+        expect(mockRouter.push).toHaveBeenCalledWith('/courses');
       });
     });
   });
@@ -147,7 +147,7 @@ describe('Authentication Flow Integration', () => {
     it('handles login failure gracefully', async () => {
       (signIn as jest.Mock).mockResolvedValue({
         ok: false,
-        error: 'Invalid email or password',
+        error: 'CredentialsSignin',
       });
 
       render(<LoginPage />);
@@ -177,8 +177,8 @@ describe('Authentication Flow Integration', () => {
       render(<SignupPage />);
 
       await userEvent.type(screen.getByLabelText(/email/i), 'duplicate@example.com');
-      await userEvent.type(screen.getByLabelText(/^password$/i), 'SecurePass123');
-      await userEvent.type(screen.getByLabelText(/confirm password/i), 'SecurePass123');
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'SecurePass123!');
+      await userEvent.type(screen.getByLabelText(/confirm password/i), 'SecurePass123!');
 
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
@@ -196,8 +196,8 @@ describe('Authentication Flow Integration', () => {
       render(<SignupPage />);
 
       await userEvent.type(screen.getByLabelText(/email/i), 'test@example.com');
-      await userEvent.type(screen.getByLabelText(/^password$/i), 'SecurePass123');
-      await userEvent.type(screen.getByLabelText(/confirm password/i), 'SecurePass123');
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'SecurePass123!');
+      await userEvent.type(screen.getByLabelText(/confirm password/i), 'SecurePass123!');
 
       fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 

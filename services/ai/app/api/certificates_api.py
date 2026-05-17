@@ -1,18 +1,13 @@
 """Certificates API controller - issue and verify certificates."""
-from typing import List, Optional
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Path, status
+from fastapi import APIRouter, Depends, Path
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.middleware.auth import CurrentUser, get_current_user
 
 router = APIRouter(prefix="/api", tags=["Certificates"])
-
-_NOT_IMPLEMENTED = JSONResponse(
-    status_code=status.HTTP_501_NOT_IMPLEMENTED,
-    content={"message": "Certificate features coming soon"},
-)
 
 
 class CertificateSummary(BaseModel):
@@ -38,7 +33,7 @@ class CertificateVerification(BaseModel):
 def list_my_certificates(
     _current_user: CurrentUser = Depends(get_current_user),
 ) -> JSONResponse:
-    return _NOT_IMPLEMENTED
+    return JSONResponse(status_code=200, content=[])
 
 
 @router.get(
@@ -48,4 +43,7 @@ def list_my_certificates(
 def verify_certificate(
     code: str = Path(..., description="Certificate code"),
 ) -> JSONResponse:
-    return _NOT_IMPLEMENTED
+    return JSONResponse(
+        status_code=200,
+        content={"valid": False, "code": code, "course_id": None, "issued_at": None},
+    )

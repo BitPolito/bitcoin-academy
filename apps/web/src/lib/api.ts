@@ -1,4 +1,7 @@
-const API_BASE_URL =
+// In Docker, API_BASE_URL points to the container-internal URL for SSR;
+// browsers fall back to the NEXT_PUBLIC_ value baked in at build time.
+export const API_BASE_URL =
+  process.env.API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   (process.env.NEXT_PUBLIC_API_URL
     ? `${process.env.NEXT_PUBLIC_API_URL}/api`

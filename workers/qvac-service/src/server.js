@@ -1,7 +1,7 @@
 import { createServer } from "http";
 import { initModels, shutdownModels } from "./models.js";
 import { ingestFromJsonl } from "./ingest.js";
-import { queryRag } from "./query.js";
+import { queryRag, retrieveChunks, generateFromContext, streamFromContext } from "./query.js";
 
 const PORT = parseInt(process.env.QVAC_PORT ?? "3001", 10);
 
@@ -33,12 +33,54 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
 
-    // POST /query  { question: string, workspace: string, topK?: number }
-    // Returns { answer: string, sources: [{ score, snippet }] }.
+    // POST /query  { question: string, workspace: string, topK?: number, topKGenerate?: number }
+    // topK: chunks to retrieve (default 5); topKGenerate: chunks sent to LLM (default = topK).
+    // Returns { answer: string, sources: [{ score, snippet, label, page, slide, section, doc_id }] }.
     if (req.method === "POST" && req.url === "/query") {
-      const { question, workspace, topK = 5 } = await readBody(req);
-      const result = await queryRag(question, workspace, topK);
+      const { question, workspace, topK = 5, topKGenerate } = await readBody(req);
+      const result = await queryRag(question, workspace, topK, topKGenerate ?? topK);
       return send(res, 200, result);
+    }
+
+    // POST /retrieve  { question: string, workspace: string, topK?: number }
+    // Dense retrieval only — returns raw chunks for Python-side hybrid search + reranking.
+    // Returns { chunks: [{ id, chunk_id, content, score, label, page, slide, section, doc_id, parent_id }] }
+    if (req.method === "POST" && req.url === "/retrieve") {
+      const { question, workspace, topK = 20 } = await readBody(req);
+      const result = await retrieveChunks(question, workspace, topK);
+      return send(res, 200, result);
+    }
+
+    // POST /generate  { question: string, context: [{ label: string, text: string }], systemPrompt?: string }
+    // LLM generation from pre-built parent context — no retrieval.
+    // systemPrompt overrides the default; omit to use the BitPolito Academy default.
+    // Returns { answer: string }
+    if (req.method === "POST" && req.url === "/generate") {
+      const { question, context = [], systemPrompt = null } = await readBody(req);
+      const result = await generateFromContext(question, context, systemPrompt);
+      return send(res, 200, result);
+    }
+
+    // POST /stream  { question: string, context: [{ label, text }], systemPrompt?: string }
+    // Server-Sent Events stream — writes tokens as "data: <token>\n\n" until done.
+    // Client should consume with EventSource or fetch + ReadableStream.
+    if (req.method === "POST" && req.url === "/stream") {
+      const { question, context = [], systemPrompt = null } = await readBody(req);
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "Transfer-Encoding": "chunked",
+      });
+      try {
+        for await (const token of streamFromContext(question, context, systemPrompt)) {
+          res.write(`data: ${JSON.stringify(token)}\n\n`);
+        }
+        res.write("data: [DONE]\n\n");
+      } catch (err) {
+        res.write(`data: ${JSON.stringify("[ERROR] " + err.message)}\n\n`);
+      }
+      return res.end();
     }
 
     // GET /health — used by FastAPI to detect whether the service is up.

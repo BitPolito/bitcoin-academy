@@ -14,6 +14,7 @@ from app.api.certificates_api import router as certificates_router
 from app.api.chat_api import router as chat_router
 from app.api.courses_api import router as courses_router
 from app.api.documents_api import router as documents_router
+from app.api.feedback_api import router as feedback_router
 from app.api.progress_api import router as progress_router
 from app.api.quizzes_api import router as quizzes_router
 from app.api.study_api import router as study_router
@@ -22,6 +23,7 @@ from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.rate_limit import limiter
 from app.middleware.security import (
+    MaxBodySizeMiddleware,
     RequestIDMiddleware,
     SecurityHeadersMiddleware,
 )
@@ -39,12 +41,14 @@ if _log_level > logging.DEBUG:
         logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 
-# Initialize database tables
-init_db()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    try:
+        init_db()
+    except Exception:
+        logger.critical("Database initialisation failed — cannot start", exc_info=True)
+        raise
+
     redis_url = os.getenv("REDIS_URL")
     if redis_url:
         from arq.connections import create_pool, RedisSettings
@@ -72,7 +76,7 @@ app = FastAPI(
 
 # Add rate limiter state to app
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 # Register global exception handlers for security
 register_exception_handlers(app)
@@ -81,10 +85,13 @@ register_exception_handlers(app)
 # Security Middleware Stack (order matters - first added = last executed)
 # =============================================================================
 
-# 1. Security Headers - adds security headers to all responses
+# 1. Body size limit — reject oversized requests before reading the body
+app.add_middleware(MaxBodySizeMiddleware)
+
+# 2. Security Headers - adds security headers to all responses
 app.add_middleware(SecurityHeadersMiddleware, environment=settings.ENVIRONMENT)
 
-# 2. Request ID - adds unique ID to each request for tracing
+# 3. Request ID - adds unique ID to each request for tracing
 app.add_middleware(RequestIDMiddleware)
 
 # =============================================================================
@@ -140,6 +147,7 @@ app.include_router(certificates_router)
 app.include_router(chat_router)
 app.include_router(courses_router)
 app.include_router(documents_router)
+app.include_router(feedback_router)
 app.include_router(progress_router)
 app.include_router(quizzes_router)
 app.include_router(study_router)
@@ -167,15 +175,18 @@ def health_check():
     """Health check endpoint with database connectivity test."""
     health_status = {
         "status": "healthy",
-        "environment": settings.ENVIRONMENT,
         "database": "unknown",
     }
 
     # Check database connectivity
     try:
-        db = next(get_db())
-        db.execute(text("SELECT 1"))
-        health_status["database"] = "connected"
+        gen = get_db()
+        db = next(gen)
+        try:
+            db.execute(text("SELECT 1"))
+            health_status["database"] = "connected"
+        finally:
+            gen.close()
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
         health_status["database"] = "disconnected"

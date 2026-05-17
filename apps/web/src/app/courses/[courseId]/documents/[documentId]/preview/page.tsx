@@ -341,11 +341,11 @@ function PreviewContent() {
 
         <div className="flex-1 min-w-0">
           <span className="font-medium text-sm truncate">{preview.filename}</span>
-          {(preview.pageCount != null || chunks.length > 0) && (
+          {(preview.pageCount != null || preview.chunkCount != null) && (
             <span className="ml-3 font-mono text-[10px] opacity-50">
               {preview.pageCount != null ? `${preview.pageCount} pages` : ''}
-              {preview.pageCount != null && chunks.length > 0 ? ' · ' : ''}
-              {chunks.length > 0 ? `${chunks.length} chunks` : ''}
+              {preview.pageCount != null && preview.chunkCount != null ? ' · ' : ''}
+              {preview.chunkCount != null ? `${preview.chunkCount} chunks` : ''}
             </span>
           )}
         </div>

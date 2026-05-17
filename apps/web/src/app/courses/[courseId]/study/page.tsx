@@ -132,6 +132,10 @@ export default function StudyPage() {
           </span>
           <div className="flex-1 h-1.5 b-thin overflow-hidden rounded-none">
             <div
+              role="progressbar"
+              aria-valuenow={courseProgress.percent}
+              aria-valuemin={0}
+              aria-valuemax={100}
               className="h-full bg-blue-dark transition-all"
               style={{ width: `${courseProgress.percent}%` }}
             />

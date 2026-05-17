@@ -48,10 +48,13 @@ export async function ingestFromJsonl(jsonlPath, workspace, rebuild = false) {
     .filter(Boolean)
     .map((l) => JSON.parse(l));
 
-  const paragraphChunks = lines.filter((c) => c.chunk_type === "paragraph");
+  // Index all child chunks (paragraph + table) — parent chunks are stored in the Python DB.
+  const indexableChunks = lines.filter(
+    (c) => c.chunk_type === "paragraph" || c.chunk_type === "table"
+  );
 
-  if (paragraphChunks.length === 0) {
-    console.warn("[ingest] no paragraph chunks found in", jsonlPath);
+  if (indexableChunks.length === 0) {
+    console.warn("[ingest] no indexable chunks found in", jsonlPath);
     return;
   }
 
@@ -61,17 +64,17 @@ export async function ingestFromJsonl(jsonlPath, workspace, rebuild = false) {
     saveMeta(workspace, {});
   }
 
-  console.log(`[ingest] indexing ${paragraphChunks.length} chunks into '${workspace}'...`);
+  console.log(`[ingest] indexing ${indexableChunks.length} chunks into '${workspace}'...`);
 
   const result = await ragIngest({
     modelId,
     workspace,
-    documents: paragraphChunks.map((c) => c.text),
+    documents: indexableChunks.map((c) => c.text),
     chunk: false,
   });
 
-  // Build id → citation metadata mapping, accounting for dropped indices.
-  const keptChunks = paragraphChunks.filter(
+  // Build qvac_id → citation + BM25 cross-reference metadata.
+  const keptChunks = indexableChunks.filter(
     (_, i) => !result.droppedIndices.includes(i)
   );
   const existingMeta = loadMeta(workspace);
@@ -84,6 +87,8 @@ export async function ingestFromJsonl(jsonlPath, workspace, rebuild = false) {
         slide: c.citation_slide ?? 0,
         section: c.citation_section ?? "",
         doc_id: c.doc_id ?? "",
+        chunk_id: c.id ?? "",         // original chunk ID for BM25 cross-reference
+        parent_id: c.parent_id ?? "", // parent chunk ID for context expansion
       };
     }
   });

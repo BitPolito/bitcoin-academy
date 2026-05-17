@@ -55,6 +55,9 @@ htmlcov/
 .dmypy.json
 dmypy.json
 
+# Test coverage reports
+apps/web/coverage/
+
 # Node.js / npm / yarn / pnpm
 node_modules/
 npm-debug.log*
@@ -77,8 +80,10 @@ out/
 .env.*.local
 .env.production.local
 
-# Lock files (optional - uncomment if you want to exclude)
+# Lock files — ignore root-level, but track app lock files for reproducible CI
 package-lock.json
+!apps/web/package-lock.json
+!workers/qvac-service/package-lock.json
 # yarn.lock
 # pnpm-lock.yaml
 
@@ -103,7 +108,7 @@ temp/
 
 # Docker
 .dockerignore
-docker-compose.override.yml
+docker-compose.local.yml
 
 # IDE config
 .editorconfig
@@ -150,3 +155,8 @@ docs/
 *.jsonl
 parsed_output/
 chroma_db/
+
+# AI service runtime artifacts
+services/ai/uploads/
+services/ai/qvac_ingest/
+services/ai/rag_test_results*.json

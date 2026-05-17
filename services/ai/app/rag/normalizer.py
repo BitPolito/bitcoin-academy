@@ -127,6 +127,7 @@ def normalize_lecture_slides(
         blocks=blocks,
         type_metadata=type_meta.model_dump(),
         raw_metadata=raw_meta,
+        lecture_id=None,
     )
 
 
@@ -166,6 +167,7 @@ def normalize_lecture_notes(
         blocks=blocks,
         type_metadata=type_meta.model_dump(),
         raw_metadata=raw_meta,
+        lecture_id=None,
     )
 
 
@@ -209,6 +211,7 @@ def normalize_textbook_excerpt(
         blocks=blocks,
         type_metadata=type_meta.model_dump(),
         raw_metadata=raw_meta,
+        lecture_id=None,
     )
 
 
@@ -251,6 +254,7 @@ def normalize_past_exam(
         blocks=blocks,
         type_metadata=type_meta.model_dump(),
         raw_metadata=raw_meta,
+        lecture_id=None,
     )
 
 
@@ -294,6 +298,7 @@ def normalize_reference(
         blocks=blocks,
         type_metadata=type_meta.model_dump(),
         raw_metadata=raw_meta,
+        lecture_id=None,
     )
 
 

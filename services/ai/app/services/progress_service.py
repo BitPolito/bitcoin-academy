@@ -4,7 +4,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 from app.db.models import Badge, UserBadge
-from app.repositories import badge_repo  # type: ignore[attr-defined]
+from app.repositories import badge_repo
 from app.repositories import progress_repo
 from app.schemas.progress_schemas import (
     BadgeResponse,
@@ -160,13 +160,12 @@ def get_user_badges(db: Session, user_id: str) -> List[dict]:
     user_badges: List[UserBadge] = badge_repo.get_user_badges(db, user_id)
     result = []
     for ub in user_badges:
-        earned_at = ub.earned_at
-        if hasattr(earned_at, "isoformat"):
-            earned_at = earned_at.isoformat()
+        raw_earned_at = ub.earned_at
+        earned_at_str = raw_earned_at.isoformat() if hasattr(raw_earned_at, "isoformat") else str(raw_earned_at)
         result.append({
             "id": ub.id,
             "badge": _to_badge_response(ub.badge),
-            "earned_at": str(earned_at),
+            "earned_at": earned_at_str,
             "context_id": ub.context_id,
         })
     return result

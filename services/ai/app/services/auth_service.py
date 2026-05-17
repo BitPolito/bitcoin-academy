@@ -73,7 +73,7 @@ class AuthService:
         return AuthResponse(
             user=UserResponse(
                 id=user.id,
-                email=user.email,
+                email=user.email,  # type: ignore[arg-type]
                 display_name=user.display_name,
                 role=user.role.value if isinstance(
                     user.role, UserRole) else user.role,
@@ -105,7 +105,7 @@ class AuthService:
             )
 
         # Verify password
-        if not verify_password(request.password, user.password_hash):
+        if not verify_password(request.password, user.password_hash):  # type: ignore[arg-type]
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
@@ -118,7 +118,7 @@ class AuthService:
         return AuthResponse(
             user=UserResponse(
                 id=user.id,
-                email=user.email,
+                email=user.email,  # type: ignore[arg-type]
                 display_name=user.display_name,
                 role=user.role.value if isinstance(
                     user.role, UserRole) else user.role,
@@ -189,13 +189,13 @@ class AuthService:
 
         access_token = create_access_token(
             user_id=user.id,
-            email=user.email,
+            email=user.email,  # type: ignore[arg-type]
             role=role,
         )
 
         refresh_token = create_refresh_token(
             user_id=user.id,
-            email=user.email,
+            email=user.email,  # type: ignore[arg-type]
             role=role,
         )
 

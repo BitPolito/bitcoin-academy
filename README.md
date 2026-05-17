@@ -1,256 +1,175 @@
 # BitPolito Academy
 
-Open-source educational platform for Bitcoin study. Turns course materials (slides, textbooks, past exams) into an AI workspace with RAG tutoring, source-anchored citations, and 8 study actions.
+[![CI](https://github.com/BitPolito/bitcoin-academy/actions/workflows/ci.yml/badge.svg?branch=rag)](https://github.com/BitPolito/bitcoin-academy/actions/workflows/ci.yml)
+
+Educational platform for Bitcoin study built at BitPolito. Upload slides, PDFs, or textbooks and interact with them through eight study actions: **explain**, **summarize**, **retrieve**, **open\_questions**, **quiz**, **oral**, **derive**, **compare**.
+
+Everything runs locally — no external API keys needed. The retrieval pipeline uses QVAC dense search (GTE-Large FP16) combined with BM25, cross-encoder reranking, MMR diversity, and optional Qwen3-4B for answer generation. A semantic cache (fastembed + Redis) avoids recomputing identical or near-identical queries.
 
 ---
 
-## Quick Start
+## Requirements
 
-### Prerequisites
+| Dependency | Version |
+|---|---|
+| Node.js | ≥ 22.17 |
+| Python | 3.11 |
+| uv | latest |
+| Redis | ≥ 7 |
 
-| Requirement | Version | Notes |
-|---|---|---|
-| Node.js | **≥ 22.17** | Required by `@qvac/sdk` (bare runtime shims) |
-| Python | **3.11** | FastAPI backend and ingestion pipeline |
-| uv | latest | Recommended package manager — [install](https://docs.astral.sh/uv/getting-started/installation/) |
-| Redis | **≥ 7** | Optional — enables async ARQ task queue (`brew install redis`) |
-| Disk | ~2 GB | QVAC embedding model (~670 MB, downloaded on first run) |
-| RAM | ≥ 8 GB | For local LLM inference (optional) |
+Redis is optional in development but required in production for background ingestion, semantic cache, token blacklist, and account lockout. SQLite is used in development — no PostgreSQL setup needed.
 
-> No PostgreSQL needed in development: the backend uses **SQLite** (`services/ai/bitcoin_academy.db`).
+**Disk and RAM:** plan for ~4 GB of disk (embedding model ~670 MB + Qwen3-4B ~2.5 GB, downloaded on first run) and at least 8 GB RAM (~5 GB at runtime with the LLM loaded). 16 GB is more comfortable.
 
-### Start
+If you're on a machine with less than 8 GB free, set `QVAC_LLM_ENABLED=false`. The system will run in retrieval-only mode (~670 MB total): all study actions still return source passages, but there's no prose generation.
+
+---
+
+## Quick Start (Docker)
 
 ```bash
-chmod +x start-dev.sh
-./start-dev.sh
+# 1. Create root .env with database credentials
+echo "DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy" > .env
+
+# 2. Copy and configure service env files
+cp services/ai/.env.example services/ai/.env
+cp apps/web/.env.example     apps/web/.env.local
+
+# 3. Start everything
+docker compose up --build
 ```
 
-The script:
-- **With uv** (recommended): runs `uv sync` — near-instant when the lockfile is unchanged
-- **Without uv**: uses pip with a hash-check to skip installs when `requirements.txt` hasn't changed
-- Auto-starts Redis if `redis-server` is found, then launches the ARQ worker
-- Backend health check is synchronous (30 s); QVAC health check runs in background (up to 300 s — first model load takes 2-5 min)
-- Seeds the database with test users, then starts the Next.js frontend (Turbopack)
+`docker compose up` automatically merges `docker-compose.yml` with `docker-compose.override.yml`, which adds source mounts, hot reload, and exposed ports. To run the production base without the dev overrides:
 
-| Service | URL |
+```bash
+docker compose -f docker-compose.yml up --build
+```
+
+| Service | Dev URL |
 |---|---|
-| Frontend | <http://localhost:3000> |
-| Backend API | <http://localhost:8000> |
-| QVAC service | <http://localhost:3001> |
-| Swagger UI | <http://localhost:8000/docs> |
+| Frontend | http://localhost:3000 (through Caddy on :80 in prod) |
+| Backend API | http://localhost:8000 (through Caddy on /api/* in prod) |
+| Reverse proxy | http://localhost:80 |
+| QVAC service | http://localhost:3001 |
+| Interactive API docs | http://localhost:8000/docs (dev only) |
 
-**Development credentials (seeded automatically):**
+Default development accounts created automatically:
 
 | Role | Email | Password |
 |---|---|---|
 | Admin | `admin@bitpolito.it` | `DevAdmin@2024!Secure` |
 | Student | `student@bitpolito.it` | `DevStudent@2024!Learn` |
 
-### Manual start
+---
+
+## Manual Start (Development)
 
 ```bash
 # Frontend
 cd apps/web && npm install && npm run dev
 
-# Backend (with uv — recommended)
+# Backend — run setup once, then start the server
 cd services/ai
-uv sync                            # creates .venv and installs deps from uv.lock
-uv run python -m app.db.init_db    # create DB and seed users
+cp .env.example .env          # fill in SECRET_KEY at minimum
+bash setup-dev.sh             # installs deps, initialises DB, creates dev accounts
 uv run uvicorn app.main:app --reload --port 8000
 
-# Backend (with pip)
-cd services/ai
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-python -m app.db.init_db
-python -m uvicorn app.main:app --reload --port 8000
-
-# ARQ worker (optional — requires Redis)
+# Background worker (optional — requires Redis)
 redis-server --daemonize yes
-cd services/ai && REDIS_URL=redis://localhost:6379/0 arq app.workers.arq_worker.WorkerSettings
+cd services/ai
+uv run arq app.workers.arq_worker.WorkerSettings
 
-# QVAC service
+# QVAC service (downloads models on first run — 2–5 minutes)
 cd workers/qvac-service && npm install && node src/server.js
 ```
 
 ---
 
-## Project structure
+## Configuration
 
+```bash
+cp services/ai/.env.example services/ai/.env
+cp apps/web/.env.example     apps/web/.env.local
 ```
-bitcoin-academy/
-├── apps/web/                        # Next.js 14 — App Router
-│   └── src/
-│       ├── app/
-│       │   ├── (auth)/              # Login / signup
-│       │   ├── dashboard/           # Student dashboard (progress, completed courses)
-│       │   └── courses/
-│       │       ├── page.tsx         # Courses home — hero, stats, card grid
-│       │       ├── layout.tsx       # TopBar + ToastProvider for all /courses/*
-│       │       └── [courseId]/
-│       │           ├── page.tsx     # Workspace — upload, doc list, detail panel
-│       │           ├── study/       # Study — split-pane, 8 AI actions, evidence drawer
-│       │           ├── debug/       # Pipeline visibility (dev only)
-│       │           └── documents/[documentId]/preview/  # SourceViewer 3-pane
-│       ├── components/
-│       │   ├── ui/                  # BrandMark, TopBar, Toast, BadgeDisplay, ProgressBar
-│       │   ├── courses/             # CourseCard, CreateCourseModal
-│       │   ├── documents/           # DocumentUpload, DocumentRow
-│       │   └── study/               # OutputPane, SourcePane, StudyActionBar, StudyOutput,
-│       │                            # CitationCard, LessonNav, ContentChunks, SplitPane
-│       └── lib/
-│           ├── api/                 # apiFetch, documents API, types, adapters
-│           └── services/            # courses, chat, study, progress
-├── services/ai/                     # FastAPI backend
-│   └── app/
-│       ├── api/                     # auth, chat, courses, documents, study, debug, progress
-│       ├── workers/pipeline.py      # 4-stage: parse_pdf_pages → clean/boilerplate → structure-aware chunk → QVAC /ingest
-│       ├── workers/arq_worker.py    # ARQ job definitions (ingest_document, reindex_document_qvac) + WorkerSettings
-│       ├── services/
-│       │   ├── study_service.py     # dispatch 8 actions, DispatchTrace, QVAC /query
-│       │   └── chat_service.py      # free chat → QVAC /query, ChromaDB fallback
-│       ├── schemas/study_schemas.py # StudyAction enum (8), ActionMeta, STUDY_ACTION_REGISTRY
-│       ├── core/rate_limit.py       # slowapi Limiter singleton
-│       └── db/                      # SQLAlchemy models, session, init_db
-├── workers/
-│   ├── python-ingester/src/         # legacy — RamSafeIngestor, StructuralParser, Chunker (no longer used by pipeline.py)
-│   └── qvac-service/src/            # Node.js — POST /ingest, POST /query, GET /health
-├── docs/
-│   ├── qvac-integration.md
-│   ├── mvp-issues.md                # Open issues and gaps (P1/P2/post-MVP)
-│   └── src/                         # Sample documents for testing (PDF, PPTX)
-├── start-dev.sh                     # Full dev start with health check loop
-└── docker-compose.yml
-```
+
+Docker Compose also needs a root-level `.env` with `DATABASE_URL` (used in variable substitution — see the Docker quick start above).
+
+Set `ENVIRONMENT=development` to enable Swagger UI and relaxed CORS.
+
+### RAG variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `QVAC_SERVICE_URL` | `http://localhost:3001` | URL of the QVAC Node.js service |
+| `QVAC_INGEST_DIR` | `./qvac_ingest` | Where the pipeline writes JSONL files for QVAC |
+| `QVAC_INGEST_TIMEOUT` | `300` | Timeout (s) for the QVAC `/ingest` call |
+| `RAG_TOP_K` | `5` | Chunks passed to the LLM after reranking |
+| `RAG_RETRIEVE_K` | `20` | Candidates fetched from the dense + sparse pool |
+| `RAG_MAX_CONTEXT_TOKENS` | `6000` | Token budget for context blocks |
+| `RAG_MAX_EVIDENCE` | `6` | Max evidence chunks returned by the study endpoint |
+| `RAG_HYDE` | `true` | Hypothetical Document Embedding query expansion |
+| `RAG_QUERY_REWRITE` | `false` | Rewrite the raw question into a dense retrieval query |
+| `RAG_COMPRESS_CONTEXT` | `true` | Trim each passage to relevant sentences before the LLM |
+| `RAG_CONTEXTUAL_CHUNKS` | `false` | Prepend an AI-generated context prefix at ingest time |
+| `RAG_SEMANTIC_CACHE` | `true` | Enable semantic cache (requires Redis) |
+| `RAG_CACHE_THRESHOLD` | `0.92` | Cosine similarity threshold for a cache hit |
+| `RAG_CACHE_TTL_SECONDS` | `86400` | Cache entry lifetime (24 h) |
+| `USE_DOCLING` | `false` | Use Docling for PDF parsing instead of pymupdf4llm |
+| `SKIP_CHROMA_INDEX` | `true` | Skip ChromaDB write during ingestion (QVAC-only mode) |
+
+Full list: [`docs/configuration.md`](docs/configuration.md).
 
 ---
 
-## Stack
+## Testing
 
-| Layer | Technology |
+```bash
+# Backend (pytest)
+cd services/ai
+uv run pytest                       # all tests
+uv run pytest tests/unit/
+uv run pytest tests/integration/
+
+# RAG end-to-end suite
+uv run python test_rag.py                            # 35 curated queries
+uv run python test_rag.py --query "What is Bitcoin?" # single query
+uv run python test_rag.py --output results.json      # save JSON report
+
+# Frontend
+cd apps/web && npm test
+
+# QVAC service
+cd workers/qvac-service && npm test
+```
+
+The RAG suite runs 35 queries across 7 categories (basic, chapter, conceptual, comparative, synthesis, adversarial, stress) through the full retrieval pipeline, scoring each PASS / WARN / FAIL by retrieval confidence. Results are saved as JSON for baseline comparisons.
+
+CI runs on every push and pull request to `main` and `rag` via GitHub Actions (`.github/workflows/ci.yml`).
+
+---
+
+## Docs
+
+| Document | Contents |
 |---|---|
-| Frontend | Next.js 14 · TypeScript · Tailwind CSS · NextAuth.js 4 |
-| Design system | BitPolito blue `#001CE0` · JetBrains Mono · `darkMode: 'class'` |
-| Backend | FastAPI · SQLAlchemy 2 · Pydantic v2 · python-jose · slowapi · uv |
-| Parsing | `pymupdf4llm` (PDF, page-level) · `python-pptx` (PPTX) · `python-docx` (DOCX) |
-| Chunking | Structure-aware: heading → atomic table → sentence-split paragraph (≤ 400 words, no overlap) |
-| Task queue | `arq` + Redis 7 (async ingestion jobs; falls back to FastAPI `BackgroundTasks` without Redis) |
-| Vector store | QVAC HyperDB (primary) · ChromaDB (passive fallback at query time) |
-| Embedding | QVAC `GTE_LARGE_FP16` 1024-dim (ingestion + query) · fastembed `all-MiniLM-L6-v2` (ChromaDB fallback only) |
-| LLM | LangChain + OpenAI (optional) · QVAC raw answer as fallback |
-| QVAC service | Node.js 22.17+ · `@qvac/sdk` |
-| Database | SQLite (dev) · PostgreSQL (prod) |
+| [`docs/architecture.md`](docs/architecture.md) | Project layout, tech stack, component overview |
+| [`docs/api.md`](docs/api.md) | Full REST API reference |
+| [`docs/configuration.md`](docs/configuration.md) | All environment variables |
+
+> `docs/` is in `.gitignore` and not committed to the repo.
 
 ---
 
-## Ingestion flow
+## Troubleshooting
 
-```
-Upload PDF / PPTX / DOCX via UI
-        │
-        ▼
-documents_api.py
-  ├─ [Redis available]  → arq_pool.enqueue_job("ingest_document", ...)  → ARQ worker
-  └─ [no Redis]         → BackgroundTasks.add_task(pipeline.run, ...)
-
-pipeline.py — 4 stages:
-  │
-  ├─ Stage 1 – parse_pdf_pages()
-  │     pymupdf4llm.to_markdown(page_chunks=True) → [{page, text}, …] per page
-  │     (PPTX / DOCX: parse_pptx / parse_docx → same page-dict format)
-  │
-  ├─ Stage 2 – clean / boilerplate detection
-  │     detect_boilerplate() → lines on ≥ 30% of pages → boilerplate set
-  │     clean_page()         → strip watermarks, zero-width chars, boilerplate lines
-  │
-  ├─ Stage 3 – chunk_pages() — structure-aware
-  │     headings  → section marker (not a chunk)
-  │     tables    → atomic chunk (≥ 4 words, no split)
-  │     paragraphs → sentence-split at ≤ 400 words
-  │     chunk id: "{doc_id}_{page:04d}_{idx:04d}" · citation_label: "p. {page}"
-  │
-  ├─ Stage 4 – filter_chunks()
-  │     drop paragraphs < 25 words, tables < 4 words, chunks > 60% figure captions
-  │
-  ├─ _write_jsonl() → {doc_id}_contingency.jsonl → QVAC_INGEST_DIR
-  └─ POST :3001/ingest (timeout 300 s) → QVAC GTE_LARGE_FP16 → HyperDB workspace
-```
-
-**ChromaDB** is not written during ingestion (`SKIP_CHROMA_INDEX=true`).  
-It remains as a passive fallback in `chat_service.py` if QVAC is unreachable.
-
-## Study flow
-
-```
-Student: query + action (explain / summarize / retrieve / open_questions /
-                          quiz / oral / derive / compare)
-  → POST /api/courses/{id}/study  [rate limit: 20/min, JWT required]
-  → study_service.dispatch()
-      ├─ _retrieve()  → POST :3001/query → QVAC (embedding + HyperDB search)
-      └─ _generate()  → LangChain + OpenAI (if OPENAI_API_KEY is set)
-                        fallback: QVAC raw answer
-  → StudyDispatchResponse { answer, citations, retrieval_used, action }
-     + DispatchTrace JSON in logs (request_id, duration_ms, chunks_found, …)
-```
-
----
-
-## API
-
-| Endpoint | Description |
-|---|---|
-| `POST /api/auth/register` | Register a new user |
-| `POST /api/auth/login` | Login → JWT |
-| `GET /api/courses` | List courses |
-| `POST /api/courses` | Create a course workspace |
-| `POST /api/courses/{id}/documents` | Upload a document (starts pipeline) |
-| `POST /api/courses/{id}/study` | RAG study action — 20 req/min |
-| `POST /api/courses/{id}/chat` | Free RAG chat |
-| `GET /api/courses/{id}/documents/{doc_id}/preview` | SourceViewer data |
-| `GET /api/debug/*` | Pipeline visibility endpoints (dev only) |
-| `GET /api/health` | Health check |
-
-Interactive docs: `http://localhost:8000/docs`
-
----
-
-## Environment variables
-
-**Backend** (`services/ai/.env`):
-
-```env
-DATABASE_URL=sqlite:///./bitcoin_academy.db
-SECRET_KEY=<random 32+ chars>
-ENVIRONMENT=development
-CORS_ORIGINS=http://localhost:3000
-
-QVAC_SERVICE_URL=http://localhost:3001
-QVAC_INGEST_DIR=./qvac_ingest
-QVAC_INGEST_TIMEOUT=300      # seconds to wait for QVAC embedding (large PDFs need ~3-5 min)
-UPLOADS_DIR=./uploads
-CHROMA_DB_PATH=./chroma_db
-CHROMA_COLLECTION_NAME=bitpolito_course
-SKIP_CHROMA_INDEX=true       # skip in-process embedding; QVAC is the sole index
-
-REDIS_URL=redis://localhost:6379/0  # optional — enables ARQ async ingestion queue
-
-RAG_TOP_K=5
-RAG_MAX_EVIDENCE=6
-LLM_TIMEOUT_SECONDS=30
-
-OPENAI_API_KEY=          # optional — enables LLM generation
-DEBUG_MODE=false
-LOG_LEVEL=INFO           # DEBUG for verbose output (sqlalchemy, httpx, etc.)
-```
-
-**Frontend** (`apps/web/.env.local`):
-
-```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-NEXTAUTH_SECRET=dev-secret-key
-NEXTAUTH_URL=http://localhost:3000
-```
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| QVAC service fails to start | Model download timed out on first run | Re-run `node src/server.js` — models are cached after the first successful download |
+| `/health` returns `database: disconnected` | `DATABASE_URL` missing or wrong | Check `services/ai/.env`; confirm PostgreSQL is running (or use the SQLite default for dev) |
+| Document stuck in `processing` forever | Redis not running → ARQ worker not started | `redis-server --daemonize yes`, then start the ARQ worker |
+| Frontend CORS error | `CORS_ORIGINS` missing the frontend origin | Add the frontend URL to `CORS_ORIGINS` in `services/ai/.env` |
+| Chat returns "Il servizio di ricerca non è disponibile" | QVAC service not running | `cd workers/qvac-service && node src/server.js` |
+| SSR API calls fail in Docker (`ECONNREFUSED localhost:8000`) | Next.js server-side calls resolve to the wrong host | `docker-compose.yml` sets `API_BASE_URL=http://api:8000/api` for SSR; make sure the web container env is current |
 
 ---
 

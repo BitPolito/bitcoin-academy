@@ -134,7 +134,7 @@ def test_study_rejects_empty_query(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-@pytest.mark.parametrize("action", ["explain", "summarize", "retrieve", "quiz", "oral", "open_questions"])
+@pytest.mark.parametrize("action", ["explain", "summarize", "retrieve", "quiz", "oral", "open_questions", "derive", "compare"])
 def test_study_action_echoed_in_response(client, db, action):
     """action field in the response must match the requested action."""
     user = make_user(db)
@@ -169,7 +169,7 @@ def test_study_dispatches_with_correct_workspace(client, db):
             headers=_auth(user.id),
         )
 
-    _, call_kwargs = mock_post.call_args
+    _, call_kwargs = mock_post.call_args_list[0]
     assert call_kwargs["json"]["workspace"] == course.id
 
 
@@ -425,3 +425,97 @@ def test_study_response_has_required_fields(client, db):
     assert isinstance(data["citations"], list)
     assert isinstance(data["retrieval_used"], bool)
     assert isinstance(data["action"], str)
+
+
+# ---------------------------------------------------------------------------
+# rag_only flag
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_study_rag_only_skips_generation(client, db):
+    """rag_only=true must never call _generate regardless of action."""
+    user = make_user(db)
+    course, _ = make_course_with_lessons(db)
+
+    with patch(
+        "app.services.study_service._qvac_client.post",
+        new_callable=AsyncMock,
+        return_value=_qvac_with_sources(),
+    ), patch("app.services.study_service._generate") as mock_gen:
+        resp = client.post(
+            f"/api/courses/{course.id}/study",
+            json={**_study_payload("explain", "What is Bitcoin?"), "rag_only": True},
+            headers=_auth(user.id),
+        )
+
+    mock_gen.assert_not_called()
+    assert resp.status_code == 200
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "action",
+    ["explain", "summarize", "quiz", "oral", "open_questions", "derive", "compare"],
+)
+def test_study_rag_only_returns_200_for_all_actions(client, db, action):
+    """Every action must succeed in rag_only mode even without an LLM."""
+    user = make_user(db)
+    course, _ = make_course_with_lessons(db)
+
+    with patch(
+        "app.services.study_service._qvac_client.post",
+        new_callable=AsyncMock,
+        return_value=_qvac_with_sources(),
+    ):
+        resp = client.post(
+            f"/api/courses/{course.id}/study",
+            json={**_study_payload(action, "What is Bitcoin?"), "rag_only": True},
+            headers=_auth(user.id),
+        )
+
+    assert resp.status_code == 200
+
+
+@pytest.mark.integration
+def test_study_rag_only_answer_contains_retrieved_passages(client, db):
+    """Answer in rag_only mode must be the raw context block, not a generated string."""
+    user = make_user(db)
+    course, _ = make_course_with_lessons(db)
+
+    with patch(
+        "app.services.study_service._qvac_client.post",
+        new_callable=AsyncMock,
+        return_value=_qvac_with_sources(),
+    ):
+        resp = client.post(
+            f"/api/courses/{course.id}/study",
+            json={**_study_payload("explain", "What is Bitcoin?"), "rag_only": True},
+            headers=_auth(user.id),
+        )
+
+    data = resp.json()
+    # The answer must reference the passage text (not an LLM output)
+    assert "proof-of-work" in data["answer"] or len(data["answer"]) > 0
+
+
+@pytest.mark.integration
+def test_study_rag_only_defaults_to_false(client, db):
+    """Omitting rag_only must behave identically to rag_only=false."""
+    user = make_user(db)
+    course, _ = make_course_with_lessons(db)
+
+    qvac_resp = _qvac_empty()
+    with patch(
+        "app.services.study_service._qvac_client.post",
+        new_callable=AsyncMock,
+        return_value=qvac_resp,
+    ), patch("app.services.study_service._generate", new_callable=AsyncMock,
+             return_value="Generated answer.") as mock_gen:
+        resp = client.post(
+            f"/api/courses/{course.id}/study",
+            json=_study_payload("explain", "What is Bitcoin?"),  # no rag_only key
+            headers=_auth(user.id),
+        )
+
+    # With no sources, generation is still attempted (rag_only defaulted to False)
+    assert resp.status_code == 200

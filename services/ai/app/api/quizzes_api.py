@@ -9,9 +9,9 @@ from app.middleware.auth import CurrentUser, get_current_user
 
 router = APIRouter(prefix="/api", tags=["Quizzes"])
 
-_NOT_IMPLEMENTED = JSONResponse(
-    status_code=status.HTTP_501_NOT_IMPLEMENTED,
-    content={"message": "Quiz features coming soon"},
+_NOT_FOUND = JSONResponse(
+    status_code=status.HTTP_404_NOT_FOUND,
+    content={"error": {"code": "quiz_not_found", "message": "Quiz not found"}},
 )
 
 
@@ -59,7 +59,7 @@ def list_quizzes(
     course_id: str = Path(..., description="Course ID"),
     _current_user: CurrentUser = Depends(get_current_user),
 ) -> JSONResponse:
-    return _NOT_IMPLEMENTED
+    return JSONResponse(status_code=status.HTTP_200_OK, content=[])
 
 
 @router.get(
@@ -70,7 +70,7 @@ def get_quiz(
     quiz_id: str = Path(..., description="Quiz ID"),
     _current_user: CurrentUser = Depends(get_current_user),
 ) -> JSONResponse:
-    return _NOT_IMPLEMENTED
+    return _NOT_FOUND
 
 
 @router.post(
@@ -82,4 +82,4 @@ def submit_quiz(
     quiz_id: str = Path(..., description="Quiz ID"),
     _current_user: CurrentUser = Depends(get_current_user),
 ) -> JSONResponse:
-    return _NOT_IMPLEMENTED
+    return _NOT_FOUND

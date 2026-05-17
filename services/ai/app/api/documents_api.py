@@ -1,4 +1,5 @@
 """Documents API controller - upload, list, status, detail, preview, retry."""
+from pathlib import Path
 from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Path as PathParam, Request, UploadFile, File
@@ -19,6 +20,13 @@ from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/api", tags=["Documents"])
 
+_ALLOWED_MIME_TYPES = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
 
 @router.get(
     "/courses/{course_id}/documents",
@@ -27,7 +35,7 @@ router = APIRouter(prefix="/api", tags=["Documents"])
 def list_documents(
     course_id: str = PathParam(..., description="Course ID"),
     db: Session = Depends(get_db),
-) -> List[DocumentListItem]:
+):
     return document_service.list_documents(db, course_id)
 
 
@@ -44,9 +52,15 @@ async def upload_document(
     file: UploadFile = File(...),
     document_type: str = Form("lecture"),
     db: Session = Depends(get_db),
-) -> DocumentListItem:
-    content = file.file.read()
-    filename = file.filename or "unknown"
+):
+    if file.content_type not in _ALLOWED_MIME_TYPES:
+        raise HTTPException(status_code=415, detail="Unsupported file type. Allowed: PDF, PPTX, DOCX.")
+
+    content = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds the 50 MB size limit.")
+
+    filename = Path(file.filename or "upload").name
 
     doc = document_service.create_document(
         db,
@@ -60,7 +74,11 @@ async def upload_document(
     upload_path = UPLOADS_DIR / course_id
     upload_path.mkdir(parents=True, exist_ok=True)
     file_path = upload_path / f"{doc.id}_{filename}"
-    file_path.write_bytes(content)
+    try:
+        file_path.write_bytes(content)
+    except OSError as exc:
+        document_service.delete_document(db, doc.id)
+        raise HTTPException(status_code=500, detail="Failed to save uploaded file.") from exc
 
     arq_pool = getattr(request.app.state, "arq_pool", None)
     if arq_pool is not None:
@@ -94,7 +112,7 @@ async def reindex_document(
     background_tasks: BackgroundTasks,
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
-) -> DocumentStatusResponse:
+):
     doc = document_service.get_document(db, document_id)
     if doc is None:
         raise NotFoundError(resource="Document", identifier=document_id)
@@ -131,7 +149,7 @@ async def retry_document(
     background_tasks: BackgroundTasks,
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
-) -> DocumentStatusResponse:
+):
     doc = document_service.get_document(db, document_id)
     if doc is None:
         raise NotFoundError(resource="Document", identifier=document_id)
@@ -174,7 +192,7 @@ async def retry_document(
 def get_document_status(
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
-) -> DocumentStatusResponse:
+):
     doc = document_service.get_document(db, document_id)
     if doc is None:
         raise NotFoundError(resource="Document", identifier=document_id)
@@ -188,7 +206,7 @@ def get_document_status(
 def get_document_detail(
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
-) -> DocumentDetail:
+):
     doc = document_service.get_document(db, document_id)
     if doc is None:
         raise NotFoundError(resource="Document", identifier=document_id)
@@ -202,7 +220,7 @@ def get_document_detail(
 def get_document_preview(
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
-) -> DocumentPreview:
+):
     preview = document_service.get_preview(db, document_id)
     if preview is None:
         raise NotFoundError(resource="Document", identifier=document_id)

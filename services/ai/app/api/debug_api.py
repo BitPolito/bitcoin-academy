@@ -1,7 +1,6 @@
 """Debug API — internal visibility endpoints, active only when DEBUG_MODE=true."""
 import json
 import logging
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -12,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.repositories import document_repo
-from app.schemas.evidence_pack import EvidencePack
+from app.schemas.evidence_pack import EvidenceChunk, EvidencePack
 from app.services import evidence_pack_service
 
 logger = logging.getLogger(__name__)
@@ -21,8 +20,6 @@ router = APIRouter(prefix="/api/debug", tags=["Debug"])
 
 _HERE = Path(__file__).resolve()
 _SERVICES_AI = _HERE.parents[2]
-_INGESTER_SRC = _SERVICES_AI.parents[1] / "workers" / "python-ingester" / "src"
-_CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", str(_SERVICES_AI / "chroma_db"))
 
 
 # ---------------------------------------------------------------------------
@@ -39,23 +36,14 @@ class ChunkSummary(BaseModel):
 
 
 class RetrievalTrace(BaseModel):
-    """Complete step-by-step trace of the retrieval pipeline for one query.
-
-    Intended for developer inspection — not returned in normal chat/study API
-    responses.  Exposes raw_chunks (pre-rerank), reranked_chunks, the final
-    evidence_pack, and any chunks that were discarded by dedup/truncation.
-    """
+    """Complete step-by-step trace of the retrieval pipeline for one query."""
     query: str
     course_id: str
     action: str
     raw_chunks: list[ChunkSummary]
-    """Chunks as returned by ChromaDB, before reranking."""
     reranked_chunks: list[ChunkSummary]
-    """Chunks after cross-encoder reranking (same set, different order/scores)."""
     evidence_pack: EvidencePack
-    """Final evidence pack after dedup, boost, and token truncation."""
     discarded_chunks: list[ChunkSummary]
-    """Chunks present in reranked_chunks but absent from evidence_pack.chunks."""
 
 
 class RetrievalTestRequest(BaseModel):
@@ -121,19 +109,30 @@ def get_parsed_output(
     }
 
 
+def _bm25_to_chunks(query: str, course_id: str, top_k: int) -> list[EvidenceChunk]:
+    """Convert BM25 hits to EvidenceChunk list via rrf_fuse with no dense input."""
+    from app.services.hybrid_search import bm25_search, load_bm25_index, rrf_fuse  # noqa: PLC0415
+
+    hits = bm25_search(query, course_id, top_k=top_k)
+    if not hits:
+        return []
+    index_data = load_bm25_index(course_id)
+    corpus = index_data[2] if index_data else {}
+    return rrf_fuse([], hits, corpus, top_k=top_k)
+
+
 @router.post("/courses/{course_id}/retrieval")
 def test_retrieval(
     course_id: str = PathParam(...),
     query: str = Query(..., min_length=1),
     top_k: int = Query(default=5, ge=1, le=20),
 ) -> dict[str, Any]:
-    from app.services import retrieval_service
-
-    chunks = retrieval_service.search(query, course_id, top_k=top_k)
+    chunks = _bm25_to_chunks(query, course_id, top_k)
     return {
         "query": query,
         "course_id": course_id,
         "total": len(chunks),
+        "note": "BM25 sparse retrieval only. QVAC service required for dense+hybrid retrieval.",
         "chunks": [
             {
                 "chunk_id": c.chunk_id,
@@ -152,7 +151,8 @@ def get_evidence_pack(
     query: str = Query(..., min_length=1),
     action: str = Query(default="explain"),
 ) -> EvidencePack:
-    return evidence_pack_service.build(query, action, course_id)
+    candidates = _bm25_to_chunks(query, course_id, top_k=10)
+    return evidence_pack_service.build_from_chunks(query, action, candidates)
 
 
 @router.post(
@@ -160,25 +160,16 @@ def get_evidence_pack(
     response_model=RetrievalTrace,
     summary="Full retrieval pipeline trace (no LLM generation)",
     description=(
-        "Runs retrieval → reranking → evidence pack for the given query and returns "
-        "a complete step-by-step trace.  Useful for diagnosing retrieval quality "
-        "without invoking the LLM."
+        "Runs BM25 retrieval → reranking → evidence pack for the given query and returns "
+        "a complete step-by-step trace. Start QVAC for dense retrieval."
     ),
 )
 def test_retrieval_trace(body: RetrievalTestRequest) -> RetrievalTrace:
     """Return a full RetrievalTrace for inspection — no LLM call."""
-    from app.services import retrieval_service
-    from app.services import reranker as reranker_module
+    from app.services import reranker as reranker_module  # noqa: PLC0415
 
-    # Retrieve with no min_score filter so the trace shows all raw candidates
-    raw = retrieval_service.search(
-        body.query, body.course_id, top_k=20, min_score=0.0
-    )
-
-    # Rerank (cross-encoder if available, else noop)
+    raw = _bm25_to_chunks(body.query, body.course_id, top_k=20)
     reranked = reranker_module.rerank(body.query, raw)
-
-    # Build evidence pack (applies dedup, boost, token truncation)
     pack = evidence_pack_service.build_from_chunks(body.query, body.action, reranked)
 
     pack_ids = {c.chunk_id for c in pack.chunks}
@@ -197,25 +188,14 @@ def test_retrieval_trace(body: RetrievalTestRequest) -> RetrievalTrace:
 
 @router.get("/pipeline/health")
 def pipeline_health() -> dict[str, Any]:
-    try:
-        import chromadb
-        from chromadb.config import Settings as ChromaSettings
+    from app.services.hybrid_search import _QVAC_INGEST_DIR  # noqa: PLC0415
 
-        client = chromadb.PersistentClient(
-            path=_CHROMA_DB_PATH,
-            settings=ChromaSettings(anonymized_telemetry=False),
-        )
-        collections = client.list_collections()
-        collection_sizes = {}
-        for col in collections:
-            try:
-                collection_sizes[col.name] = client.get_collection(col.name).count()
-            except Exception:
-                collection_sizes[col.name] = -1
-        chroma_status = "ok"
-    except Exception as exc:
-        collection_sizes = {}
-        chroma_status = f"error: {exc}"
+    bm25_indexes: list[str] = []
+    if _QVAC_INGEST_DIR.exists():
+        bm25_indexes = [
+            f.stem.replace("_bm25", "")
+            for f in _QVAC_INGEST_DIR.glob("*_bm25.pkl")
+        ]
 
     uploads_dir = _SERVICES_AI / "uploads"
     uploads_size_mb = 0.0
@@ -226,9 +206,7 @@ def pipeline_health() -> dict[str, Any]:
         )
 
     return {
-        "chroma_status": chroma_status,
-        "collection_sizes": collection_sizes,
+        "bm25_indexes": bm25_indexes,
         "uploads_dir_size_mb": uploads_size_mb,
         "python_version": sys.version,
-        "chroma_db_path": _CHROMA_DB_PATH,
     }

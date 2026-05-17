@@ -1,6 +1,7 @@
 # Ignore node modules and lock files
 node_modules/
 package-lock.json
+!web/package-lock.json
 # Ignore build and dist folders
 dist/
 build/

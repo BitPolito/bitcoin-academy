@@ -2,11 +2,6 @@
   "name": "bitcoin-academy",
   "version": "0.1.0",
   "private": true,
-  "workspaces": [
-    "apps/*",
-    "services/*",
-    "workers/qvac-service"
-  ],
   "scripts": {
     "dev:web": "cd apps/web && npm run dev",
     "dev:api": "cd services/ai && npm run dev",

@@ -457,8 +457,8 @@ def test_pipeline_qvac_jsonl_contains_only_paragraph_chunks(client, db):
             rows = [json.loads(l) for l in jsonl_path.read_text().splitlines()]
             assert len(rows) > 0
             for row in rows:
-                assert row["chunk_type"] == "paragraph", (
-                    f"non-paragraph chunk found in QVAC JSONL: {row['chunk_type']}"
+                assert row["chunk_type"] in {"paragraph", "table"}, (
+                    f"unexpected chunk_type in QVAC JSONL: {row['chunk_type']}"
                 )
 
 
@@ -512,7 +512,7 @@ def test_pipeline_qvac_ingest_called_with_course_id_as_workspace(client, db):
     mock_qvac.assert_called_once()
     _, call_kwargs = mock_qvac.call_args
     assert call_kwargs["workspace"] == course.id
-    assert call_kwargs["rebuild"] is True
+    assert call_kwargs["rebuild"] is False
 
 
 @pytest.mark.slow
@@ -538,7 +538,7 @@ def test_pipeline_qvac_jsonl_has_required_fields(client, db):
     db.add(doc)
     db.commit()
 
-    required_fields = {"chunk_id", "doc_id", "course_id", "chunk_type", "text"}
+    required_fields = {"id", "doc_id", "chunk_type", "text", "parent_id"}
 
     with tempfile.TemporaryDirectory() as tmp_chroma:
         with tempfile.TemporaryDirectory() as tmp_qvac:

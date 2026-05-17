@@ -1,140 +1,98 @@
-"""Token blacklist for JWT revocation.
-
-This module provides an in-memory token blacklist for revoking JWT tokens.
-In production, this should be replaced with a Redis-based implementation
-for persistence and distributed systems support.
-"""
 import logging
+import os
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Dict, Optional, Set
+from typing import Dict, Optional
+
+import redis as _redis_module
 
 logger = logging.getLogger(__name__)
+
+_KEY_PREFIX = "bl:"
 
 
 class TokenBlacklist:
     """
-    In-memory token blacklist for JWT revocation.
+    Redis-backed token blacklist for JWT revocation.
 
-    Features:
-    - Blacklist tokens by JTI (JWT ID) or raw token hash
-    - Automatic cleanup of expired entries
-    - Thread-safe operations
-
-    Note: For production, consider using Redis for:
-    - Persistence across restarts
-    - Distributed deployment support
-    - Better memory management
+    Falls back to in-memory storage when REDIS_URL is not configured (dev only).
     """
 
-    CLEANUP_INTERVAL_SECONDS = 300  # Cleanup every 5 minutes
-
     def __init__(self):
-        # Store: token_id -> expiration_timestamp
-        self._blacklist: Dict[str, float] = {}
+        self._redis: Optional[_redis_module.Redis] = None
+        self._fallback: Dict[str, float] = {}
         self._lock = Lock()
-        self._last_cleanup = datetime.now(timezone.utc)
+        self._init_redis()
 
-    def _cleanup_expired(self) -> None:
-        """Remove expired tokens from the blacklist."""
-        now = datetime.now(timezone.utc)
-
-        # Only cleanup periodically
-        if (now - self._last_cleanup).total_seconds() < self.CLEANUP_INTERVAL_SECONDS:
+    def _init_redis(self) -> None:
+        redis_url = os.getenv("REDIS_URL")
+        if not redis_url:
+            logger.warning(
+                "TokenBlacklist: REDIS_URL not set — using in-memory storage "
+                "(not suitable for production)"
+            )
             return
-
-        self._last_cleanup = now
-        now_timestamp = now.timestamp()
-
-        # Remove expired entries
-        expired = [
-            token_id for token_id, exp in self._blacklist.items()
-            if exp < now_timestamp
-        ]
-
-        for token_id in expired:
-            del self._blacklist[token_id]
-
-        if expired:
-            logger.debug(
-                f"Cleaned up {len(expired)} expired tokens from blacklist")
+        try:
+            client = _redis_module.Redis.from_url(redis_url, decode_responses=True)
+            client.ping()
+            self._redis = client
+            logger.info("TokenBlacklist: Redis backend connected")
+        except Exception as exc:
+            logger.warning(
+                "TokenBlacklist: Redis unavailable (%s) — falling back to in-memory storage",
+                exc,
+            )
 
     def add(self, token_id: str, expires_at: datetime) -> None:
-        """
-        Add a token to the blacklist.
-
-        Args:
-            token_id: The JTI or hashed token to blacklist
-            expires_at: When the token would naturally expire
-        """
-        with self._lock:
-            self._cleanup_expired()
-            self._blacklist[token_id] = expires_at.timestamp()
-            logger.info(f"Token blacklisted: {token_id[:8]}...")
+        if self._redis is not None:
+            ttl = max(1, int((expires_at - datetime.now(timezone.utc)).total_seconds()))
+            self._redis.setex(f"{_KEY_PREFIX}{token_id}", ttl, "1")
+        else:
+            with self._lock:
+                self._fallback[token_id] = expires_at.timestamp()
+        logger.info("Token blacklisted: %s...", token_id[:8])
 
     def is_blacklisted(self, token_id: str) -> bool:
-        """
-        Check if a token is blacklisted.
-
-        Args:
-            token_id: The JTI or hashed token to check
-
-        Returns:
-            True if the token is blacklisted
-        """
+        if self._redis is not None:
+            return bool(self._redis.exists(f"{_KEY_PREFIX}{token_id}"))
         with self._lock:
-            self._cleanup_expired()
-
-            if token_id not in self._blacklist:
+            exp = self._fallback.get(token_id)
+            if exp is None:
                 return False
-
-            # Check if still valid (not expired)
-            exp = self._blacklist[token_id]
             if exp < datetime.now(timezone.utc).timestamp():
-                # Expired, remove and return False
-                del self._blacklist[token_id]
+                del self._fallback[token_id]
                 return False
-
             return True
 
     def remove(self, token_id: str) -> bool:
-        """
-        Remove a token from the blacklist.
-
-        Args:
-            token_id: The JTI or hashed token to remove
-
-        Returns:
-            True if the token was in the blacklist
-        """
+        if self._redis is not None:
+            return bool(self._redis.delete(f"{_KEY_PREFIX}{token_id}"))
         with self._lock:
-            if token_id in self._blacklist:
-                del self._blacklist[token_id]
-                return True
-            return False
+            return self._fallback.pop(token_id, None) is not None
 
     def size(self) -> int:
-        """Get the current number of blacklisted tokens."""
+        if self._redis is not None:
+            return sum(1 for _ in self._redis.scan_iter(f"{_KEY_PREFIX}*"))
         with self._lock:
-            self._cleanup_expired()
-            return len(self._blacklist)
+            now = datetime.now(timezone.utc).timestamp()
+            return sum(1 for exp in self._fallback.values() if exp >= now)
 
     def clear(self) -> None:
-        """Clear all blacklisted tokens (useful for testing)."""
-        with self._lock:
-            self._blacklist.clear()
-            logger.warning("Token blacklist cleared")
+        if self._redis is not None:
+            for key in self._redis.scan_iter(f"{_KEY_PREFIX}*"):
+                self._redis.delete(key)
+        else:
+            with self._lock:
+                self._fallback.clear()
+        logger.warning("Token blacklist cleared")
 
 
-# Global token blacklist instance
 token_blacklist = TokenBlacklist()
 
 
 def blacklist_token(token_id: str, expires_at: datetime) -> None:
-    """Convenience function to blacklist a token."""
     token_blacklist.add(token_id, expires_at)
 
 
 def is_token_blacklisted(token_id: str) -> bool:
-    """Convenience function to check if a token is blacklisted."""
     return token_blacklist.is_blacklisted(token_id)

@@ -76,6 +76,7 @@ export function toDocumentPreviewView(item: ApiDocumentPreview): DocumentPreview
     filename: item.filename,
     extractedTextPreview: item.extracted_text_preview,
     pageCount: item.page_count,
+    chunkCount: item.chunk_count,
     sections: item.sections,
     sampleChunks: item.sample_chunks,
   };
