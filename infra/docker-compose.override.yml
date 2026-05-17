@@ -1,7 +1,7 @@
 # Development overrides — merged automatically by `docker compose up`.
 # Adds source-code volume mounts for hot reload and exposes internal ports
 # for direct access (bypassing Caddy).
-# DO NOT use in production: `docker compose -f docker-compose.yml up`
+# DO NOT use in production: `docker compose -f infra/docker-compose.yml up`
 
 services:
   postgres:
@@ -20,20 +20,20 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./services/ai:/app
+      - ../services/ai:/app
       - qvac_ingest:/qvac_ingest
     environment:
       - ENVIRONMENT=development
 
   arq-worker:
     volumes:
-      - ./services/ai:/app
+      - ../services/ai:/app
       - qvac_ingest:/qvac_ingest
 
   web:
     ports:
       - "3000:3000"
     volumes:
-      - ./apps/web:/app
+      - ../apps/web:/app
       - /app/node_modules
       - /app/.next

@@ -1,7 +1,8 @@
 # Production-ready base configuration.
 # Development overrides (source mounts, exposed ports, hot reload) live in
 # docker-compose.override.yml, which Docker Compose merges automatically.
-# To run production-only: docker compose -f docker-compose.yml up
+# Run from repo root: docker compose -f infra/docker-compose.yml up
+# Production-only:    docker compose -f infra/docker-compose.yml --profile prod up
 
 services:
   postgres:
@@ -25,7 +26,7 @@ services:
           cpus: '0.5'
 
   qvac:
-    build: ./workers/qvac-service
+    build: ../workers/qvac-service
     restart: unless-stopped
     volumes:
       - qvac_data:/app/hyperdb
@@ -62,12 +63,12 @@ services:
 
   api:
     build:
-      context: ./services/ai
+      context: ../services/ai
     restart: unless-stopped
     volumes:
       - qvac_ingest:/qvac_ingest
     env_file:
-      - ./services/ai/.env
+      - ../services/ai/.env
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - ENVIRONMENT=${ENVIRONMENT:-production}
@@ -90,13 +91,13 @@ services:
 
   arq-worker:
     build:
-      context: ./services/ai
+      context: ../services/ai
     command: arq app.workers.arq_worker.WorkerSettings
     restart: unless-stopped
     volumes:
       - qvac_ingest:/qvac_ingest
     env_file:
-      - ./services/ai/.env
+      - ../services/ai/.env
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - QVAC_SERVICE_URL=http://qvac:3001
@@ -123,10 +124,10 @@ services:
 
   web:
     build:
-      context: ./apps/web
+      context: ../apps/web
     restart: unless-stopped
     env_file:
-      - ./apps/web/.env.local
+      - ../apps/web/.env.local
     environment:
       - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
       - API_BASE_URL=http://api:8000/api

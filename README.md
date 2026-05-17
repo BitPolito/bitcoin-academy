@@ -35,14 +35,14 @@ echo "DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bi
 cp services/ai/.env.example services/ai/.env
 cp apps/web/.env.example     apps/web/.env.local
 
-# 3. Start everything
-docker compose up --build
+# 3. Start everything (dev — includes hot-reload overrides)
+docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml up --build
 ```
 
-`docker compose up` automatically merges `docker-compose.yml` with `docker-compose.override.yml`, which adds source mounts, hot reload, and exposed ports. To run the production base without the dev overrides:
+The override file adds source mounts, hot reload, and exposed ports. To run the production base without it:
 
 ```bash
-docker compose -f docker-compose.yml up --build
+docker compose -f infra/docker-compose.yml up --build
 ```
 
 | Service | Dev URL |
@@ -169,7 +169,7 @@ CI runs on every push and pull request to `main` and `rag` via GitHub Actions (`
 | Document stuck in `processing` forever | Redis not running → ARQ worker not started | `redis-server --daemonize yes`, then start the ARQ worker |
 | Frontend CORS error | `CORS_ORIGINS` missing the frontend origin | Add the frontend URL to `CORS_ORIGINS` in `services/ai/.env` |
 | Chat returns "Il servizio di ricerca non è disponibile" | QVAC service not running | `cd workers/qvac-service && node src/server.js` |
-| SSR API calls fail in Docker (`ECONNREFUSED localhost:8000`) | Next.js server-side calls resolve to the wrong host | `docker-compose.yml` sets `API_BASE_URL=http://api:8000/api` for SSR; make sure the web container env is current |
+| SSR API calls fail in Docker (`ECONNREFUSED localhost:8000`) | Next.js server-side calls resolve to the wrong host | `infra/docker-compose.yml` sets `API_BASE_URL=http://api:8000/api` for SSR; make sure the web container env is current |
 
 ---
 

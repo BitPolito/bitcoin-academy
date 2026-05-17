@@ -126,5 +126,17 @@ python_functions = ["test_*"]
 addopts = "-v --cov=app --cov-report=html --cov-report=term-missing"
 asyncio_mode = "auto"
 
-# Configuration files are stored in config/ directory
-# See config/pytest.ini, config/mypy.ini, config/setup.cfg
+[tool.coverage.run]
+source = ["app"]
+omit = ["*/tests/*", "*/site-packages/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstract",
+]
