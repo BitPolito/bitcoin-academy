@@ -24,6 +24,9 @@ interface FetchOptions extends Omit<RequestInit, 'body'> {
 }
 
 async function handleResponse<T>(response: Response): Promise<T> {
+  if (response.status === 429) {
+    throw new ApiError(429, 'Troppe richieste — riprova tra qualche secondo');
+  }
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
     throw new ApiError(

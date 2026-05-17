@@ -1,29 +1,12 @@
-"""Certificates API controller - issue and verify certificates."""
-from typing import Optional
-
+"""Certificates API — coming soon placeholder."""
 from fastapi import APIRouter, Depends, Path
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
 from app.middleware.auth import CurrentUser, get_current_user
 
 router = APIRouter(prefix="/api", tags=["Certificates"])
 
-
-class CertificateSummary(BaseModel):
-    id: str
-    course_id: str
-    issued_at: str
-    code: str
-    grade_pct: Optional[int]
-    hours: Optional[int]
-
-
-class CertificateVerification(BaseModel):
-    valid: bool
-    course_id: Optional[str]
-    issued_at: Optional[str]
-    code: str
+_COMING_SOON = "Certificate feature coming soon."
 
 
 @router.get(
@@ -33,7 +16,10 @@ class CertificateVerification(BaseModel):
 def list_my_certificates(
     _current_user: CurrentUser = Depends(get_current_user),
 ) -> JSONResponse:
-    return JSONResponse(status_code=200, content=[])
+    return JSONResponse(
+        status_code=200,
+        content={"items": [], "coming_soon": True, "message": _COMING_SOON},
+    )
 
 
 @router.get(
@@ -45,5 +31,5 @@ def verify_certificate(
 ) -> JSONResponse:
     return JSONResponse(
         status_code=200,
-        content={"valid": False, "code": code, "course_id": None, "issued_at": None},
+        content={"valid": False, "code": code, "coming_soon": True, "message": _COMING_SOON},
     )

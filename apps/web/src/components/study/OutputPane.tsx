@@ -217,6 +217,27 @@ const NEXT_ACTIONS: Array<{ action: StudyAction; glyph: string; label: string }>
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+const STORAGE_PREFIX = 'study:';
+const STORAGE_MAX_MESSAGES = 20;
+
+function loadStoredMessages(courseId: string): Message[] {
+  try {
+    const raw = localStorage.getItem(`${STORAGE_PREFIX}${courseId}`);
+    return raw ? (JSON.parse(raw) as Message[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMessages(courseId: string, msgs: Message[]) {
+  try {
+    const toSave = msgs.slice(-STORAGE_MAX_MESSAGES);
+    localStorage.setItem(`${STORAGE_PREFIX}${courseId}`, JSON.stringify(toSave));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export function OutputPane({
   courseId,
   accessToken,
@@ -226,7 +247,8 @@ export function OutputPane({
   initialAction = null,
   onActionResult,
 }: OutputPaneProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(() => loadStoredMessages(courseId));
+  const [sessionRestored, setSessionRestored] = useState(() => loadStoredMessages(courseId).length > 0);
   const [input, setInput] = useState(initialQuery);
   const [loading, setLoading] = useState(false);
   const [activeAction, setActiveAction] = useState<StudyAction | null>(null);
@@ -247,6 +269,10 @@ export function OutputPane({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
+  useEffect(() => {
+    if (messages.length > 0) saveMessages(courseId, messages);
+  }, [courseId, messages]);
+
   // Last action result for drawers
   const lastActionResult = [...messages]
     .reverse()
@@ -266,6 +292,7 @@ export function OutputPane({
     setLoading(true);
     setActiveAction(null);
     setRetryQuestion(null);
+    setSessionRestored(false);
 
     // Add user + empty assistant messages atomically; capture assistant index inside
     // the updater to avoid stale closure values in concurrent-mode React (A6).
@@ -335,6 +362,7 @@ export function OutputPane({
     const query = queryOverride || input.trim() || selectedLesson?.title || 'this course material';
     setLoading(true);
     setActiveAction(action);
+    setSessionRestored(false);
     setMessages((prev) => [...prev, { role: 'user', content: `[${action}] ${query}` }]);
     const t0 = Date.now();
     try {
@@ -440,6 +468,23 @@ export function OutputPane({
 
       {/* Message thread */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 ws-scroll">
+        {/* Session restored banner */}
+        {sessionRestored && messages.length > 0 && (
+          <div className="flex items-center gap-3 b-thin rounded-md px-3 py-2 font-mono text-[11px] opacity-70">
+            <span>Sessione precedente ripristinata</span>
+            <button
+              onClick={() => {
+                setMessages([]);
+                setSessionRestored(false);
+                localStorage.removeItem(`${STORAGE_PREFIX}${courseId}`);
+              }}
+              className="ml-auto underline hover:opacity-100"
+            >
+              Ricomincia da zero
+            </button>
+          </div>
+        )}
+
         {/* Empty states */}
         {messages.length === 0 && !hasIndexedDocs && (
           <div className="flex items-center justify-center h-full">

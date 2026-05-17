@@ -8,7 +8,9 @@
       "Bash(bash)",
       "Bash(curl -LsSf https://astral.sh/uv/install.sh)",
       "Bash(sh)",
-      "Bash(python3 -c \"import secrets; print\\(secrets.token_hex\\(32\\)\\)\")"
+      "Bash(python3 -c \"import secrets; print\\(secrets.token_hex\\(32\\)\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(npx tsc *)"
     ]
   }
 }

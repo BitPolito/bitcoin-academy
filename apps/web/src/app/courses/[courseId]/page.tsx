@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { getCourse, type Course } from '@/lib/services/courses';
@@ -34,38 +34,72 @@ const STATE_DOT: Record<string, string> = {
 };
 
 const LIFECYCLE_STAGES = ['uploading', 'processing', 'ready'] as const;
+const POLL_INTERVAL_MS = 5_000;
+const POLL_TIMEOUT_MS = 15 * 60 * 1_000;
 
-function Lifecycle({ status }: { status: string }) {
+function useElapsedMinutes(startIso: string | null): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!startIso) return;
+    const tick = () => setElapsed(Math.floor((Date.now() - new Date(startIso).getTime()) / 60_000));
+    tick();
+    const id = setInterval(tick, 30_000);
+    return () => clearInterval(id);
+  }, [startIso]);
+  return elapsed;
+}
+
+function Lifecycle({ status, processingStage, updatedAt }: { status: string; processingStage?: string; updatedAt?: string }) {
+  const isActive = status === 'processing' || status === 'uploading';
+  const elapsedMin = useElapsedMinutes(isActive ? (updatedAt ?? null) : null);
   const failed = status === 'error';
   const idx = failed ? -1 : (LIFECYCLE_STAGES as readonly string[]).indexOf(status);
   return (
-    <div className="flex items-center gap-1.5">
-      {LIFECYCLE_STAGES.map((s, i) => {
-        const done = !failed && i < idx;
-        const here = !failed && i === idx;
-        return (
-          <div key={s} className="flex items-center gap-1.5 flex-1">
-            <div
-              className={`flex-1 h-7 b-thin rounded-sm flex items-center justify-center font-mono text-[10px] tracking-[0.16em] uppercase ${
-                done
-                  ? 'bg-blue-dark text-white dark:bg-white dark:text-blue-dark'
-                  : here
-                    ? 'bg-blue-dark/10'
-                    : 'opacity-40'
-              }`}
-            >
-              {s}
+    <div>
+      <div className="flex items-center gap-1.5">
+        {LIFECYCLE_STAGES.map((s, i) => {
+          const done = !failed && i < idx;
+          const here = !failed && i === idx;
+          return (
+            <div key={s} className="flex items-center gap-1.5 flex-1">
+              <div
+                className={`flex-1 h-7 b-thin rounded-sm flex items-center justify-center font-mono text-[10px] tracking-[0.16em] uppercase ${
+                  done
+                    ? 'bg-blue-dark text-white dark:bg-white dark:text-blue-dark'
+                    : here
+                      ? 'bg-blue-dark/10'
+                      : 'opacity-40'
+                }`}
+              >
+                {s}
+              </div>
+              {i < LIFECYCLE_STAGES.length - 1 && (
+                <span className="opacity-40 mono text-[10px]">›</span>
+              )}
             </div>
-            {i < LIFECYCLE_STAGES.length - 1 && (
-              <span className="opacity-40 mono text-[10px]">›</span>
-            )}
-          </div>
-        );
-      })}
-      {failed && (
-        <span className="ml-2 chip" style={{ color: '#b3261e', border: '1px solid #b3261e' }}>
-          FAILED
-        </span>
+          );
+        })}
+        {failed && (
+          <span className="ml-2 chip" style={{ color: '#b3261e', border: '1px solid #b3261e' }}>
+            FAILED
+          </span>
+        )}
+      </div>
+      {isActive && (
+        <div className="mt-2 flex items-center gap-2 font-mono text-[11px] opacity-70">
+          <span
+            className="inline-block w-1.5 h-1.5 rounded-full dotpulse flex-shrink-0"
+            style={{ background: '#a55a00' }}
+          />
+          {processingStage ? (
+            <span className="uppercase tracking-[0.14em]">{processingStage}</span>
+          ) : (
+            <span>Processing…</span>
+          )}
+          {elapsedMin > 0 && (
+            <span className="opacity-60">· {elapsedMin} min</span>
+          )}
+        </div>
       )}
     </div>
   );
@@ -88,6 +122,8 @@ export default function CourseWorkspacePage() {
   const [filter, setFilter] = useState<DocFilter>('all');
   const [refreshKey, setRefreshKey] = useState(0);
   const [reindexing, setReindexing] = useState(false);
+  const [pollTimedOut, setPollTimedOut] = useState(false);
+  const pollStartRef = useRef<number | null>(null);
 
   const refreshDocuments = useCallback(() => setRefreshKey((k) => k + 1), []);
 
@@ -139,6 +175,26 @@ export default function CourseWorkspacePage() {
     }
     if (courseId) loadDocs();
   }, [courseId, accessToken, refreshKey]);
+
+  // Auto-poll every 5s while documents are processing; stop after 15 min.
+  useEffect(() => {
+    const hasActive = docs.some((d) => d.status === 'processing' || d.status === 'uploading');
+    if (!hasActive) {
+      pollStartRef.current = null;
+      return;
+    }
+    if (pollTimedOut) return;
+    if (pollStartRef.current === null) pollStartRef.current = Date.now();
+    const id = setInterval(() => {
+      if (Date.now() - (pollStartRef.current ?? Date.now()) >= POLL_TIMEOUT_MS) {
+        setPollTimedOut(true);
+        clearInterval(id);
+        return;
+      }
+      refreshDocuments();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [docs, pollTimedOut, refreshDocuments]);
 
   if (loading) {
     return (
@@ -194,6 +250,20 @@ export default function CourseWorkspacePage() {
 
   return (
     <main className="page-fade max-w-8xl mx-auto px-6 py-6">
+      {pollTimedOut && (
+        <div
+          className="mb-4 b-thin rounded-lg px-4 py-3 font-mono text-[11px] flex items-center gap-3"
+          style={{ borderColor: '#a55a00', color: '#a55a00' }}
+        >
+          <span>L&apos;elaborazione sta richiedendo più tempo del previsto — controlla i log o riprova il documento.</span>
+          <button
+            className="ml-auto underline opacity-80 hover:opacity-100"
+            onClick={() => { setPollTimedOut(false); refreshDocuments(); }}
+          >
+            Riprendi polling
+          </button>
+        </div>
+      )}
       {/* Course header */}
       <div className="b-hard rounded-lg bg-white dark:bg-blue-dark/30 px-6 py-5 mb-5 flex items-start gap-6">
         <div className="flex-1 min-w-0">
@@ -286,10 +356,10 @@ export default function CourseWorkspacePage() {
 
           {/* Document list */}
           <div className="b-hard rounded-lg bg-white dark:bg-blue-dark/30 overflow-hidden">
-            <div className="grid grid-cols-[1fr_100px_120px_56px] gap-3 px-4 py-2.5 b-thin-b font-mono text-[10px] tracking-[0.18em] uppercase opacity-70">
+            <div className="grid grid-cols-[1fr_56px] sm:grid-cols-[1fr_100px_120px_56px] gap-3 px-4 py-2.5 b-thin-b font-mono text-[10px] tracking-[0.18em] uppercase opacity-70">
               <div>Document</div>
-              <div>Size</div>
-              <div>Status</div>
+              <div className="hidden sm:block">Size</div>
+              <div className="hidden sm:block">Status</div>
               <div />
             </div>
 
@@ -340,12 +410,11 @@ export default function CourseWorkspacePage() {
                         Lifecycle
                       </span>
                     </div>
-                    <Lifecycle status={selected.status} />
-                    {selected.processingStage && (
-                      <div className="font-mono text-[11px] opacity-70 mt-2">
-                        stage · {selected.processingStage}
-                      </div>
-                    )}
+                    <Lifecycle
+                      status={selected.status}
+                      processingStage={selected.processingStage}
+                      updatedAt={selected.updatedAt}
+                    />
                   </div>
 
                   {selected.status === 'error' && selected.errorMessage && (
@@ -456,7 +525,7 @@ function DocRow({
   return (
     <div
       onClick={onSelect}
-      className={`grid grid-cols-[1fr_100px_120px_56px] gap-3 px-4 py-3 b-thin-b items-center cursor-pointer transition-colors group ${
+      className={`grid grid-cols-[1fr_56px] sm:grid-cols-[1fr_100px_120px_56px] gap-3 px-4 py-3 b-thin-b items-center cursor-pointer transition-colors group ${
         selected ? 'bg-blue-dark/8 dark:bg-white/10' : 'hover:bg-blue-dark/5 dark:hover:bg-white/5'
       }`}
     >
@@ -470,9 +539,9 @@ function DocRow({
         </div>
       </div>
 
-      <div className="font-mono text-[11px] opacity-80 tnum">{formatSize(doc.size)}</div>
+      <div className="hidden sm:block font-mono text-[11px] opacity-80 tnum">{formatSize(doc.size)}</div>
 
-      <div>
+      <div className="hidden sm:block">
         <span className="chip" style={{ color: dot, borderColor: dot, border: '1px solid' }}>
           <span
             className={`inline-block w-1.5 h-1.5 rounded-full ${animated ? 'dotpulse' : ''}`}
