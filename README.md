@@ -25,62 +25,74 @@ If you're on a machine with less than 8 GB free, set `QVAC_LLM_ENABLED=false`. T
 
 ---
 
-## Quick Start (Docker)
+## Quick Start
+
+Uses SQLite — no Postgres or Redis needed to try the platform.
 
 ```bash
-# 1. Create root .env with database credentials
-echo "DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy" > .env
-
-# 2. Copy and configure service env files
+# 1. Copy env files (defaults work as-is for a local demo)
 cp services/ai/.env.example services/ai/.env
 cp apps/web/.env.example     apps/web/.env.local
 
-# 3. Start everything (dev — includes hot-reload overrides)
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml up --build
+# 2. First-time setup and start all services
+./start.sh --setup
 ```
 
-The override file adds source mounts, hot reload, and exposed ports. To run the production base without it:
+`--setup` installs dependencies, initialises the SQLite database, and creates the demo accounts.
+On the first run QVAC downloads the embedding model (~670 MB) — expect 2–5 minutes before the
+chat becomes available. You can monitor progress with:
 
 ```bash
-docker compose -f infra/docker-compose.yml up --build
+tail -f .logs/qvac.log
 ```
 
-| Service | Dev URL |
-|---|---|
-| Frontend | http://localhost:3000 (through Caddy on :80 in prod) |
-| Backend API | http://localhost:8000 (through Caddy on /api/* in prod) |
-| Reverse proxy | http://localhost:80 |
-| QVAC service | http://localhost:3001 |
-| Interactive API docs | http://localhost:8000/docs (dev only) |
-
-Default development accounts created automatically:
+Open **http://localhost:3000** and log in:
 
 | Role | Email | Password |
 |---|---|---|
 | Admin | `admin@bitpolito.it` | `DevAdmin@2024!Secure` |
 | Student | `student@bitpolito.it` | `DevStudent@2024!Learn` |
 
+> **Document ingestion** (uploading PDFs/slides) also requires Redis and the ARQ background worker.
+> Start them separately if you want to test uploads:
+> ```bash
+> redis-server --daemonize yes
+> cd services/ai && uv run arq app.workers.arq_worker.WorkerSettings
+> ```
+
 ---
 
-## Manual Start (Development)
+## Docker (full stack)
+
+Runs Postgres, Redis, QVAC, API, frontend, and Caddy reverse proxy as containers.
 
 ```bash
-# Frontend
-cd apps/web && npm install && npm run dev
+# Copy env files
+cp services/ai/.env.example services/ai/.env
+cp apps/web/.env.example     apps/web/.env.local
 
-# Backend — run setup once, then start the server
-cd services/ai
-cp .env.example .env          # fill in SECRET_KEY at minimum
-bash setup-dev.sh             # installs deps, initialises DB, creates dev accounts
-uv run uvicorn app.main:app --reload --port 8000
+# Create root .env with the Postgres URL used by docker-compose variable substitution
+echo "DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy" > .env
 
-# Background worker (optional — requires Redis)
-redis-server --daemonize yes
-cd services/ai
-uv run arq app.workers.arq_worker.WorkerSettings
+# Start (dev mode — hot reload, ports exposed)
+docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml up --build
+```
 
-# QVAC service (downloads models on first run — 2–5 minutes)
-cd workers/qvac-service && npm install && node src/server.js
+> **First run:** QVAC downloads the embedding model (~670 MB) before it becomes healthy.
+> The `api` and `arq-worker` services wait for QVAC — allow up to 5 minutes.
+> Monitor with: `docker compose logs -f qvac`
+
+| Service | URL |
+|---|---|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| Reverse proxy (Caddy) | http://localhost:80 |
+| QVAC service | http://localhost:3001 |
+| Swagger UI | http://localhost:8000/docs |
+
+Production base only (no dev overrides):
+```bash
+docker compose -f infra/docker-compose.yml up --build
 ```
 
 ---
@@ -131,9 +143,9 @@ uv run pytest tests/unit/
 uv run pytest tests/integration/
 
 # RAG end-to-end suite
-uv run python test_rag.py                            # 35 curated queries
-uv run python test_rag.py --query "What is Bitcoin?" # single query
-uv run python test_rag.py --output results.json      # save JSON report
+uv run python tests/test_rag.py                            # 35 curated queries
+uv run python tests/test_rag.py --query "What is Bitcoin?" # single query
+uv run python tests/test_rag.py --output results.json      # save JSON report
 
 # Frontend
 cd apps/web && npm test

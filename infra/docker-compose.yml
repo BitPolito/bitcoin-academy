@@ -36,9 +36,10 @@ services:
       - QVAC_INGEST_DIR=/qvac_ingest
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
     deploy:
       resources:
         limits:
