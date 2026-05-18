@@ -34,6 +34,7 @@ const STATE_DOT: Record<string, string> = {
 };
 
 const LIFECYCLE_STAGES = ['uploading', 'processing', 'ready'] as const;
+const PROCESSING_SUBSTAGES = ['parsing', 'chunking', 'indexing'] as const;
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 15 * 60 * 1_000;
 
@@ -54,8 +55,14 @@ function Lifecycle({ status, processingStage, updatedAt }: { status: string; pro
   const elapsedMin = useElapsedMinutes(isActive ? (updatedAt ?? null) : null);
   const failed = status === 'error';
   const idx = failed ? -1 : (LIFECYCLE_STAGES as readonly string[]).indexOf(status);
+
+  const subIdx = processingStage
+    ? (PROCESSING_SUBSTAGES as readonly string[]).indexOf(processingStage)
+    : -1;
+
   return (
     <div>
+      {/* Top-level lifecycle: uploading → processing → ready */}
       <div className="flex items-center gap-1.5">
         {LIFECYCLE_STAGES.map((s, i) => {
           const done = !failed && i < idx;
@@ -85,20 +92,63 @@ function Lifecycle({ status, processingStage, updatedAt }: { status: string; pro
           </span>
         )}
       </div>
-      {isActive && (
+
+      {/* Sub-stage stepper — visible while processing */}
+      {status === 'processing' && (
+        <div className="mt-3">
+          <div className="flex items-center gap-1">
+            {PROCESSING_SUBSTAGES.map((sub, i) => {
+              const subDone = i < subIdx;
+              const subHere = i === subIdx;
+              return (
+                <div key={sub} className="flex items-center gap-1 flex-1">
+                  <div
+                    className={`flex-1 h-5 rounded-sm flex items-center justify-center font-mono text-[9px] tracking-[0.14em] uppercase transition-all ${
+                      subDone
+                        ? 'bg-blue-dark/60 text-white dark:bg-white/60 dark:text-blue-dark'
+                        : subHere
+                          ? 'bg-blue-dark/15 dotpulse-border'
+                          : 'b-thin opacity-30'
+                    }`}
+                    style={subHere ? { border: '1px solid rgba(0,28,224,0.35)' } : undefined}
+                  >
+                    {subHere && (
+                      <span
+                        className="inline-block w-1 h-1 rounded-full dotpulse mr-1 flex-shrink-0"
+                        style={{ background: '#a55a00' }}
+                      />
+                    )}
+                    {sub}
+                  </div>
+                  {i < PROCESSING_SUBSTAGES.length - 1 && (
+                    <span className="opacity-30 mono text-[9px]">›</span>
+                  )}
+                </div>
+              );
+            })}
+            <div className="flex items-center gap-1 flex-1">
+              <span className="opacity-30 mono text-[9px]">›</span>
+              <div className="flex-1 h-5 b-thin rounded-sm flex items-center justify-center font-mono text-[9px] tracking-[0.14em] uppercase opacity-30">
+                ready
+              </div>
+            </div>
+          </div>
+          <div className="mt-1.5 flex items-center gap-2 font-mono text-[10px] opacity-60">
+            <span>{processingStage ? processingStage.charAt(0).toUpperCase() + processingStage.slice(1) + '…' : 'Processing…'}</span>
+            {elapsedMin > 0 && <span className="opacity-70">· {elapsedMin} min elapsed</span>}
+          </div>
+        </div>
+      )}
+
+      {/* Uploading state */}
+      {status === 'uploading' && (
         <div className="mt-2 flex items-center gap-2 font-mono text-[11px] opacity-70">
           <span
             className="inline-block w-1.5 h-1.5 rounded-full dotpulse flex-shrink-0"
             style={{ background: '#a55a00' }}
           />
-          {processingStage ? (
-            <span className="uppercase tracking-[0.14em]">{processingStage}</span>
-          ) : (
-            <span>Processing…</span>
-          )}
-          {elapsedMin > 0 && (
-            <span className="opacity-60">· {elapsedMin} min</span>
-          )}
+          <span>Uploading…</span>
+          {elapsedMin > 0 && <span className="opacity-60">· {elapsedMin} min</span>}
         </div>
       )}
     </div>
@@ -370,9 +420,20 @@ export default function CourseWorkspacePage() {
                 ))}
               </div>
             ) : filtered.length === 0 ? (
-              <div className="p-10 text-center font-mono text-[11px] opacity-60">
-                {filter === 'all' ? 'No documents uploaded yet.' : 'No documents in this view.'}
-              </div>
+              filter === 'all' ? (
+                <div className="p-10 text-center">
+                  <div className="mx-auto w-10 h-10 b-thin rounded-md mb-4 stripes" />
+                  <p className="font-medium mb-1">Nessun documento ancora</p>
+                  <p className="font-mono text-[11px] opacity-60 leading-relaxed mb-4 max-w-xs mx-auto">
+                    Trascina un file PDF, PPTX, MD o TXT nell&apos;area sopra — o clicca per selezionarlo.
+                    Academy lo indicizza e lo rende interrogabile dall&apos;AI tutor.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-10 text-center font-mono text-[11px] opacity-60">
+                  Nessun documento in questa vista.
+                </div>
+              )
             ) : (
               filtered.map((doc) => (
                 <DocRow

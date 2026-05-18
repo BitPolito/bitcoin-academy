@@ -171,14 +171,18 @@ def root():
 
 
 @app.get("/health", tags=["Health"])
-def health_check():
-    """Health check endpoint with database connectivity test."""
-    health_status = {
+async def health_check():
+    """Health check endpoint — tests DB, QVAC reachability, and cache mode."""
+    import httpx as _httpx
+
+    health_status: dict = {
         "status": "healthy",
         "database": "unknown",
+        "qvac": "unknown",
+        "cache": "unknown",
     }
 
-    # Check database connectivity
+    # ── Database ──────────────────────────────────────────────────
     try:
         gen = get_db()
         db = next(gen)
@@ -188,8 +192,23 @@ def health_check():
         finally:
             gen.close()
     except Exception as e:
-        logger.error(f"Database health check failed: {e}")
+        logger.error("Database health check failed: %s", e)
         health_status["database"] = "disconnected"
         health_status["status"] = "degraded"
+
+    # ── QVAC ─────────────────────────────────────────────────────
+    qvac_url = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
+    try:
+        async with _httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{qvac_url}/health")
+            health_status["qvac"] = "connected" if resp.status_code < 400 else "unreachable"
+    except Exception:
+        health_status["qvac"] = "unreachable"
+
+    if health_status["qvac"] == "unreachable":
+        health_status["status"] = "degraded"
+
+    # ── Cache ─────────────────────────────────────────────────────
+    health_status["cache"] = "redis" if os.getenv("REDIS_URL") else "in-memory"
 
     return health_status

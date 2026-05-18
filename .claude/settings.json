@@ -10,7 +10,8 @@
       "Bash(sh)",
       "Bash(python3 -c \"import secrets; print\\(secrets.token_hex\\(32\\)\\)\")",
       "Bash(python3 -c ' *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(chmod +x \"/Volumes/TOSHIBA EXT/BitPolito/Academy/bitcoin-academy/scripts/seed_demo.sh\")"
     ]
   }
 }

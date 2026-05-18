@@ -11,14 +11,10 @@ interface FormErrors {
   general?: string;
 }
 
-const inputBase =
-  'appearance-none block w-full px-3 py-2 border rounded-md bg-white dark:bg-[#0a0a0a] text-[#001CE0] dark:text-white placeholder-[rgba(0,28,224,0.25)] dark:placeholder-white/25 focus:outline-none focus:ring-1 focus:ring-blue-dark focus:border-blue-dark sm:text-sm transition-colors';
-
-const inputBorder = 'border-[rgba(0,28,224,0.18)] dark:border-[rgba(255,255,255,0.22)]';
-const inputBorderErr = 'border-err dark:border-red-400';
-
-const labelClass =
-  'block font-mono text-[11px] tracking-wide uppercase text-[#001CE0]/70 dark:text-white/60';
+const inputBase = 'form-input';
+const inputBorder = 'form-input-border';
+const inputBorderErr = 'form-input-border-err';
+const labelClass = 'form-label';
 
 function LoginForm() {
   const router = useRouter();
@@ -63,9 +59,11 @@ function LoginForm() {
       });
       if (result?.error) {
         const friendlyError =
-          result.error === 'CredentialsSignin'
-            ? 'Invalid email or password. Please try again.'
-            : 'An unexpected error occurred. Please try again.';
+          result.error === 'TooManyRequests'
+            ? 'Troppe richieste — riprova tra qualche secondo.'
+            : result.error === 'CredentialsSignin'
+              ? 'Invalid email or password. Please try again.'
+              : 'An unexpected error occurred. Please try again.';
         setErrors({ general: friendlyError });
       } else if (result?.ok) {
         router.push(callbackUrl);

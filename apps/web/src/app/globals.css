@@ -134,6 +134,7 @@ button { transition: all 0.18s ease; }
   box-shadow: 4px 4px 0 0 #001CE0;
   transform: translate(-2px, -2px);
 }
+.btn-primary:active:not(:disabled) { transform: scale(0.95); filter: brightness(0.90); }
 .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
 .dark .btn-primary { background: #fff; color: #001CE0; border-color: #fff; }
 .dark .btn-primary:hover:not(:disabled) { box-shadow: 4px 4px 0 0 #fff; }
@@ -149,6 +150,7 @@ button { transition: all 0.18s ease; }
   box-shadow: 4px 4px 0 0 #001CE0;
   transform: translate(-2px, -2px);
 }
+.btn-ghost:active:not(:disabled) { transform: scale(0.95); filter: brightness(0.90); }
 .btn-ghost:disabled { opacity: 0.45; cursor: not-allowed; }
 .dark .btn-ghost { color: #fff; border-color: #fff; }
 .dark .btn-ghost:hover:not(:disabled) { box-shadow: 4px 4px 0 0 #fff; }
@@ -205,6 +207,44 @@ button { transition: all 0.18s ease; }
 .md-prose pre code { background: none; padding: 0; font-size: 0.88em; }
 .md-prose hr { border: none; border-top: 1px solid rgba(0,28,224,0.18); margin: 1em 0; }
 .dark .md-prose hr { border-top-color: rgba(255,255,255,0.18); }
+
+/* ── Auth form shared classes ───────────────────────────────────── */
+.form-label {
+  display: block;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(0, 28, 224, 0.70);
+}
+.dark .form-label { color: rgba(255, 255, 255, 0.60); }
+
+.form-input {
+  appearance: none;
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  background: #fff;
+  color: #001CE0;
+  font-size: 0.875rem;
+  transition: color 0.15s, border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+.dark .form-input { background: #0a0a0a; color: #fff; }
+.form-input::placeholder { color: rgba(0, 28, 224, 0.25); }
+.dark .form-input::placeholder { color: rgba(255, 255, 255, 0.25); }
+.form-input:focus {
+  box-shadow: 0 0 0 1px #001CE0;
+  border-color: #001CE0;
+}
+.dark .form-input:focus { box-shadow: 0 0 0 1px #ffffff; border-color: #ffffff; }
+
+.form-input-border { border: 1px solid rgba(0, 28, 224, 0.18); }
+.dark .form-input-border { border-color: rgba(255, 255, 255, 0.22); }
+
+.form-input-border-err { border-color: #b3261e; }
+.dark .form-input-border-err { border-color: #f87171; }
 
 /* ── Corner tick decoration ─────────────────────────────────────── */
 .tick-corners { position: relative; }

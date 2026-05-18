@@ -15,14 +15,10 @@ interface FormErrors {
   general?: string;
 }
 
-const inputBase =
-  'appearance-none block w-full px-3 py-2 border rounded-md bg-white dark:bg-[#0a0a0a] text-[#001CE0] dark:text-white placeholder-[rgba(0,28,224,0.25)] dark:placeholder-white/25 focus:outline-none focus:ring-1 focus:ring-blue-dark focus:border-blue-dark sm:text-sm transition-colors';
-
-const inputBorder = 'border-[rgba(0,28,224,0.18)] dark:border-[rgba(255,255,255,0.22)]';
-const inputBorderErr = 'border-err dark:border-red-400';
-
-const labelClass =
-  'block font-mono text-[11px] tracking-wide uppercase text-[#001CE0]/70 dark:text-white/60';
+const inputBase = 'form-input';
+const inputBorder = 'form-input-border';
+const inputBorderErr = 'form-input-border-err';
+const labelClass = 'form-label';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -91,7 +87,9 @@ export default function SignupPage() {
           ? error.detail.map((e: { msg: string }) => e.msg).join('. ')
           : (error.detail as string | undefined);
 
-        if (registerResponse.status === 409) {
+        if (registerResponse.status === 429) {
+          setErrors({ general: 'Troppe richieste — riprova tra qualche secondo.' });
+        } else if (registerResponse.status === 409) {
           setErrors({ email: 'A user with this email already exists' });
         } else if (registerResponse.status === 400 || registerResponse.status === 422) {
           setErrors({ general: detail || 'Invalid input data' });

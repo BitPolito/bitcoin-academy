@@ -326,6 +326,8 @@ export function OutputPane({
         history,
       );
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : '';
+      const is429 = errMsg.includes('Troppe richieste');
       // Append error notice after any tokens already streamed (A9).
       setMessages((prev) =>
         prev.map((m, mi) =>
@@ -334,12 +336,12 @@ export function OutputPane({
                 ...m,
                 content:
                   (m.content ? m.content + '\n\n' : '') +
-                  (err instanceof Error ? `⚠ ${err.message}` : '⚠ Could not complete response.'),
+                  (errMsg ? `⚠ ${errMsg}` : '⚠ Could not complete response.'),
               }
             : m
         )
       );
-      showToast('Connection lost — try again.', 'warn');
+      showToast(is429 ? 'Troppe richieste — riprova tra qualche secondo.' : 'Connection lost — try again.', 'warn');
       setRetryQuestion(question);
     } finally {
       setLoading(false);
@@ -375,12 +377,13 @@ export function OutputPane({
       if (result.citations.length > 0) setShowEvidence(true);
       onActionResult?.(result, selectedLesson ?? null);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Study action failed.';
+      if (err instanceof Error && msg.includes('Troppe richieste')) {
+        showToast('Troppe richieste — riprova tra qualche secondo.', 'warn');
+      }
       setMessages((prev) => [
         ...prev,
-        {
-          role: 'assistant',
-          content: err instanceof Error ? `Error: ${err.message}` : 'Study action failed.',
-        },
+        { role: 'assistant', content: `Error: ${msg}` },
       ]);
     } finally {
       setLoading(false);
