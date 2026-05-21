@@ -22,6 +22,7 @@ describe('OutputPane', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    localStorage.clear();
   });
 
   describe('initial render', () => {

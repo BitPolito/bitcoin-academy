@@ -19,6 +19,11 @@ class CreateCourseBody(BaseModel):
     description: str | None = Field(default=None, max_length=500)
 
 
+class UpdateCourseBody(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=500)
+
+
 class ReindexResponse(BaseModel):
     enqueued: int
     skipped: int
@@ -61,6 +66,49 @@ def get_course(
     if result is None:
         raise NotFoundError(resource="Course", identifier=course_id)
     return result
+
+
+@router.patch("/courses/{course_id}", response_model=CourseSchema)
+def update_course(
+    body: UpdateCourseBody,
+    course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
+    db: Session = Depends(get_db),
+):
+    """Update course title and description."""
+    try:
+        UUID(course_id)
+    except ValueError:
+        raise ValidationError_(
+            message="Invalid course ID format. Expected UUID.",
+            details={"course_id": course_id},
+        )
+
+    result = course_service.update_course(
+        db, course_id=course_id, title=body.title, description=body.description
+    )
+    if result is None:
+        raise NotFoundError(resource="Course", identifier=course_id)
+    return result
+
+
+@router.delete("/courses/{course_id}")
+def delete_course(
+    course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
+    db: Session = Depends(get_db),
+):
+    """Delete a course and all its documents."""
+    try:
+        UUID(course_id)
+    except ValueError:
+        raise ValidationError_(
+            message="Invalid course ID format. Expected UUID.",
+            details={"course_id": course_id},
+        )
+
+    deleted = course_service.delete_course(db, course_id)
+    if not deleted:
+        raise NotFoundError(resource="Course", identifier=course_id)
+    return {"message": "Course deleted"}
 
 
 @router.get("/courses/{course_id}/lessons", response_model=List[LessonSchema])

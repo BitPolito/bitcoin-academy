@@ -25,3 +25,13 @@ def get_lesson(db: Session, lesson_id: str) -> Optional[Lesson]:
 
 def create_course(db: Session, title: str, description: Optional[str] = None) -> Course:
     return course_repo.create_course(db, title=title, description=description)
+
+
+def update_course(
+    db: Session, course_id: str, title: str, description: Optional[str] = None
+) -> Optional[Course]:
+    return course_repo.update_course(db, course_id=course_id, title=title, description=description)
+
+
+def delete_course(db: Session, course_id: str) -> bool:
+    return course_repo.delete_course(db, course_id)

@@ -7,7 +7,20 @@ import { useSession } from 'next-auth/react';
 import { getDocumentPreviewView } from '@/lib/api/documents';
 import type { DocumentPreviewView, ApiPreviewChunk } from '@/lib/api/types';
 
+// Browser-accessible API base (NEXT_PUBLIC only — never the server-internal URL).
+const BROWSER_API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  (process.env.NEXT_PUBLIC_API_URL
+    ? `${process.env.NEXT_PUBLIC_API_URL}/api`
+    : 'http://localhost:8000/api');
+
+type ViewMode = 'chunks' | 'pdf';
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function isPdfFilename(name: string) {
+  return name.toLowerCase().endsWith('.pdf');
+}
 
 function uniqueSections(chunks: ApiPreviewChunk[]): { name: string; firstIndex: number }[] {
   const seen = new Map<string, number>();
@@ -25,6 +38,22 @@ function Spinner() {
     <div className="h-[calc(100vh-48px)] flex items-center justify-center">
       <div className="w-5 h-5 rounded-full border-2 border-blue-dark border-t-transparent animate-spin" />
     </div>
+  );
+}
+
+// ── PDF pane ──────────────────────────────────────────────────────────────────
+
+function PdfPane({ documentId, page }: { documentId: string; page: number }) {
+  // Append #page=N for browsers that support it (Chrome, Firefox, Safari).
+  const src = `${BROWSER_API_BASE}/documents/${documentId}/file#page=${page}`;
+  return (
+    <iframe
+      key={src}
+      src={src}
+      title="PDF viewer"
+      className="w-full h-full"
+      style={{ border: 'none' }}
+    />
   );
 }
 
@@ -90,7 +119,6 @@ function ViewerPane({
   activeIndex: number;
   fallbackText: string | null;
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -117,19 +145,13 @@ function ViewerPane({
   }
 
   return (
-    <div ref={containerRef} className="h-full overflow-y-auto ws-scroll px-6 py-4 space-y-3">
+    <div className="h-full overflow-y-auto ws-scroll px-6 py-4 space-y-3">
       {chunks.map((chunk, i) => {
         const isActive = activeIndex === i;
         return (
           <div
             key={i}
-            ref={
-              isActive
-                ? (el) => {
-                    activeRef.current = el;
-                  }
-                : undefined
-            }
+            ref={isActive ? (el) => { activeRef.current = el; } : undefined}
             className={`rounded-lg px-4 py-3 transition-all ${
               isActive
                 ? 'bg-blue-dark/10 b-thin ring-1 ring-blue-dark/40 dark:ring-white/30'
@@ -214,7 +236,6 @@ function ChunkBrowser({
         </div>
       )}
 
-      {/* Quick actions — navigate to study with this section pre-loaded */}
       {chunks.length > 0 && (
         <div className="flex-shrink-0 b-thin-t p-2 space-y-1">
           <div className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-50 px-2 py-1">
@@ -260,6 +281,8 @@ function PreviewContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(pageParam - 1);
+  const [viewMode, setViewMode] = useState<ViewMode>('chunks');
+  const didSetInitialView = useRef(false);
 
   const load = useCallback(async () => {
     if (!accessToken) return;
@@ -279,7 +302,15 @@ function PreviewContent() {
     load();
   }, [load]);
 
-  // Sync ?page= to activeIndex once chunks are loaded
+  // Auto-switch to PDF view on first load for PDF files.
+  useEffect(() => {
+    if (preview && !didSetInitialView.current) {
+      didSetInitialView.current = true;
+      if (isPdfFilename(preview.filename)) setViewMode('pdf');
+    }
+  }, [preview]);
+
+  // Sync ?page= to activeIndex once chunks are loaded.
   useEffect(() => {
     if (preview?.sampleChunks) {
       const clamped = Math.min(pageParam - 1, preview.sampleChunks.length - 1);
@@ -314,6 +345,7 @@ function PreviewContent() {
 
   const chunks = preview.sampleChunks ?? [];
   const sections = uniqueSections(chunks);
+  const canShowPdf = isPdfFilename(preview.filename);
 
   return (
     <div className="h-[calc(100vh-48px)] flex flex-col">
@@ -323,18 +355,8 @@ function PreviewContent() {
           onClick={() => router.push(`/courses/${courseId}`)}
           className="flex items-center gap-1.5 font-mono text-[11px] opacity-60 hover:opacity-100 transition-opacity flex-shrink-0"
         >
-          <svg
-            className="h-3.5 w-3.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={2.5}
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"
-            />
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
           </svg>
           Back
         </button>
@@ -350,7 +372,27 @@ function PreviewContent() {
           )}
         </div>
 
-        {chunks.length > 0 && (
+        {/* View mode toggle */}
+        {canShowPdf && (
+          <div className="flex items-center gap-0.5 b-thin rounded-md p-0.5 flex-shrink-0">
+            {(['pdf', 'chunks'] as ViewMode[]).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`px-3 py-1 rounded font-mono text-[10px] tracking-[0.16em] uppercase transition-colors ${
+                  viewMode === mode
+                    ? 'bg-blue-dark text-white dark:bg-white dark:text-blue-dark'
+                    : 'opacity-60 hover:opacity-100'
+                }`}
+              >
+                {mode === 'pdf' ? 'PDF' : 'Chunks'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Chunk navigator — only in chunks mode */}
+        {viewMode === 'chunks' && chunks.length > 0 && (
           <div className="flex items-center gap-1 font-mono text-[11px] opacity-60 flex-shrink-0">
             <button
               onClick={() => setActiveIndex((i) => Math.max(0, i - 1))}
@@ -375,31 +417,37 @@ function PreviewContent() {
         )}
       </div>
 
-      {/* 3-pane body */}
-      <div className="flex-1 min-h-0 grid grid-cols-12 bg-white dark:bg-blue-dark/20">
-        <div className="col-span-3">
-          <OutlinePane
-            sections={sections}
-            activeChunkIndex={activeIndex}
-            onSelect={setActiveIndex}
-          />
+      {/* Body */}
+      {viewMode === 'pdf' ? (
+        <div className="flex-1 min-h-0">
+          <PdfPane documentId={documentId} page={pageParam} />
         </div>
-        <div className="col-span-6">
-          <ViewerPane
-            chunks={chunks}
-            activeIndex={activeIndex}
-            fallbackText={preview.extractedTextPreview}
-          />
+      ) : (
+        <div className="flex-1 min-h-0 grid grid-cols-12 bg-white dark:bg-blue-dark/20">
+          <div className="col-span-3">
+            <OutlinePane
+              sections={sections}
+              activeChunkIndex={activeIndex}
+              onSelect={setActiveIndex}
+            />
+          </div>
+          <div className="col-span-6">
+            <ViewerPane
+              chunks={chunks}
+              activeIndex={activeIndex}
+              fallbackText={preview.extractedTextPreview}
+            />
+          </div>
+          <div className="col-span-3">
+            <ChunkBrowser
+              chunks={chunks}
+              activeIndex={activeIndex}
+              onSelect={setActiveIndex}
+              courseId={courseId}
+            />
+          </div>
         </div>
-        <div className="col-span-3">
-          <ChunkBrowser
-            chunks={chunks}
-            activeIndex={activeIndex}
-            onSelect={setActiveIndex}
-            courseId={courseId}
-          />
-        </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -19,6 +19,7 @@ import { BadgeDisplay } from '@/components/ui/BadgeDisplay';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { Spinner } from '@/components/ui/Spinner';
 import { issueCertificate, type Certificate } from '@/lib/services/certificates';
+import { fetchHealthStatus } from '@/lib/services/health';
 
 export default function StudyPage() {
   const params = useParams();
@@ -44,6 +45,7 @@ export default function StudyPage() {
     result: ApiStudyResponse;
     lesson: Lesson | null;
   } | null>(null);
+  const [qvacDown, setQvacDown] = useState(false);
 
   const activeCitationDocIds = useMemo(() => {
     if (!lastActionResult) return new Set<string>();
@@ -56,6 +58,22 @@ export default function StudyPage() {
 
   const handleActionResult = useCallback((result: ApiStudyResponse, lesson: Lesson | null) => {
     setLastActionResult({ result, lesson });
+  }, []);
+
+  // Poll /health every 30 s; show banner when QVAC is unreachable.
+  useEffect(() => {
+    let cancelled = false;
+    async function check() {
+      try {
+        const h = await fetchHealthStatus();
+        if (!cancelled) setQvacDown(h.qvac === 'unreachable');
+      } catch {
+        if (!cancelled) setQvacDown(true);
+      }
+    }
+    check();
+    const id = setInterval(check, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
   }, []);
 
   useEffect(() => {
@@ -138,6 +156,21 @@ export default function StudyPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+      {/* QVAC unavailable banner */}
+      {qvacDown && (
+        <div
+          className="flex-shrink-0 flex items-center gap-3 px-6 py-2 font-mono text-[11px]"
+          style={{ background: '#a55a0015', borderBottom: '1px solid #a55a0040', color: '#a55a00' }}
+          role="alert"
+        >
+          <span
+            className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
+            style={{ background: '#a55a00' }}
+          />
+          Servizio AI temporaneamente non disponibile — le risposte potrebbero essere incomplete.
+        </div>
+      )}
+
       {/* Progress strip */}
       {courseProgress && (
         <div className="flex-shrink-0 px-6 py-2 bg-white b-thin-b flex items-center gap-4">

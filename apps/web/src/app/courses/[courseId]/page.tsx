@@ -3,13 +3,14 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { getCourse, type Course } from '@/lib/services/courses';
+import { getCourse, updateCourse, deleteCourse, type Course } from '@/lib/services/courses';
 import { DocumentUpload } from '@/components/documents/DocumentUpload';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { getDocumentListRows, deleteDocument, reindexCourse } from '@/lib/api/documents';
 import type { DocumentListRow } from '@/lib/api/types';
 import { DocumentProcessingPanel } from '@/components/documents/DocumentProcessingPanel';
 import { useToast } from '@/components/ui/Toast';
+import { EditCourseModal } from '@/components/courses/EditCourseModal';
 
 type DocFilter = 'all' | 'ready' | 'processing' | 'error';
 
@@ -172,10 +173,29 @@ export default function CourseWorkspacePage() {
   const [filter, setFilter] = useState<DocFilter>('all');
   const [refreshKey, setRefreshKey] = useState(0);
   const [reindexing, setReindexing] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [pollTimedOut, setPollTimedOut] = useState(false);
   const pollStartRef = useRef<number | null>(null);
 
   const refreshDocuments = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  async function handleEdit(title: string, description?: string) {
+    const updated = await updateCourse(courseId, title, description, accessToken);
+    setCourse(updated);
+  }
+
+  async function handleDelete() {
+    if (!confirm(`Eliminare il corso "${course?.title}" e tutti i suoi documenti? L'operazione non è reversibile.`)) return;
+    setDeleting(true);
+    try {
+      await deleteCourse(courseId, accessToken);
+      router.push('/courses');
+    } catch {
+      showToast('Impossibile eliminare il corso. Riprova.', 'err');
+      setDeleting(false);
+    }
+  }
 
   async function handleReindexAll() {
     if (reindexing) return;
@@ -354,6 +374,22 @@ export default function CourseWorkspacePage() {
             title="Re-ingest all documents (full parse → chunk → BM25 → QVAC)"
           >
             {reindexing ? 'Queuing…' : '↺ Reindex all'}
+          </button>
+          <button
+            className="btn-ghost"
+            onClick={() => setShowEdit(true)}
+            title="Edit course title and description"
+          >
+            Edit
+          </button>
+          <button
+            className="btn-ghost"
+            onClick={handleDelete}
+            disabled={deleting}
+            style={{ color: '#b3261e' }}
+            title="Delete course and all its documents"
+          >
+            {deleting ? 'Deleting…' : 'Delete'}
           </button>
           <button className="btn-primary" onClick={() => router.push(`/courses/${courseId}/study`)}>
             Study →
@@ -536,6 +572,14 @@ export default function CourseWorkspacePage() {
           </div>
         </div>
       </div>
+
+      {showEdit && course && (
+        <EditCourseModal
+          course={course}
+          onClose={() => setShowEdit(false)}
+          onSave={handleEdit}
+        />
+      )}
     </main>
   );
 }

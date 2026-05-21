@@ -46,3 +46,27 @@ def get_lessons_by_course_id(db: Session, course_id: str) -> List[Lesson]:
 
 def get_lesson_by_id(db: Session, lesson_id: str) -> Optional[Lesson]:
     return db.query(Lesson).filter(Lesson.id == lesson_id).first()
+
+
+def update_course(
+    db: Session, course_id: str, title: str, description: Optional[str] = None
+) -> Optional[Course]:
+    course = get_course_by_id(db, course_id)
+    if course is None:
+        return None
+    course.title = title
+    course.description = description
+    db.commit()
+    db.refresh(course)
+    return course
+
+
+def delete_course(db: Session, course_id: str) -> bool:
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if course is None:
+        return False
+    from app.db.models import CourseDocument
+    db.query(CourseDocument).filter(CourseDocument.course_id == course_id).delete()
+    course.is_active = False
+    db.commit()
+    return True

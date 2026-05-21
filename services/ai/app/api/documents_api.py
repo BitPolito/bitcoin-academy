@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Path as PathParam, Request, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -183,6 +184,29 @@ async def retry_document(
             material_type=doc.document_type,
         )
     return document_service.get_document(db, document_id)
+
+
+@router.get(
+    "/documents/{document_id}/file",
+    summary="Stream the original uploaded file (inline)",
+)
+def get_document_file(
+    document_id: str = PathParam(..., description="Document ID"),
+    db: Session = Depends(get_db),
+):
+    doc = document_service.get_document(db, document_id)
+    if doc is None:
+        raise NotFoundError(resource="Document", identifier=document_id)
+
+    file_path = UPLOADS_DIR / doc.course_id / f"{doc.id}_{doc.filename}"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Original file not found on disk.")
+
+    return FileResponse(
+        path=str(file_path),
+        media_type=doc.mime_type or "application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{doc.filename}"'},
+    )
 
 
 @router.get(
