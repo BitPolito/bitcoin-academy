@@ -19,6 +19,8 @@ Everything runs locally — no external API keys needed. The retrieval pipeline 
 
 Redis is optional in development but required in production for background ingestion, semantic cache, token blacklist, and account lockout. SQLite is used in development — no PostgreSQL setup needed.
 
+**Windows:** use `start.ps1` instead of `start.sh` (see [Windows Quick Start](#windows-quick-start) below), or use [Docker](#docker-full-stack) which works the same on all platforms.
+
 **Disk and RAM:** plan for ~4 GB of disk (embedding model ~670 MB + Qwen3-4B ~2.5 GB, downloaded on first run) and at least 8 GB RAM (~5 GB at runtime with the LLM loaded). 16 GB is more comfortable.
 
 If you're on a machine with less than 8 GB free, set `QVAC_LLM_ENABLED=false`. The system will run in retrieval-only mode (~670 MB total): all study actions still return source passages, but there's no prose generation.
@@ -59,6 +61,33 @@ Open **http://localhost:3000** and log in:
 > redis-server --daemonize yes
 > cd services/ai && uv run arq app.workers.arq_worker.WorkerSettings
 > ```
+
+---
+
+## Windows Quick Start
+
+**Prerequisites:** [Node.js ≥ 22](https://nodejs.org), [Python 3.11](https://python.org/downloads), [uv](https://docs.astral.sh/uv/getting-started/installation/)
+
+Open **PowerShell** (not cmd) in the project root. If you get an execution-policy error, run once:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+Then:
+
+```powershell
+# 1. Copy env files
+Copy-Item services\ai\.env.example  services\ai\.env
+Copy-Item apps\web\.env.example     apps\web\.env.local
+
+# 2. First-time setup and start all services
+.\start.ps1 -Setup
+```
+
+This opens three separate PowerShell windows (frontend, backend, QVAC). Close them to stop all services. Subsequent runs: `.\start.ps1`.
+
+> **Alternative:** [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/) (requires WSL2) gives you the exact same stack with a single command — see [Docker (full stack)](#docker-full-stack).
 
 ---
 
@@ -184,6 +213,8 @@ CI runs on every push and pull request to `main` and `rag` via GitHub Actions (`
 | Frontend CORS error | `CORS_ORIGINS` missing the frontend origin | Add the frontend URL to `CORS_ORIGINS` in `services/ai/.env` |
 | Chat returns "Il servizio di ricerca non è disponibile" | QVAC service not running | `cd workers/qvac-service && node src/server.js` |
 | SSR API calls fail in Docker (`ECONNREFUSED localhost:8000`) | Next.js server-side calls resolve to the wrong host | `infra/docker-compose.yml` sets `API_BASE_URL=http://api:8000/api` for SSR; make sure the web container env is current |
+| `start.sh` fails on Windows | bash not available | Use `.\start.ps1` in PowerShell, or run Docker (works on all platforms) |
+| `execution of scripts is disabled` (PowerShell) | Execution policy blocks unsigned scripts | `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned` |
 
 ---
 
