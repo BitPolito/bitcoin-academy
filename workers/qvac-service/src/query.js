@@ -64,6 +64,11 @@ function _stripMarkdown(text) {
     .trim();
 }
 
+// Strip <think>...</think> blocks produced by reasoning models like Qwen3.
+function _stripThinking(text) {
+  return text.replace(/<think>[\s\S]*?<\/think>\s*/gi, "").trim();
+}
+
 const DEFAULT_SYSTEM_PROMPT =
   "Sei un assistente educativo per BitPolito Academy. " +
   "Rispondi SOLO usando il contesto fornito. " +
@@ -104,6 +109,10 @@ export async function generateFromContext(question, contextBlocks, systemPrompt 
     })
     .join("\n\n---\n\n");
 
+  const userContent = contextStr
+    ? `Contesto:\n${contextStr}\n\nDomanda: ${question} /nothink`
+    : `Domanda: ${question} /nothink`;
+
   const history = [
     {
       role: "system",
@@ -111,19 +120,15 @@ export async function generateFromContext(question, contextBlocks, systemPrompt 
     },
     {
       role: "user",
-      content: contextStr
-        ? `Contesto:\n${contextStr}\n\nDomanda: ${question}`
-        : `Domanda: ${question}`,
+      content: userContent,
     },
   ];
 
-  let answer = "";
+  // stream: false → answer is in result.text (Promise), tokenStream is empty.
   const result = completion({ modelId: llmId, history, stream: false });
-  for await (const token of result.tokenStream) {
-    answer += token;
-  }
+  const rawAnswer = await result.text;
 
-  return { answer: _stripMarkdown(answer) };
+  return { answer: _stripThinking(_stripMarkdown(rawAnswer || "")) };
 }
 
 
@@ -158,20 +163,44 @@ export async function* streamFromContext(question, contextBlocks, systemPrompt =
     })
     .join("\n\n---\n\n");
 
+  const userContent = contextStr
+    ? `Contesto:\n${contextStr}\n\nDomanda: ${question} /nothink`
+    : `Domanda: ${question} /nothink`;
+
   const history = [
     { role: "system", content: systemPrompt || DEFAULT_SYSTEM_PROMPT },
-    {
-      role: "user",
-      content: contextStr
-        ? `Contesto:\n${contextStr}\n\nDomanda: ${question}`
-        : `Domanda: ${question}`,
-    },
+    { role: "user", content: userContent },
   ];
 
   const result = completion({ modelId: llmId, history, stream: true });
+
+  // Buffer tokens while inside a <think>...</think> block; only yield post-thinking output.
+  let thinking = false;
+  let thinkBuf = "";
   for await (const token of result.tokenStream) {
-    yield token;
+    thinkBuf += token;
+    if (!thinking && thinkBuf.includes("<think>")) {
+      thinking = true;
+    }
+    if (thinking) {
+      if (thinkBuf.includes("</think>")) {
+        thinking = false;
+        // Yield any text that came after the closing tag.
+        const after = thinkBuf.split("</think>").slice(1).join("</think>").trimStart();
+        thinkBuf = "";
+        if (after) yield after;
+      }
+      // Still inside <think> — swallow the token.
+      continue;
+    }
+    // Normal token — flush the buffer and yield.
+    if (thinkBuf) {
+      yield thinkBuf;
+      thinkBuf = "";
+    }
   }
+  // Flush any remaining buffer (e.g. model ended without </think>).
+  if (thinkBuf && !thinking) yield thinkBuf;
 }
 
 

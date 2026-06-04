@@ -27,7 +27,8 @@ export async function initModels() {
     console.log("[qvac] loading LLM (Qwen3-4B Q4_K_M)...");
     llmModelId = await loadModel({
       modelSrc: QWEN3_4B_INST_Q4_K_M,
-      modelType: "llm",
+      modelType: "llamacpp-completion",
+      modelConfig: { ctx_size: 4096 },
       onProgress: (p) => process.stdout.write(`\r  ${p.percentage.toFixed(0)}%`),
     });
     console.log("\n[qvac] LLM ready:", llmModelId);

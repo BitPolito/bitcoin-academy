@@ -263,6 +263,7 @@ export function OutputPane({
   // setMessages updater so it stays correct across React's concurrent-mode batching.
   const assistantIdxRef = useRef(-1);
   const [retryQuestion, setRetryQuestion] = useState<string | null>(null);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -507,9 +508,21 @@ export function OutputPane({
           <div className="flex items-center justify-center h-full">
             <div className="text-center max-w-xs">
               <div className="mx-auto w-10 h-10 b-thin rounded-md mb-4 stripes" />
-              <p className="font-mono text-[11px] opacity-60 leading-relaxed">
-                Type a topic in the input below, then click a study action — or just ask a question.
+              <p className="font-mono text-[11px] opacity-60 leading-relaxed mb-4">
+                Scrivi un argomento qui sotto e scegli un'azione di studio — o fai una domanda libera.
               </p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {(['summarize', 'explain', 'quiz'] as const).map((a) => (
+                  <button
+                    key={a}
+                    onClick={() => handleAction(a)}
+                    disabled={loading}
+                    className="btn-ghost text-xs py-1 px-2.5 disabled:opacity-40"
+                  >
+                    {a === 'summarize' ? '≡' : a === 'explain' ? 'Σ' : '▢'} {a.charAt(0).toUpperCase() + a.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -520,13 +533,25 @@ export function OutputPane({
           if (msg.role === 'action-result') {
             return (
               <div key={i} className="space-y-2">
-                <div className="inline-flex items-center gap-1.5">
+                <div className="inline-flex items-center gap-1.5 w-full">
                   <span className="chip" style={{ border: '1px solid currentColor' }}>
                     {msg.action.replace('_', ' ')}
                   </span>
                   <span className="font-mono text-[11px] opacity-60 truncate max-w-48">
                     {msg.query}
                   </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(msg.result.answer).then(() => {
+                        setCopiedIdx(i);
+                        setTimeout(() => setCopiedIdx((v) => (v === i ? null : v)), 2000);
+                      });
+                    }}
+                    className="ml-auto w-6 h-6 flex items-center justify-center rounded b-thin opacity-50 hover:opacity-100 transition-opacity text-sm flex-shrink-0"
+                    title="Copia risposta"
+                  >
+                    {copiedIdx === i ? '✓' : '⎘'}
+                  </button>
                 </div>
                 <div className="b-thin rounded-lg p-4">
                   <StudyOutput
@@ -645,6 +670,18 @@ export function OutputPane({
                         ))}
                       </>
                     )}
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(msg.content).then(() => {
+                          setCopiedIdx(i);
+                          setTimeout(() => setCopiedIdx((v) => (v === i ? null : v)), 2000);
+                        });
+                      }}
+                      className="ml-auto w-6 h-6 flex items-center justify-center rounded b-thin opacity-50 hover:opacity-100 transition-opacity text-sm"
+                      title="Copia risposta"
+                    >
+                      {copiedIdx === i ? '✓' : '⎘'}
+                    </button>
                   </div>
                 )}
                 {msg.role === 'assistant' && retryQuestion !== null && isLast && (
@@ -700,9 +737,6 @@ export function OutputPane({
         <div className="flex items-center gap-2 mb-2">
           <span className="chip text-[10px]" style={{ border: '1px solid currentColor' }}>
             ⌖ scope · all course docs
-          </span>
-          <span className="chip text-[10px]" style={{ border: '1px solid currentColor' }}>
-            k=5 · QVAC
           </span>
           <button
             onClick={() => setRagOnly((v) => !v)}

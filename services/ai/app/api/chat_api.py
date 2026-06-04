@@ -118,9 +118,15 @@ async def chat_stream(
         stream_iter = chat_service.stream_answer(
             question=body.message, course_id=course_id, history=history
         ).__aiter__()
+        # Keep a persistent Task so asyncio.wait_for timeout does NOT cancel the
+        # underlying generator — only the shield wrapper is cancelled on timeout.
+        pending: asyncio.Task | None = None
         while True:
             try:
-                chunk = await asyncio.wait_for(stream_iter.__anext__(), timeout=_HEARTBEAT_INTERVAL)
+                if pending is None:
+                    pending = asyncio.ensure_future(stream_iter.__anext__())
+                chunk = await asyncio.wait_for(asyncio.shield(pending), timeout=_HEARTBEAT_INTERVAL)
+                pending = None  # consumed — create a new task next iteration
                 if chunk.startswith("\x00CITATIONS\x00"):
                     citations_json = chunk[len("\x00CITATIONS\x00"):]
                     yield f"data: [CITATIONS]{citations_json}\n\n"
@@ -128,8 +134,11 @@ async def chat_stream(
                     yield f"data: {json.dumps(chunk)}\n\n"
             except asyncio.TimeoutError:
                 yield ": keep-alive\n\n"
+                # pending task is still running in background — loop and wait again
             except StopAsyncIteration:
                 break
+        if pending is not None:
+            pending.cancel()
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(

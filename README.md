@@ -176,6 +176,8 @@ CI runs on every push and pull request to `main` and `rag` via GitHub Actions (`
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| `localhost:3000` — connection refused | Services not started, or `.env.local` missing | Run the two `cp` commands in Quick Start, then `./start.sh` (or `./start.sh --setup` on first run) |
+| Port 3000 occupied by a stale process | Previous run exited without cleanup | `./start.sh` kills stale processes automatically; if running manually: `kill $(lsof -ti :3000)` |
 | QVAC service fails to start | Model download timed out on first run | Re-run `node src/server.js` — models are cached after the first successful download |
 | `/health` returns `database: disconnected` | `DATABASE_URL` missing or wrong | Check `services/ai/.env`; confirm PostgreSQL is running (or use the SQLite default for dev) |
 | Document stuck in `processing` forever | Redis not running → ARQ worker not started | `redis-server --daemonize yes`, then start the ARQ worker |
