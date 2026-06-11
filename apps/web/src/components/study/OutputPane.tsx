@@ -2,9 +2,11 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useToast } from '@/components/ui/Toast';
 import { sendChatMessageStream, submitFeedback, type Citation, type HistoryEntry } from '@/lib/services/chat';
-import { sendStudyAction } from '@/lib/services/study';
+import { sendStudyAction, sendStudyActionStream } from '@/lib/services/study';
 import type { ApiCitationOut, ApiStudyResponse, StudyAction } from '@/lib/api/types';
 import type { Lesson } from '@/lib/services/courses';
 import { StudyActionBar } from './StudyActionBar';
@@ -27,7 +29,17 @@ interface ActionMessage {
   durationMs?: number;
 }
 
-type Message = ChatMessage | ActionMessage;
+interface ActionStreamingMessage {
+  role: 'action-streaming';
+  action: StudyAction;
+  query: string;
+  content: string;
+}
+
+type Message = ChatMessage | ActionMessage | ActionStreamingMessage;
+
+// Actions that stream tokens progressively (full text needed for QUIZ/ORAL parsing).
+const STREAMING_ACTIONS = new Set<StudyAction>(['explain', 'summarize', 'derive', 'compare', 'open_questions']);
 
 interface OutputPaneProps {
   courseId: string;
@@ -231,7 +243,11 @@ function loadStoredMessages(courseId: string): Message[] {
 
 function saveMessages(courseId: string, msgs: Message[]) {
   try {
-    const toSave = msgs.slice(-STORAGE_MAX_MESSAGES);
+    // Exclude in-flight streaming messages — they have no `result` field and would
+    // crash on restore if any code path accesses msg.result.
+    const toSave = msgs
+      .filter((m) => m.role !== 'action-streaming')
+      .slice(-STORAGE_MAX_MESSAGES);
     localStorage.setItem(`${STORAGE_PREFIX}${courseId}`, JSON.stringify(toSave));
   } catch {
     /* storage unavailable */
@@ -262,6 +278,8 @@ export function OutputPane({
   // Captures the index of the in-flight assistant message inside the functional
   // setMessages updater so it stays correct across React's concurrent-mode batching.
   const assistantIdxRef = useRef(-1);
+  // Index of the in-flight action-streaming message (set when first token arrives).
+  const streamingActionIdxRef = useRef(-1);
   const [retryQuestion, setRetryQuestion] = useState<string | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const { showToast } = useToast();
@@ -368,6 +386,85 @@ export function OutputPane({
     setSessionRestored(false);
     setMessages((prev) => [...prev, { role: 'user', content: `[${action}] ${query}` }]);
     const t0 = Date.now();
+
+    // Streaming path: EXPLAIN, SUMMARIZE, DERIVE, COMPARE, OPEN_QUESTIONS stream tokens.
+    // Loading spinner stays until first token; then replaced by progressive streaming message.
+    if (STREAMING_ACTIONS.has(action) && !ragOnly) {
+      let streamingCitations: ApiCitationOut[] = [];
+      streamingActionIdxRef.current = -1;
+
+      try {
+        await sendStudyActionStream(
+          courseId,
+          action,
+          query,
+          (token) => {
+            setMessages((prev) => {
+              if (streamingActionIdxRef.current === -1) {
+                // First token: stop loading spinner, add streaming message
+                streamingActionIdxRef.current = prev.length;
+                return [...prev, { role: 'action-streaming', action, query, content: token }];
+              }
+              return prev.map((m, i) =>
+                i === streamingActionIdxRef.current && m.role === 'action-streaming'
+                  ? { ...m, content: m.content + token }
+                  : m
+              );
+            });
+            // Stop the loading skeleton once streaming begins
+            setLoading(false);
+          },
+          (citations) => {
+            streamingCitations = citations;
+          },
+          accessToken,
+          ragOnly,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Study action failed.';
+        if (msg.includes('Troppe richieste')) showToast('Troppe richieste — riprova tra qualche secondo.', 'warn');
+        setMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${msg}` }]);
+        setLoading(false);
+        setActiveAction(null);
+        return;
+      }
+
+      const durationMs = Date.now() - t0;
+
+      // Replace action-streaming message with final action-result
+      let finalResult: ApiStudyResponse | null = null;
+      setMessages((prev) => {
+        const idx = streamingActionIdxRef.current;
+        const streamMsg = idx >= 0 ? prev[idx] : null;
+        const answer = streamMsg?.role === 'action-streaming' ? streamMsg.content : '';
+
+        if (!answer) {
+          return [...prev, { role: 'assistant' as const, content: 'No response received.' }];
+        }
+
+        finalResult = {
+          answer,
+          citations: streamingCitations,
+          retrieval_used: streamingCitations.length > 0,
+          action,
+        };
+
+        return prev.map((m, i) =>
+          i === idx
+            ? ({ role: 'action-result', action, query, result: finalResult!, durationMs } as ActionMessage)
+            : m
+        );
+      });
+
+      if (streamingCitations.length > 0) setShowEvidence(true);
+      // Notify parent (lesson progress, analytics) — same contract as buffered path.
+      if (finalResult) onActionResult?.(finalResult, selectedLesson ?? null);
+      setLoading(false);
+      setActiveAction(null);
+      return;
+    }
+
+    // Buffered path: QUIZ, ORAL, RETRIEVE, or ragOnly (need full text before parsing).
     try {
       const result = await sendStudyAction(courseId, action, query, accessToken, ragOnly);
       const durationMs = Date.now() - t0;
@@ -509,7 +606,7 @@ export function OutputPane({
             <div className="text-center max-w-xs">
               <div className="mx-auto w-10 h-10 b-thin rounded-md mb-4 stripes" />
               <p className="font-mono text-[11px] opacity-60 leading-relaxed mb-4">
-                Scrivi un argomento qui sotto e scegli un'azione di studio — o fai una domanda libera.
+                Scrivi un argomento qui sotto e scegli un&apos;azione di studio — o fai una domanda libera.
               </p>
               <div className="flex flex-wrap justify-center gap-2">
                 {(['summarize', 'explain', 'quiz'] as const).map((a) => (
@@ -529,6 +626,23 @@ export function OutputPane({
 
         {messages.map((msg, i) => {
           const isLast = i === messages.length - 1;
+
+          if (msg.role === 'action-streaming') {
+            return (
+              <div key={i} className="space-y-2">
+                <div className="inline-flex items-center gap-1.5">
+                  <span className="chip" style={{ border: '1px solid currentColor' }}>
+                    {msg.action.replace('_', ' ')}
+                  </span>
+                  <span className="font-mono text-[11px] opacity-60 truncate max-w-48">{msg.query}</span>
+                  <span className="font-mono text-[10px] opacity-40 animate-pulse ml-1">…</span>
+                </div>
+                <div className="b-thin rounded-lg p-4">
+                  <ReactMarkdown className="md-prose" remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                </div>
+              </div>
+            );
+          }
 
           if (msg.role === 'action-result') {
             return (
@@ -557,7 +671,6 @@ export function OutputPane({
                   <StudyOutput
                     result={msg.result}
                     courseId={courseId}
-                    onOralFollowUp={(query) => handleAction('oral', query)}
                   />
                 </div>
 

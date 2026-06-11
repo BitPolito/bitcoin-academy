@@ -51,21 +51,26 @@ const server = createServer(async (req, res) => {
       return send(res, 200, result);
     }
 
-    // POST /generate  { question: string, context: [{ label: string, text: string }], systemPrompt?: string }
+    // POST /generate  { question: string, context: [{ label: string, text: string }],
+    //                   systemPrompt?: string, preserveMarkdown?: boolean, enableThinking?: boolean }
     // LLM generation from pre-built parent context — no retrieval.
     // systemPrompt overrides the default; omit to use the BitPolito Academy default.
+    // preserveMarkdown: skip _stripMarkdown (pass true for structured study action output).
+    // enableThinking: omit /nothink suffix (pass true for DERIVE to use Qwen3 reasoning).
     // Returns { answer: string }
     if (req.method === "POST" && req.url === "/generate") {
-      const { question, context = [], systemPrompt = null } = await readBody(req);
-      const result = await generateFromContext(question, context, systemPrompt);
+      const { question, context = [], systemPrompt = null, preserveMarkdown = false, enableThinking = false } = await readBody(req);
+      const result = await generateFromContext(question, context, systemPrompt, { preserveMarkdown, enableThinking });
       return send(res, 200, result);
     }
 
-    // POST /stream  { question: string, context: [{ label, text }], systemPrompt?: string }
+    // POST /stream  { question: string, context: [{ label, text }], systemPrompt?: string,
+    //                enableThinking?: boolean }
     // Server-Sent Events stream — writes tokens as "data: <token>\n\n" until done.
     // Client should consume with EventSource or fetch + ReadableStream.
+    // Note: preserveMarkdown is not needed here — streaming tokens are never stripped.
     if (req.method === "POST" && req.url === "/stream") {
-      const { question, context = [], systemPrompt = null } = await readBody(req);
+      const { question, context = [], systemPrompt = null, enableThinking = false } = await readBody(req);
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
@@ -73,7 +78,7 @@ const server = createServer(async (req, res) => {
         "Transfer-Encoding": "chunked",
       });
       try {
-        for await (const token of streamFromContext(question, context, systemPrompt)) {
+        for await (const token of streamFromContext(question, context, systemPrompt, { enableThinking })) {
           res.write(`data: ${JSON.stringify(token)}\n\n`);
         }
         res.write("data: [DONE]\n\n");

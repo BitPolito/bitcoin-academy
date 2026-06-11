@@ -13,7 +13,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import AsyncGenerator, List, Optional
 
 import httpx
 
@@ -29,9 +29,17 @@ logger = logging.getLogger(__name__)
 _QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 _TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 
+# Retrieval client: 45 s read covers dense search + BM25 on large corpora.
 _qvac_client = httpx.AsyncClient(
     base_url=_QVAC_SERVICE_URL,
     timeout=httpx.Timeout(connect=5.0, read=45.0, write=10.0, pool=5.0),
+)
+
+# Generation client: 120 s read covers Qwen3-4B Q4 on CPU-only hardware for long
+# derivations/comparisons. Kept separate so retrieval timeouts remain tight.
+_qvac_gen_client = httpx.AsyncClient(
+    base_url=_QVAC_SERVICE_URL,
+    timeout=httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0),
 )
 
 
@@ -104,10 +112,19 @@ _SYSTEM_PROMPTS = {
         "3. After the model answer, add one follow-up question that a professor would ask"
         " to probe deeper understanding.\n"
         "4. Use exact Bitcoin terminology from the document.\n"
-        "5. Format each entry as:\n"
-        "Q<n>: <question>\n"
+        "5. CRITICAL — use EXACTLY these labels on their own lines, with a colon, no variations:\n"
+        "   Q1: / Q2: / Q3:\n"
+        "   Model answer:\n"
+        "   Follow-up:\n"
+        "   Any other label will break the parser that students use to see their results.\n"
+        "6. Format:\n"
+        "Q1: <question>\n"
         "Model answer: <answer with [ref_N] citations>\n"
-        "Follow-up: <deeper question>"
+        "Follow-up: <deeper question as a question ending with ?>\n"
+        "\n"
+        "Q2: <question>\n"
+        "Model answer: <answer with [ref_N] citations>\n"
+        "Follow-up: <deeper question ending with ?>"
     ),
     StudyAction.DERIVE: (
         "You are an expert Bitcoin tutor skilled in formal derivations, at BitPolito Academy.\n"
@@ -123,11 +140,15 @@ _SYSTEM_PROMPTS = {
         "You are an expert Bitcoin tutor at BitPolito Academy.\n"
         "Using ONLY the provided context, produce a structured comparison of the requested concepts.\n"
         "RULES:\n"
-        "1. Use a parallel-list or table format with clearly labelled columns for each concept.\n"
-        "2. Compare on the same dimensions (e.g. security model, scalability, consensus"
-        " mechanism) — do not mix apples and oranges.\n"
-        "3. Use exact technical terms from the document; cite sources as [ref_N].\n"
-        "4. Conclude with a 1-paragraph synthesis that draws out the most important"
+        "1. First, identify exactly 3–4 comparison dimensions that are relevant to BOTH concepts"
+        " and that appear in the source material. List them explicitly as:\n"
+        "   **Dimensions: <dim1>, <dim2>, <dim3>[, <dim4>]**\n"
+        "2. Then produce a Markdown table with one row per dimension and one column per concept.\n"
+        "   | Dimension | Concept A | Concept B |\n"
+        "   |---|---|---|\n"
+        "   Fill every cell with a concise value drawn from the context.\n"
+        "3. Use exact technical terms from the document; cite sources inline as [ref_N].\n"
+        "4. Conclude with a 1-paragraph synthesis drawing out the most important"
         " trade-off or distinction, citing [ref_N]."
     ),
 }
@@ -334,6 +355,9 @@ async def _retrieve_multi(
     return raw_answers[0] if raw_answers else "", combined
 
 
+_THINKING_ACTIONS = frozenset({StudyAction.DERIVE})
+
+
 async def _generate(action: StudyAction, question: str, context: str) -> Optional[str]:
     """Call QVAC /generate with the action-specific system prompt (local LLM via QVAC SDK).
 
@@ -342,15 +366,22 @@ async def _generate(action: StudyAction, question: str, context: str) -> Optiona
 
     Returns None when QVAC is unreachable or returns an empty answer, allowing
     the caller to fall back to the raw retrieval context.
+
+    preserveMarkdown is always True for study actions — their system prompts request
+    structured output (tables, numbered steps, [ref_N] markers) that must not be stripped.
+    enableThinking is True only for DERIVE to leverage Qwen3's step-by-step reasoning.
     """
     system_prompt = _SYSTEM_PROMPTS.get(action, "")
+    enable_thinking = action in _THINKING_ACTIONS
     try:
-        resp = await _qvac_client.post(
+        resp = await _qvac_gen_client.post(
             "/generate",
             json={
                 "question": question,
                 "context": [{"label": "", "text": context}],
                 "systemPrompt": system_prompt,
+                "preserveMarkdown": True,
+                "enableThinking": enable_thinking,
             },
         )
         resp.raise_for_status()
@@ -359,6 +390,45 @@ async def _generate(action: StudyAction, question: str, context: str) -> Optiona
     except httpx.HTTPError as exc:
         logger.warning("QVAC /generate failed for action '%s': %s", action.value, exc)
         return None
+
+
+async def _stream_generate(
+    action: StudyAction, question: str, context: str
+) -> AsyncGenerator[str, None]:
+    """Call QVAC /stream with the action-specific system prompt and yield raw tokens.
+
+    Used by stream_dispatch() to provide progressive display for slow generations on
+    limited hardware.  enableThinking follows the same rules as _generate().
+    """
+    system_prompt = _SYSTEM_PROMPTS.get(action, "")
+    enable_thinking = action in _THINKING_ACTIONS
+    try:
+        async with _qvac_gen_client.stream(
+            "POST",
+            "/stream",
+            json={
+                "question": question,
+                "context": [{"label": "", "text": context}],
+                "systemPrompt": system_prompt,
+                "enableThinking": enable_thinking,
+            },
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == "[DONE]":
+                    return
+                try:
+                    token = json.loads(payload)
+                    if isinstance(token, str):
+                        yield token
+                except (json.JSONDecodeError, ValueError):
+                    pass
+    except httpx.HTTPError as exc:
+        logger.warning("QVAC /stream failed for action '%s': %s", action.value, exc)
+        return
 
 
 async def _route(
@@ -492,3 +562,119 @@ async def dispatch(
     finally:
         trace.duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
         logger.info("dispatch_trace %s", json.dumps(dataclasses.asdict(trace)))
+
+
+# Actions that must be fully buffered before the frontend can parse the output.
+# QUIZ needs the complete text to split on question delimiters.
+# ORAL needs the complete text to parse Q/model-answer/follow-up blocks.
+# RETRIEVE has no generation at all.
+_BUFFERED_ACTIONS = frozenset({StudyAction.QUIZ, StudyAction.ORAL, StudyAction.RETRIEVE})
+
+_CITATIONS_SENTINEL = "\x00CITATIONS\x00"
+
+
+async def stream_dispatch(
+    question: str,
+    course_id: str,
+    action: StudyAction,
+    rag_only: bool = False,
+) -> AsyncGenerator[str, None]:
+    """Streaming variant of dispatch().
+
+    Yields raw token strings followed by a citations sentinel for the frontend
+    to parse. Uses the same retrieval pipeline as dispatch() and shares its
+    semantic cache — a cache hit short-circuits retrieval and generation entirely,
+    returning the cached answer as a single chunk at the speed of Redis.
+
+    QUIZ, ORAL, and RETRIEVE are always buffered (full output needed for parsing).
+    All other actions stream token-by-token via QVAC /stream.
+
+    Sentinel format: \\x00CITATIONS\\x00<json-array-of-SourceChunk-dicts>
+    """
+    if len(question.strip()) < 5:
+        raise ValueError("Query too short — must be at least 5 characters")
+
+    # --- Semantic cache lookup (shared with dispatch()) ---
+    from app.services.cache_service import get_cached, set_cached  # noqa: PLC0415
+    cache_key = f"{question} [action:{action.value}]" + (" [rag_only]" if rag_only else "")
+    cached = get_cached(cache_key, course_id)
+    if cached is not None:
+        yield cached["answer"]
+        yield _CITATIONS_SENTINEL + json.dumps(cached.get("citations", []))
+        return
+
+    meta = STUDY_ACTION_REGISTRY[action]
+
+    # Retrieval — identical to dispatch()
+    raw_answer = ""
+    pack = _empty_pack(question, action)
+    if meta.retrieval_required:
+        raw_answer, pack = await _retrieve_multi(question, course_id, action)
+
+    # Build citations list for the sentinel payload
+    def _make_sources(chunks: list[EvidenceChunk]) -> List[SourceChunk]:
+        return [
+            SourceChunk(
+                snippet=c.text,
+                score=c.score,
+                label=c.anchor.doc_name,
+                page=c.anchor.page or 0,
+                slide=c.anchor.slide or 0,
+                section=c.anchor.section or "",
+                doc_id=c.anchor.doc_id,
+            )
+            for c in chunks
+        ]
+
+    def _cache_and_sentinel(answer: str, sources: List[SourceChunk]) -> str:
+        citations_raw = [dataclasses.asdict(s) for s in sources]
+        set_cached(cache_key, course_id, {
+            "answer": answer,
+            "citations": citations_raw,
+            "retrieval_used": bool(sources),
+        })
+        return _CITATIONS_SENTINEL + json.dumps(citations_raw)
+
+    # Retrieve-only or rag_only: emit context block as a single chunk, then citations
+    if not meta.generation_required or rag_only:
+        answer = pack.context_block() or raw_answer or "No relevant content found."
+        sources = _make_sources(pack.chunks)
+        yield answer
+        yield _cache_and_sentinel(answer, sources)
+        return
+
+    # Buffered actions (QUIZ, ORAL): generate fully, emit, cache, sentinel
+    if action in _BUFFERED_ACTIONS:
+        generated = await _generate(action, question, pack.context_block())
+        if generated:
+            answer = generated
+            sources = _parse_citations(generated, pack)
+        else:
+            answer = raw_answer or "No relevant content found."
+            sources = _make_sources(pack.chunks)
+        yield answer
+        yield _cache_and_sentinel(answer, sources)
+        return
+
+    # Streaming actions: stream tokens, accumulate for citation parsing + cache write
+    accumulated: list[str] = []
+    async for token in _stream_generate(action, question, pack.context_block()):
+        accumulated.append(token)
+        yield token
+
+    if accumulated:
+        full_text = "".join(accumulated)
+        sources = _parse_citations(full_text, pack)
+        yield _cache_and_sentinel(full_text, sources)
+    else:
+        # Stream yielded nothing — fall back to buffered generate
+        generated = await _generate(action, question, pack.context_block())
+        if generated:
+            yield generated
+            sources = _parse_citations(generated, pack)
+            yield _cache_and_sentinel(generated, sources)
+        else:
+            fallback = raw_answer or "No relevant content found."
+            sources = _make_sources(pack.chunks)
+            yield fallback
+            yield _cache_and_sentinel(fallback, sources)

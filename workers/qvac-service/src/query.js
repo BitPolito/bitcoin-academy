@@ -85,9 +85,13 @@ const DEFAULT_SYSTEM_PROMPT =
  * @param {string} question        student's question
  * @param {{ label: string, text: string }[]} contextBlocks  pre-selected parent chunks
  * @param {string|null} [systemPrompt]  optional override; falls back to DEFAULT_SYSTEM_PROMPT
+ * @param {{ preserveMarkdown?: boolean, enableThinking?: boolean }} [opts]
+ *   preserveMarkdown: skip _stripMarkdown (use for structured study action output)
+ *   enableThinking: omit /nothink suffix (use for DERIVE to leverage Qwen3 reasoning)
  * @returns {{ answer: string }}
  */
-export async function generateFromContext(question, contextBlocks, systemPrompt = null) {
+export async function generateFromContext(question, contextBlocks, systemPrompt = null, opts = {}) {
+  const { preserveMarkdown = false, enableThinking = false } = opts;
   const llmId = getLlmModelId();
 
   if (!llmId) {
@@ -109,9 +113,10 @@ export async function generateFromContext(question, contextBlocks, systemPrompt 
     })
     .join("\n\n---\n\n");
 
+  const thinkSuffix = enableThinking ? "" : " /nothink";
   const userContent = contextStr
-    ? `Contesto:\n${contextStr}\n\nDomanda: ${question} /nothink`
-    : `Domanda: ${question} /nothink`;
+    ? `Contesto:\n${contextStr}\n\nDomanda: ${question}${thinkSuffix}`
+    : `Domanda: ${question}${thinkSuffix}`;
 
   const history = [
     {
@@ -128,7 +133,8 @@ export async function generateFromContext(question, contextBlocks, systemPrompt 
   const result = completion({ modelId: llmId, history, stream: false });
   const rawAnswer = await result.text;
 
-  return { answer: _stripThinking(_stripMarkdown(rawAnswer || "")) };
+  const cleaned = _stripThinking(rawAnswer || "");
+  return { answer: preserveMarkdown ? cleaned : _stripMarkdown(cleaned) };
 }
 
 
@@ -140,9 +146,12 @@ export async function generateFromContext(question, contextBlocks, systemPrompt 
  * @param {string} question
  * @param {{ label: string, text: string }[]} contextBlocks
  * @param {string|null} [systemPrompt]
+ * @param {{ enableThinking?: boolean }} [opts]
+ *   enableThinking: omit /nothink suffix (use for DERIVE)
  * @yields {string} individual tokens as they are produced
  */
-export async function* streamFromContext(question, contextBlocks, systemPrompt = null) {
+export async function* streamFromContext(question, contextBlocks, systemPrompt = null, opts = {}) {
+  const { enableThinking = false } = opts;
   const llmId = getLlmModelId();
 
   if (!llmId) {
@@ -163,9 +172,10 @@ export async function* streamFromContext(question, contextBlocks, systemPrompt =
     })
     .join("\n\n---\n\n");
 
+  const thinkSuffix = enableThinking ? "" : " /nothink";
   const userContent = contextStr
-    ? `Contesto:\n${contextStr}\n\nDomanda: ${question} /nothink`
-    : `Domanda: ${question} /nothink`;
+    ? `Contesto:\n${contextStr}\n\nDomanda: ${question}${thinkSuffix}`
+    : `Domanda: ${question}${thinkSuffix}`;
 
   const history = [
     { role: "system", content: systemPrompt || DEFAULT_SYSTEM_PROMPT },
