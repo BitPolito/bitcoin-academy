@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.db.models import CourseDocument, DocumentProcessingStage, DocumentStatus
+from app.db.models import ChunkParent, CourseDocument, DocumentProcessingStage, DocumentStatus
 from app.repositories import document_repo
 
 
@@ -87,3 +87,43 @@ def get_preview(db: Session, document_id: str) -> Optional[Dict[str, Any]]:
         "sections": sections,
         "sample_chunks": sample_chunks,
     }
+
+
+def get_section_tree(db: Session, document_id: str) -> Optional[Dict[str, Any]]:
+    """Return the document's heading tree, rebuilding it for legacy documents.
+
+    Documents ingested before the section-tree stage have no
+    section_tree_json and their source file may be gone (the pipeline
+    deletes it), so a full re-parse is impossible. In that case a flat
+    level-1 tree is rebuilt on the fly from the chunk_parent rows (which
+    preserve section title and page per parent) and returned with
+    source="rebuilt" — not persisted, so the flag stays honest.
+    Re-ingesting via POST /courses/{id}/reindex produces the full heading
+    hierarchy (source="ingest").
+    """
+    doc = document_repo.get_by_id(db, document_id)
+    if doc is None:
+        return None
+
+    if doc.section_tree_json:
+        try:
+            return {"tree": json.loads(doc.section_tree_json), "source": "ingest"}
+        except json.JSONDecodeError:
+            pass  # corrupt blob — fall through to rebuild
+
+    if doc.status != DocumentStatus.READY:
+        return {"tree": None, "source": "unavailable"}
+
+    from app.workers.pipeline import build_section_events_from_parents, build_section_tree
+
+    parent_rows = (
+        db.query(ChunkParent)
+        .filter(ChunkParent.doc_id == document_id)
+        .order_by(ChunkParent.id)
+        .all()
+    )
+    if not parent_rows:
+        return {"tree": None, "source": "unavailable"}
+
+    tree = build_section_tree(build_section_events_from_parents(parent_rows))
+    return {"tree": tree, "source": "rebuilt"}

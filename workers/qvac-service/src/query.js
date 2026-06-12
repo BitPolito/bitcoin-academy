@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { ragSearch } from "@qvac/sdk";
 import { getEmbeddingModelId, getLlmModelId } from "./models.js";
+import { withLlmLock, withLlmLockGen } from "./llm-queue.js";
 
 const INGEST_DIR = process.env.QVAC_INGEST_DIR ?? "/qvac_ingest";
 
@@ -130,8 +131,11 @@ export async function generateFromContext(question, contextBlocks, systemPrompt 
   ];
 
   // stream: false → answer is in result.text (Promise), tokenStream is empty.
-  const result = completion({ modelId: llmId, history, stream: false });
-  const rawAnswer = await result.text;
+  // Serialised through the LLM queue: one completion at a time on the model.
+  const rawAnswer = await withLlmLock(async () => {
+    const result = completion({ modelId: llmId, history, stream: false });
+    return await result.text;
+  });
 
   const cleaned = _stripThinking(rawAnswer || "");
   return { answer: preserveMarkdown ? cleaned : _stripMarkdown(cleaned) };
@@ -182,35 +186,38 @@ export async function* streamFromContext(question, contextBlocks, systemPrompt =
     { role: "user", content: userContent },
   ];
 
-  const result = completion({ modelId: llmId, history, stream: true });
+  // Serialised through the LLM queue; the lock is held until the stream ends.
+  yield* withLlmLockGen(async function* () {
+    const result = completion({ modelId: llmId, history, stream: true });
 
-  // Buffer tokens while inside a <think>...</think> block; only yield post-thinking output.
-  let thinking = false;
-  let thinkBuf = "";
-  for await (const token of result.tokenStream) {
-    thinkBuf += token;
-    if (!thinking && thinkBuf.includes("<think>")) {
-      thinking = true;
-    }
-    if (thinking) {
-      if (thinkBuf.includes("</think>")) {
-        thinking = false;
-        // Yield any text that came after the closing tag.
-        const after = thinkBuf.split("</think>").slice(1).join("</think>").trimStart();
-        thinkBuf = "";
-        if (after) yield after;
+    // Buffer tokens while inside a <think>...</think> block; only yield post-thinking output.
+    let thinking = false;
+    let thinkBuf = "";
+    for await (const token of result.tokenStream) {
+      thinkBuf += token;
+      if (!thinking && thinkBuf.includes("<think>")) {
+        thinking = true;
       }
-      // Still inside <think> — swallow the token.
-      continue;
+      if (thinking) {
+        if (thinkBuf.includes("</think>")) {
+          thinking = false;
+          // Yield any text that came after the closing tag.
+          const after = thinkBuf.split("</think>").slice(1).join("</think>").trimStart();
+          thinkBuf = "";
+          if (after) yield after;
+        }
+        // Still inside <think> — swallow the token.
+        continue;
+      }
+      // Normal token — flush the buffer and yield.
+      if (thinkBuf) {
+        yield thinkBuf;
+        thinkBuf = "";
+      }
     }
-    // Normal token — flush the buffer and yield.
-    if (thinkBuf) {
-      yield thinkBuf;
-      thinkBuf = "";
-    }
-  }
-  // Flush any remaining buffer (e.g. model ended without </think>).
-  if (thinkBuf && !thinking) yield thinkBuf;
+    // Flush any remaining buffer (e.g. model ended without </think>).
+    if (thinkBuf && !thinking) yield thinkBuf;
+  });
 }
 
 

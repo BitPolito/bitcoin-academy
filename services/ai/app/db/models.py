@@ -60,6 +60,13 @@ class DocumentStatus(str, Enum):
     ERROR = "error"
 
 
+class GenerationRunStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+    ERROR = "error"
+
+
 # 1. Users
 class User(Base):
     __tablename__ = "app_user"
@@ -138,6 +145,7 @@ class Chapter(Base):
     title: Mapped[str] = mapped_column(String)
     description: Mapped[Optional[str]] = mapped_column(Text)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[Optional[str]] = mapped_column(String, default="published")
 
     course: Mapped["Course"] = relationship(back_populates="chapters")
     lessons: Mapped[List["Lesson"]] = relationship(back_populates="chapter")
@@ -159,6 +167,8 @@ class Lesson(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
     content: Mapped[str] = mapped_column(Text)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[Optional[str]] = mapped_column(String, default="published")
+    source_refs_json: Mapped[Optional[str]] = mapped_column(Text)
 
     chapter: Mapped["Chapter"] = relationship(back_populates="lessons")
     quizzes: Mapped[List["Quiz"]] = relationship(back_populates="lesson")
@@ -358,6 +368,9 @@ class CourseDocument(Base):
     metadata_json: Mapped[Optional[str]] = mapped_column(Text)
     extracted_text_preview: Mapped[Optional[str]] = mapped_column(Text)
     sections_json: Mapped[Optional[str]] = mapped_column(Text)
+    # Nested heading tree with page spans and parent-chunk anchors
+    # (course builder outline source). See pipeline.build_section_tree().
+    section_tree_json: Mapped[Optional[str]] = mapped_column(Text)
     sample_chunks_json: Mapped[Optional[str]] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(String, default=func.now())
@@ -368,7 +381,30 @@ class CourseDocument(Base):
     course: Mapped["Course"] = relationship(back_populates="documents")
 
 
-# 6. Supplemental Materials
+# 6. Course Builder — generation provenance
+class GenerationRun(Base):
+    """Provenance record for each outline or content generation job."""
+
+    __tablename__ = "generation_run"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    course_id: Mapped[str] = mapped_column(ForeignKey("course.id"))
+    doc_ids_json: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String, default=GenerationRunStatus.QUEUED)
+    stage: Mapped[Optional[str]] = mapped_column(String)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    prompt_version: Mapped[Optional[str]] = mapped_column(String)
+    started_at: Mapped[Optional[str]] = mapped_column(String)
+    finished_at: Mapped[Optional[str]] = mapped_column(String)
+    options_json: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(String, default=func.now())
+
+    course: Mapped["Course"] = relationship()
+
+
+# 8. Supplemental Materials
 class Resource(Base):
     __tablename__ = "resource"
 
@@ -392,7 +428,7 @@ class Resource(Base):
         back_populates="created_resources")
 
 
-# 6. Badges
+# 9. Badges
 class Badge(Base):
     """Badge definition — one row per badge type."""
 
@@ -427,7 +463,7 @@ class UserBadge(Base):
     badge: Mapped["Badge"] = relationship(back_populates="awards")
 
 
-# 7. RAG parent chunks (parent-child chunking — Sprint 2)
+# 10. RAG parent chunks (parent-child chunking — Sprint 2)
 class ChunkParent(Base):
     """Parent chunk: 1200-word context block used by the LLM after child retrieval."""
 
@@ -442,7 +478,7 @@ class ChunkParent(Base):
     citation_section: Mapped[str] = mapped_column(String, default="")
 
 
-# 8. Answer Feedback (Q8 — student thumbs up/down on RAG answers)
+# 11. Answer Feedback (Q8 — student thumbs up/down on RAG answers)
 class AnswerFeedback(Base):
     """Student rating of a RAG-generated answer (thumbs up/down + optional comment)."""
 
@@ -460,7 +496,7 @@ class AnswerFeedback(Base):
     created_at: Mapped[datetime] = mapped_column(String, default=func.now())
 
 
-# 9. Certificates
+# 12. Certificates
 class Certificate(Base):
     __tablename__ = "certificate"
 

@@ -34,6 +34,8 @@ services:
     environment:
       - QVAC_PORT=3001
       - QVAC_INGEST_DIR=/qvac_ingest
+      # 8192-token context (course builder); set 4096 to fit a 4g memory limit.
+      - QVAC_LLM_CTX=${QVAC_LLM_CTX:-8192}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
       interval: 15s
@@ -43,7 +45,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4g
+          memory: 5g
           cpus: '4'
 
   redis:

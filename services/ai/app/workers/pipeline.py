@@ -542,21 +542,47 @@ def chunk_pages(pages: list[dict], doc_id: str) -> list[dict]:
     return chunks
 
 
+def _clean_section_title(title: str) -> str:
+    """Strip markdown emphasis residue from heading titles (e.g. '**Prologue**')."""
+    return re.sub(r'\*{1,3}|_{1,3}|`', '', title or '').strip()
+
+
 def build_parent_child_chunks(
     pages: list[dict],
     doc_id: str,
-) -> tuple[list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict]]:
     """Chunking gerarchico: parent (1200 parole) → child (150 parole).
 
     I child chunk sono le unità di retrieval indicizzate in QVAC.
     I parent chunk forniscono contesto esteso al LLM dopo il retrieval.
 
-    Ritorna (parent_chunks, child_chunks).
+    Oltre ai chunk, raccoglie gli eventi sezione in ordine di documento:
+    ogni heading markdown produce {"title", "level", "page_start",
+    "page_end", "parent_chunk_ids"}; i parent generati prima del primo
+    heading finiscono in una sezione preambolo con title="". La lista
+    piatta viene annidata da build_section_tree().
+
+    Ritorna (parent_chunks, child_chunks, section_events).
     """
     parents: list[dict] = []
     children: list[dict] = []
+    section_events: list[dict] = []
     current_section = ""
     parent_idx = 0
+
+    def _record_parent_in_section(parent: dict) -> None:
+        if not section_events:
+            # Content before the first heading — untitled preamble section.
+            section_events.append({
+                "title": "",
+                "level": 1,
+                "page_start": parent["citation_page"],
+                "page_end": parent["citation_page"],
+                "parent_chunk_ids": [],
+            })
+        event = section_events[-1]
+        event["parent_chunk_ids"].append(parent["id"])
+        event["page_end"] = max(event["page_end"], parent["citation_page"])
 
     for page_data in pages:
         page_num = page_data["page"]
@@ -576,9 +602,17 @@ def build_parent_child_chunks(
                 continue
 
             if btype == "heading":
+                level = len(re.match(r'^#{1,4}', btext).group(0))
                 heading_text = re.sub(r'^#{1,4}\s+', '', btext).strip()
                 current_section = heading_text
                 pending_heading = btext
+                section_events.append({
+                    "title": _clean_section_title(heading_text),
+                    "level": level,
+                    "page_start": page_num,
+                    "page_end": page_num,
+                    "parent_chunk_ids": [],
+                })
                 continue
 
             full_text = f"{pending_heading}\n\n{btext}" if pending_heading else btext
@@ -597,6 +631,7 @@ def build_parent_child_chunks(
 
                 parent = _make_parent(doc_id, parent_idx, page_num, parent_text, current_section)
                 parents.append(parent)
+                _record_parent_in_section(parent)
 
                 # Genera child chunk dal parent
                 if btype in ("table", "formula", "code") or wc <= _CHILD_WORDS:
@@ -642,7 +677,71 @@ def build_parent_child_chunks(
 
                 parent_idx += 1
 
-    return parents, children
+    return parents, children, section_events
+
+
+def build_section_tree(section_events: list[dict]) -> list[dict]:
+    """Annida gli eventi sezione piatti in un albero per livello heading.
+
+    Ogni nodo: {"title", "level", "page_start", "page_end",
+    "parent_chunk_ids", "children"}. Un heading di livello L diventa figlio
+    dell'ultimo heading aperto con livello < L (stack-based, ordine di
+    documento). page_end è propagato bottom-up sui discendenti, così lo span
+    di un capitolo copre tutte le sue sottosezioni.
+
+    È la fonte della struttura per il course builder (outline generation):
+    parent_chunk_ids àncora ogni sezione ai ChunkParent da cui generare.
+    """
+    roots: list[dict] = []
+    stack: list[dict] = []
+
+    for event in section_events:
+        node = {**event, "parent_chunk_ids": list(event["parent_chunk_ids"]), "children": []}
+        while stack and stack[-1]["level"] >= node["level"]:
+            stack.pop()
+        if stack:
+            stack[-1]["children"].append(node)
+        else:
+            roots.append(node)
+        stack.append(node)
+
+    def _propagate_page_end(node: dict) -> int:
+        for child in node["children"]:
+            node["page_end"] = max(node["page_end"], _propagate_page_end(child))
+        return node["page_end"]
+
+    for root in roots:
+        _propagate_page_end(root)
+
+    return roots
+
+
+def build_section_events_from_parents(parent_rows: list) -> list[dict]:
+    """Backfill: ricostruisce eventi sezione piatti dalle righe ChunkParent.
+
+    Per i documenti ingestionati prima dell'introduzione del section tree il
+    file sorgente può non esistere più (run() lo elimina a fine pipeline),
+    ma chunk_parent conserva citation_section e citation_page per parent.
+    Raggruppando le run consecutive della stessa sezione (righe ordinate per
+    id, che codifica l'ordine di documento) si ottiene un albero piatto di
+    livello 1 — senza gerarchia heading, ma sufficiente per l'outline.
+    """
+    events: list[dict] = []
+    for row in parent_rows:
+        title = _clean_section_title(row.citation_section)
+        page = row.citation_page or 0
+        if not events or events[-1]["title"] != title:
+            events.append({
+                "title": title,
+                "level": 1,
+                "page_start": page,
+                "page_end": page,
+                "parent_chunk_ids": [],
+            })
+        event = events[-1]
+        event["parent_chunk_ids"].append(row.id)
+        event["page_end"] = max(event["page_end"], page)
+    return events
 
 
 # ---------------------------------------------------------------------------
@@ -935,7 +1034,9 @@ def run(
             # Stage 3 — CHUNKING (parent-child hierarchy)
             # ------------------------------------------------------------------
             _set_stage(doc, DocumentProcessingStage.CHUNKING, db)
-            parent_chunks, raw_children = build_parent_child_chunks(pages, document_id)
+            parent_chunks, raw_children, section_events = build_parent_child_chunks(
+                pages, document_id
+            )
 
             # ------------------------------------------------------------------
             # Stage 3b — QUALITY FILTER (child chunks only)
@@ -1053,6 +1154,7 @@ def run(
             doc.page_count = page_count if page_count else None
             doc.extracted_text_preview = full_text[:500]
             doc.sections_json = json.dumps(sections)
+            doc.section_tree_json = json.dumps(build_section_tree(section_events))
             doc.sample_chunks_json = json.dumps(sample)
             db.commit()
 

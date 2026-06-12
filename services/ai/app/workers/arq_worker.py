@@ -35,8 +35,24 @@ async def reindex_document_qvac(ctx, document_id: str, course_id: str) -> None:
     )
 
 
+async def generate_course_outline(
+    ctx, course_id: str, doc_ids: list, run_id: str
+) -> None:
+    """ARQ job: map-reduce pipeline that generates draft Chapter/Lesson rows."""
+    from app.db.session import get_db_context
+    from app.services import outline_service
+
+    with get_db_context() as db:
+        await outline_service.generate_outline(
+            course_id=course_id,
+            doc_ids=doc_ids,
+            db=db,
+            run_id=run_id,
+        )
+
+
 class WorkerSettings:
-    functions = [ingest_document, reindex_document_qvac]
+    functions = [ingest_document, reindex_document_qvac, generate_course_outline]
     redis_settings = RedisSettings.from_dsn(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     job_timeout = 600
     max_tries = 2

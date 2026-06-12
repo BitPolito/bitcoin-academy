@@ -15,6 +15,7 @@ from app.schemas.document_schemas import (
     DocumentListItem,
     DocumentPreview,
     DocumentStatusResponse,
+    DocumentStructure,
 )
 from app.core.errors import NotFoundError
 from app.core.rate_limit import limiter
@@ -249,6 +250,21 @@ def get_document_preview(
     if preview is None:
         raise NotFoundError(resource="Document", identifier=document_id)
     return preview
+
+
+@router.get(
+    "/documents/{document_id}/structure",
+    response_model=DocumentStructure,
+    summary="Heading tree with page spans and parent-chunk anchors",
+)
+def get_document_structure(
+    document_id: str = PathParam(..., description="Document ID"),
+    db: Session = Depends(get_db),
+):
+    result = document_service.get_section_tree(db, document_id)
+    if result is None:
+        raise NotFoundError(resource="Document", identifier=document_id)
+    return DocumentStructure(document_id=document_id, **result)
 
 
 @router.delete(
