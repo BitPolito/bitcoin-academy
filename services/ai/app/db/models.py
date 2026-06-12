@@ -169,6 +169,7 @@ class Lesson(Base):
     order_index: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[Optional[str]] = mapped_column(String, default="published")
     source_refs_json: Mapped[Optional[str]] = mapped_column(Text)
+    content_hash: Mapped[Optional[str]] = mapped_column(String)
 
     chapter: Mapped["Chapter"] = relationship(back_populates="lessons")
     quizzes: Mapped[List["Quiz"]] = relationship(back_populates="lesson")

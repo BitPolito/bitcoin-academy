@@ -51,8 +51,26 @@ async def generate_course_outline(
         )
 
 
+async def generate_course_content(ctx, course_id: str, run_id: str) -> None:
+    """ARQ job: generate content for all draft lessons in a course."""
+    from app.db.session import get_db_context
+    from app.services import lesson_service
+
+    with get_db_context() as db:
+        await lesson_service.generate_course_content(
+            course_id=course_id,
+            db=db,
+            run_id=run_id,
+        )
+
+
 class WorkerSettings:
-    functions = [ingest_document, reindex_document_qvac, generate_course_outline]
+    functions = [
+        ingest_document,
+        reindex_document_qvac,
+        generate_course_outline,
+        generate_course_content,
+    ]
     redis_settings = RedisSettings.from_dsn(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     job_timeout = 600
     max_tries = 2
