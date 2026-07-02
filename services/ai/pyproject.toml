@@ -52,6 +52,8 @@ dependencies = [
     "flashrank>=0.2.0",
     "sentence-transformers>=2.7.0",
     "rank-bm25>=0.2.2",
+    # Hardware tier detection (RAM, cross-platform incl. Windows)
+    "psutil>=5.9.0",
 ]
 
 [project.optional-dependencies]

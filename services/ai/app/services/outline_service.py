@@ -256,6 +256,7 @@ async def _map_section(
         context=context,
         system_prompt=_MAP_SYSTEM,
         generation_params={"temp": 0.15},
+        task_type="map",
     )
 
     candidates = []
@@ -326,6 +327,7 @@ async def _reduce(candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
         _REDUCE_SCHEMA,
         system_prompt=_REDUCE_SYSTEM,
         generation_params={"temp": 0.2},
+        task_type="reduce",
     )
 
 

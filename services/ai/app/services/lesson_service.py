@@ -230,6 +230,7 @@ async def _generate_content(
         context=context_items,
         system_prompt=_CONTENT_SYSTEM,
         generation_params={"temp": 0.2},
+        task_type="content_gen",
     )
 
 
@@ -260,6 +261,7 @@ async def _judge_groundedness(
         context=judge_context,
         system_prompt=_JUDGE_SYSTEM,
         generation_params={"temp": 0.1},
+        task_type="judge",
     )
 
 

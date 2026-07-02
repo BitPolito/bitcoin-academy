@@ -77,6 +77,39 @@ class Settings:
     # as 75 in quizzes_api.py and 70 in lesson_service.py; those conflicted).
     QUIZ_PASSING_SCORE: int = int(os.getenv("QUIZ_PASSING_SCORE", "70"))
 
+    # QVAC inference ladder (docs/agent-memory-plan.md, Fase 0). Only one QVAC
+    # worker is deployed today, so both default to the existing QVAC_SERVICE_URL —
+    # set them independently once a separate local/server deploy exists.
+    # NOTE: study_service.py, chat_service.py, document_service.py,
+    # rag/query_rewriter.py, rag/compressor.py, workers/pipeline.py, and the
+    # /health check in main.py each still read QVAC_SERVICE_URL directly
+    # rather than through these settings — they will NOT pick up a diverging
+    # QVAC_LOCAL_URL/QVAC_SERVER_URL value until migrated onto settings too.
+    _QVAC_SERVICE_URL_DEFAULT = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
+    QVAC_SERVICE_URL: str = _QVAC_SERVICE_URL_DEFAULT
+    QVAC_LOCAL_URL: str = os.getenv("QVAC_LOCAL_URL", _QVAC_SERVICE_URL_DEFAULT)
+    QVAC_SERVER_URL: str = os.getenv("QVAC_SERVER_URL", _QVAC_SERVICE_URL_DEFAULT)
+    # os.getenv only substitutes its default when the var is unset — if it's
+    # SET but blank (e.g. an unfilled templated .env line), it stays "".
+    # Fail fast here instead of booting with a client pointed at base_url=""
+    # that only breaks at request time (httpx.UnsupportedProtocol).
+    if not QVAC_LOCAL_URL:
+        raise ValueError(
+            "❌ INVALID: QVAC_LOCAL_URL is set but empty. Unset it to use the default, or provide a value."
+        )
+    if not QVAC_SERVER_URL:
+        raise ValueError(
+            "❌ INVALID: QVAC_SERVER_URL is set but empty. Unset it to use the default, or provide a value."
+        )
+
+    # Manual hardware-tier override ("A"|"B"|"C"|"D"); empty string = auto-detect
+    # (see app.services.hardware_tier.detect_tier).
+    HARDWARE_TIER: str = os.getenv("HARDWARE_TIER", "").strip().upper()
+    if HARDWARE_TIER and HARDWARE_TIER not in ("A", "B", "C", "D"):
+        raise ValueError(
+            f"❌ INVALID: HARDWARE_TIER must be one of A, B, C, D (or unset). Got: {HARDWARE_TIER}"
+        )
+
     # Environment validation
     ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
     if ENVIRONMENT not in ["development", "staging", "production"]:

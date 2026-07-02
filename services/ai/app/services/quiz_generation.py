@@ -101,6 +101,7 @@ async def generate_quiz_questions(
             context=context_items,
             system_prompt=QUIZ_SYSTEM,
             generation_params={"temp": 0.3},
+            task_type="content_gen",
         )
     except StructuredGenerationError as exc:
         logger.warning("Quiz generation failed for topic '%s': %s", topic, exc)
