@@ -1,12 +1,16 @@
 """Document service - business logic for document upload, status, and preview."""
 import json
+import logging
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
 from app.db.models import ChunkParent, CourseDocument, DocumentProcessingStage, DocumentStatus
 from app.repositories import document_repo
+
+logger = logging.getLogger(__name__)
 
 
 def list_documents(db: Session, course_id: str) -> List[CourseDocument]:
@@ -51,11 +55,55 @@ def reset_status(db: Session, document_id: str) -> Optional[CourseDocument]:
     return doc
 
 
-def delete_document(db: Session, document_id: str) -> bool:
+def _qvac_delete_workspace_chunks(course_id: str, doc_id: str) -> None:
+    """Best-effort request to drop this document's vectors from QVAC.
+
+    The QVAC Node service (external, not in this repo) is not confirmed to
+    expose a delete-by-document endpoint — unlike /ingest and /query which are
+    used elsewhere in this codebase. This call degrades silently (logged at
+    debug) if the endpoint doesn't exist or QVAC is unreachable, matching the
+    resilience pattern already used for QVAC calls throughout the codebase.
+    Stale vectors left behind are a known limitation until the endpoint
+    contract is confirmed — see docs/feature-status.md §3.
+    """
+    import os  # noqa: PLC0415
+    import httpx  # noqa: PLC0415
+
+    qvac_url = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            client.delete(f"{qvac_url}/documents/{doc_id}", params={"workspace": course_id})
+    except httpx.HTTPError as exc:
+        logger.debug("QVAC vector cleanup skipped for doc %s: %s", doc_id, exc)
+
+
+def delete_document(db: Session, document_id: str, commit: bool = True) -> bool:
+    """Delete a document: DB row, its chunk_parent rows, the uploaded file,
+    and (best-effort) its QVAC vectors.
+
+    commit=False lets a caller (course_service.delete_course) fold several
+    documents' deletions into one outer transaction instead of committing
+    each document individually — a mid-cascade failure then rolls back
+    everything instead of leaving some documents deleted and others not.
+    """
     doc = document_repo.get_by_id(db, document_id)
     if doc is None:
         return False
-    document_repo.delete(db, doc)
+
+    db.query(ChunkParent).filter(ChunkParent.doc_id == document_id).delete()
+
+    from app.workers.pipeline import UPLOADS_DIR  # noqa: PLC0415
+    upload_dir = UPLOADS_DIR / doc.course_id
+    if upload_dir.is_dir():
+        for f in upload_dir.glob(f"{document_id}_*"):
+            try:
+                f.unlink()
+            except OSError as exc:
+                logger.warning("Could not remove uploaded file %s: %s", f, exc)
+
+    _qvac_delete_workspace_chunks(doc.course_id, document_id)
+
+    document_repo.delete(db, doc, commit=commit)
     return True
 
 

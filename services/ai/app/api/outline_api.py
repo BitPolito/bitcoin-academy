@@ -121,12 +121,14 @@ async def generate_outline(
             "No READY documents found. Upload and process at least one document first."
         )
 
+    from app.services.outline_service import OUTLINE_PROMPT_VERSION
+
     run = GenerationRun(
         id=str(uuid.uuid4()),
         course_id=course_id,
         doc_ids_json=json.dumps(doc_ids),
         status=GenerationRunStatus.QUEUED,
-        prompt_version="v1",
+        prompt_version=OUTLINE_PROMPT_VERSION,
         options_json=json.dumps(body.options) if body.options else None,
     )
     db.add(run)

@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.db.models import UserRole
+from app.middleware.auth import CurrentUser
 from app.services import course_service
 from app.schemas.course_schemas import CourseSchema, LessonSchema
 from app.core.errors import NotFoundError, ValidationError_
@@ -95,8 +97,11 @@ def update_course(
 def delete_course(
     course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(CurrentUser(roles=[UserRole.ADMIN, UserRole.INSTRUCTOR])),
 ):
-    """Delete a course and all its documents."""
+    """Delete a course: documents (+ files, QVAC vectors, chunks), chapters,
+    lessons, quizzes, attempts, generation runs, and progress. Certificates
+    are revoked, not deleted, so verification stays honest. Instructor/admin only."""
     try:
         UUID(course_id)
     except ValueError:
@@ -105,10 +110,10 @@ def delete_course(
             details={"course_id": course_id},
         )
 
-    deleted = course_service.delete_course(db, course_id)
-    if not deleted:
+    counts = course_service.delete_course(db, course_id)
+    if counts is None:
         raise NotFoundError(resource="Course", identifier=course_id)
-    return {"message": "Course deleted"}
+    return {"message": "Course deleted", "counts": counts}
 
 
 @router.get("/courses/{course_id}/lessons", response_model=List[LessonSchema])

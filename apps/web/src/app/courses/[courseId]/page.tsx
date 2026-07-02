@@ -391,6 +391,13 @@ export default function CourseWorkspacePage() {
           >
             {deleting ? 'Deleting…' : 'Delete'}
           </button>
+          <button
+            className="btn-ghost"
+            onClick={() => router.push(`/courses/${courseId}/review`)}
+            title="Review AI-generated outline, lessons, and quizzes"
+          >
+            Review
+          </button>
           <button className="btn-primary" onClick={() => router.push(`/courses/${courseId}/study`)}>
             Study →
           </button>

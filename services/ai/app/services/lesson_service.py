@@ -16,7 +16,7 @@ All LLM calls go through qvac_structured.generate_json.
 import hashlib
 import json
 import logging
-import uuid
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
@@ -27,12 +27,10 @@ from app.db.models import (
     GenerationRun,
     GenerationRunStatus,
     Lesson,
-    OptionChoice,
-    Question,
-    QuestionType,
     Quiz,
     QuizScope,
 )
+from app.services import quiz_generation
 from app.services.qvac_structured import (
     LlmDisabledError,
     StructuredGenerationError,
@@ -97,44 +95,10 @@ _JUDGE_SCHEMA: Dict[str, Any] = {
     },
 }
 
-_QUIZ_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "required": ["questions"],
-    "properties": {
-        "questions": {
-            "type": "array",
-            "minItems": 3,
-            "maxItems": 4,
-            "items": {
-                "type": "object",
-                "required": ["prompt", "options", "correct_key"],
-                "properties": {
-                    "prompt": {"type": "string"},
-                    "options": {
-                        "type": "array",
-                        "minItems": 4,
-                        "maxItems": 4,
-                        "items": {
-                            "type": "object",
-                            "required": ["key", "text"],
-                            "properties": {
-                                "key": {
-                                    "type": "string",
-                                    "enum": ["A", "B", "C", "D"],
-                                },
-                                "text": {"type": "string"},
-                            },
-                        },
-                    },
-                    "correct_key": {
-                        "type": "string",
-                        "enum": ["A", "B", "C", "D"],
-                    },
-                },
-            },
-        }
-    },
-}
+# Quiz schema/system-prompt live in quiz_generation.py — shared with the
+# study-page ad-hoc quiz endpoint (see quizzes_api.py). Keeping a single
+# generator avoids the free-text-parsing/DB-persisted split that used to
+# exist between the two call sites.
 
 # ---------------------------------------------------------------------------
 # System prompts
@@ -164,21 +128,11 @@ _JUDGE_SYSTEM = (
     "4. Return faithful=true only if ALL cited claims are directly supported."
 )
 
-_QUIZ_SYSTEM = (
-    "You are an expert educator at BitPolito Academy creating assessment questions.\n"
-    "RULES:\n"
-    "1. Create 3–4 multiple-choice questions based ONLY on the provided source passages.\n"
-    "2. Each question tests conceptual understanding, not trivial recall.\n"
-    "3. All 4 options (A–D) must be plausible — wrong options should be conceptually close.\n"
-    "4. The correct answer must be directly supported by the source text.\n"
-    "5. Use exact technical terminology from the document."
-)
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _compute_hash(lesson: Lesson) -> str:
+def compute_content_hash(lesson: Lesson) -> str:
     """SHA256 of (sorted source_refs + lesson.title + prompt_version)."""
     refs: List[str] = []
     if lesson.source_refs_json:
@@ -188,6 +142,27 @@ def _compute_hash(lesson: Lesson) -> str:
             pass
     payload = json.dumps(sorted(refs)) + lesson.title + CONTENT_PROMPT_VERSION
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+_ISSUES_COMMENT_RE = re.compile(r"\n\n<!-- groundedness_issues:\n(.*?)\n-->", re.DOTALL)
+
+
+def extract_issues(content: str) -> Tuple[str, List[str]]:
+    """Split lesson.content into (clean_markdown, groundedness_issues).
+
+    process_lesson() embeds judge issues as an HTML comment so nothing is
+    lost, but a comment isn't fit for a student-facing response — the review
+    UI (content_api.py) needs the issues as a structured list and the content
+    without the comment.
+    """
+    match = _ISSUES_COMMENT_RE.search(content)
+    if not match:
+        return content, []
+    issues = [
+        line[2:].strip() for line in match.group(1).splitlines() if line.strip().startswith("-")
+    ]
+    clean = content[: match.start()] + content[match.end():]
+    return clean, issues
 
 
 def _load_context(lesson: Lesson, db: Session) -> Tuple[List[str], List[Dict[str, str]]]:
@@ -295,75 +270,20 @@ async def _judge_groundedness(
 async def _generate_quiz_data(
     lesson: Lesson, context_items: List[Dict[str, str]]
 ) -> Optional[Dict[str, Any]]:
-    """Call /generate_json to produce MCQ quiz data."""
-    prompt = (
-        f'Generate a quiz for the lesson "{lesson.title}". '
-        "Create 3-4 multiple-choice questions that test understanding of the key concepts "
-        "in the provided source passages."
-    )
-    try:
-        return await generate_json(
-            prompt,
-            _QUIZ_SCHEMA,
-            context=context_items,
-            system_prompt=_QUIZ_SYSTEM,
-            generation_params={"temp": 0.3},
-        )
-    except StructuredGenerationError as exc:
-        logger.warning("Quiz generation failed for lesson %s: %s", lesson.id, exc)
-        return None
+    """Call /generate_json (via quiz_generation.py) to produce MCQ quiz data."""
+    return await quiz_generation.generate_quiz_questions(lesson.title, context_items)
 
 
 def _persist_quiz(lesson: Lesson, quiz_data: Dict[str, Any], db: Session) -> Optional[str]:
     """Write Quiz / Question / OptionChoice rows linked to the lesson."""
-    raw_questions = quiz_data.get("questions", [])
-    if not raw_questions:
-        return None
-
-    # Remove any existing lesson quiz
-    existing = db.query(Quiz).filter(
-        Quiz.lesson_id == lesson.id, Quiz.scope == QuizScope.LESSON
-    ).first()
-    if existing:
-        for q in db.query(Question).filter(Question.quiz_id == existing.id).all():
-            db.query(OptionChoice).filter(OptionChoice.question_id == q.id).delete()
-            db.delete(q)
-        db.delete(existing)
-        db.flush()
-
-    quiz = Quiz(
-        id=str(uuid.uuid4()),
+    quiz = quiz_generation.persist_quiz(
+        db,
+        quiz_data.get("questions", []),
         scope=QuizScope.LESSON,
         title=f"Quiz: {lesson.title[:80]}",
-        passing_score=70,
         lesson_id=lesson.id,
     )
-    db.add(quiz)
-    db.flush()
-
-    for order_idx, q_data in enumerate(raw_questions):
-        question = Question(
-            id=str(uuid.uuid4()),
-            quiz_id=quiz.id,
-            qtype=QuestionType.MCQ,
-            prompt=q_data["prompt"],
-            order_index=order_idx,
-        )
-        db.add(question)
-        db.flush()
-
-        correct_key = q_data.get("correct_key", "A")
-        for opt in q_data.get("options", []):
-            choice = OptionChoice(
-                id=str(uuid.uuid4()),
-                question_id=question.id,
-                label=f"{opt['key']}) {opt['text']}",
-                is_correct=(opt["key"] == correct_key),
-            )
-            db.add(choice)
-
-    db.commit()
-    return quiz.id
+    return quiz.id if quiz else None
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +303,7 @@ async def process_lesson(lesson_id: str, db: Session) -> str:
         raise ValueError(f"Lesson {lesson_id} not found")
 
     # ---- Cache check ----
-    current_hash = _compute_hash(lesson)
+    current_hash = compute_content_hash(lesson)
     if lesson.content_hash == current_hash and lesson.content:
         logger.info("lesson %s: cache hit — skipping", lesson_id)
         return "skipped"
@@ -484,8 +404,16 @@ async def generate_course_content(
     course_id: str,
     db: Session,
     run_id: str,
+    lesson_ids: Optional[List[str]] = None,
 ) -> None:
-    """Process all draft lessons for a course sequentially.
+    """Process draft lessons for a course sequentially.
+
+    If *lesson_ids* is given, only those lessons are processed and each has
+    its content_hash cleared first — this is the "regenerate this lesson"
+    path from the review UI, and must bypass the cache-hit skip in
+    process_lesson() or a re-request would be a silent no-op. Without
+    lesson_ids, all draft lessons in the course are processed (the initial
+    generation path from POST /content/generate).
 
     Updates GenerationRun status/stage at each step for frontend polling.
     """
@@ -495,14 +423,19 @@ async def generate_course_content(
 
     _update_run(run, db, GenerationRunStatus.RUNNING, "init")
 
-    # Fetch all draft lessons for this course (via chapter join)
-    lessons = (
+    query = (
         db.query(Lesson)
         .join(Chapter, Lesson.chapter_id == Chapter.id)
-        .filter(Chapter.course_id == course_id, Chapter.status == "draft")
+        .filter(Chapter.course_id == course_id)
         .order_by(Chapter.order_index, Lesson.order_index)
-        .all()
     )
+    if lesson_ids:
+        lessons = query.filter(Lesson.id.in_(lesson_ids)).all()
+        for lesson in lessons:
+            lesson.content_hash = None
+        db.commit()
+    else:
+        lessons = query.filter(Chapter.status == "draft").all()
 
     if not lessons:
         _update_run(run, db, GenerationRunStatus.ERROR, error="No draft lessons found for this course")

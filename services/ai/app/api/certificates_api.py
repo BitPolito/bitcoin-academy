@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.db.models import UserRole
 from app.db.session import get_db
 from app.middleware.auth import CurrentUser, get_current_user
 
@@ -177,4 +178,31 @@ def verify_certificate(
             issued_at=cert.issued_at if isinstance(cert.issued_at, str) else cert.issued_at.isoformat(),
             revoked=cert.revoked,
         ).model_dump(),
+    )
+
+
+@router.post(
+    "/admin/certificates/{certificate_id}/revoke",
+    summary="Revoke a certificate (admin only)",
+)
+def revoke_certificate(
+    certificate_id: str = Path(..., description="Certificate ID"),
+    db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(CurrentUser(roles=[UserRole.ADMIN])),
+) -> JSONResponse:
+    from app.db.models import Certificate
+
+    cert = db.query(Certificate).filter(Certificate.id == certificate_id).first()
+    if cert is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Certificate not found")
+
+    if not cert.revoked:
+        cert.revoked = True
+        cert.revoked_at = datetime.now(timezone.utc).isoformat()
+        db.commit()
+        db.refresh(cert)
+
+    return JSONResponse(
+        status_code=200,
+        content={"id": cert.id, "revoked": cert.revoked, "revoked_at": cert.revoked_at},
     )

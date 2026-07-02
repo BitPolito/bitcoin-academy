@@ -24,7 +24,7 @@ from app.db.models import (
 )
 from app.services.lesson_service import (
     CONTENT_PROMPT_VERSION,
-    _compute_hash,
+    compute_content_hash,
     _load_context,
     _persist_quiz,
     process_lesson,
@@ -103,34 +103,34 @@ def _add_parent(db, cid, course_id, doc_id="doc1", text="Bitcoin is X. " * 100):
 
 
 # ---------------------------------------------------------------------------
-# _compute_hash
+# compute_content_hash
 # ---------------------------------------------------------------------------
 
-def test_compute_hash_deterministic():
+def test_compute_content_hash_deterministic():
     db, course = _make_db()
     ch = _add_chapter(db, course.id)
     ls = _add_lesson(db, ch.id, source_refs=["c1", "c2"])
-    h1 = _compute_hash(ls)
-    h2 = _compute_hash(ls)
+    h1 = compute_content_hash(ls)
+    h2 = compute_content_hash(ls)
     assert h1 == h2
     assert len(h1) == 64  # SHA256 hex
 
 
-def test_compute_hash_changes_with_refs():
+def test_compute_content_hash_changes_with_refs():
     db, course = _make_db()
     ch = _add_chapter(db, course.id)
     ls_a = _add_lesson(db, ch.id, source_refs=["c1"])
     ls_b = _add_lesson(db, ch.id, source_refs=["c2"])
-    assert _compute_hash(ls_a) != _compute_hash(ls_b)
+    assert compute_content_hash(ls_a) != compute_content_hash(ls_b)
 
 
-def test_compute_hash_order_independent():
+def test_compute_content_hash_order_independent():
     db, course = _make_db()
     ch = _add_chapter(db, course.id)
     ls1 = _add_lesson(db, ch.id, source_refs=["c1", "c2"])
     ls2 = _add_lesson(db, ch.id, source_refs=["c2", "c1"])
     # sorted refs → same hash
-    assert _compute_hash(ls1) == _compute_hash(ls2)
+    assert compute_content_hash(ls1) == compute_content_hash(ls2)
 
 
 # ---------------------------------------------------------------------------
@@ -270,8 +270,11 @@ async def test_process_lesson_published_when_faithful():
 
     with patch(
         "app.services.lesson_service.generate_json", new_callable=AsyncMock
-    ) as mock_gj:
-        mock_gj.side_effect = [_CONTENT_RESULT, _JUDGE_PASS, _QUIZ_RESULT]
+    ) as mock_gj, patch(
+        "app.services.quiz_generation.generate_json", new_callable=AsyncMock
+    ) as mock_quiz_gj:
+        mock_gj.side_effect = [_CONTENT_RESULT, _JUDGE_PASS]
+        mock_quiz_gj.return_value = _QUIZ_RESULT
         status = await process_lesson(ls.id, db)
 
     assert status == "published"
@@ -295,8 +298,11 @@ async def test_process_lesson_needs_review_when_unfaithful():
 
     with patch(
         "app.services.lesson_service.generate_json", new_callable=AsyncMock
-    ) as mock_gj:
-        mock_gj.side_effect = [_CONTENT_RESULT, _JUDGE_FAIL, _QUIZ_RESULT]
+    ) as mock_gj, patch(
+        "app.services.quiz_generation.generate_json", new_callable=AsyncMock
+    ) as mock_quiz_gj:
+        mock_gj.side_effect = [_CONTENT_RESULT, _JUDGE_FAIL]
+        mock_quiz_gj.return_value = _QUIZ_RESULT
         status = await process_lesson(ls.id, db)
 
     assert status == "needs_review"
@@ -312,7 +318,7 @@ async def test_process_lesson_skips_on_cache_hit():
     ch = _add_chapter(db, course.id)
     _add_parent(db, "p1", course.id)
     ls = _add_lesson(db, ch.id, source_refs=["p1"], content="Existing content")
-    ls.content_hash = _compute_hash(ls)
+    ls.content_hash = compute_content_hash(ls)
     db.commit()
 
     with patch(

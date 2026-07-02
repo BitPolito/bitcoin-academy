@@ -28,6 +28,7 @@ class UserRole(str, Enum):
 class QuizScope(str, Enum):
     LESSON = "lesson"
     CHAPTER_TEST = "chapter_test"
+    COURSE = "course"
 
 
 class QuestionType(str, Enum):
@@ -188,6 +189,8 @@ class Quiz(Base):
     title: Mapped[Optional[str]] = mapped_column(String)
     passing_score: Mapped[int] = mapped_column(Integer, default=70)
     lesson_id: Mapped[Optional[str]] = mapped_column(ForeignKey("lesson.id"))
+    course_id: Mapped[Optional[str]] = mapped_column(ForeignKey("course.id"))
+    created_at: Mapped[Optional[str]] = mapped_column(String, default=func.now())
 
     lesson: Mapped[Optional["Lesson"]] = relationship(back_populates="quizzes")
     questions: Mapped[List["Question"]] = relationship(back_populates="quiz")
@@ -236,6 +239,8 @@ class Question(Base):
     prompt: Mapped[str] = mapped_column(Text)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
     source_ref: Mapped[Optional[str]] = mapped_column(String)
+    concept_tag: Mapped[Optional[str]] = mapped_column(String)
+    difficulty: Mapped[Optional[str]] = mapped_column(String)
 
     quiz: Mapped["Quiz"] = relationship(back_populates="questions")
     options: Mapped[List["OptionChoice"]] = relationship(

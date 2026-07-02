@@ -73,6 +73,10 @@ class Settings:
     # Debug mode — enables /api/debug/* endpoints
     DEBUG_MODE: bool = os.getenv("DEBUG_MODE", "").lower() in ("true", "1", "yes")
 
+    # Quiz — single source of truth for the passing threshold (was hardcoded
+    # as 75 in quizzes_api.py and 70 in lesson_service.py; those conflicted).
+    QUIZ_PASSING_SCORE: int = int(os.getenv("QUIZ_PASSING_SCORE", "70"))
+
     # Environment validation
     ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
     if ENVIRONMENT not in ["development", "staging", "production"]:

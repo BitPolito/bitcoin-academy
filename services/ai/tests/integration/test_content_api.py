@@ -301,8 +301,9 @@ class TestGetLessonContent:
         assert body["quiz"]["id"] == quiz.id
         assert len(body["quiz"]["questions"]) == 1
         assert len(body["quiz"]["questions"][0]["options"]) == 4
-        correct = [o for o in body["quiz"]["questions"][0]["options"] if o["is_correct"]]
-        assert len(correct) == 1
+        # Student-facing endpoint must never leak the correct answer.
+        for opt in body["quiz"]["questions"][0]["options"]:
+            assert "is_correct" not in opt
 
     def test_404_when_lesson_not_found(self, client, db_session):
         resp = client.get("/api/lessons/nonexistent-lesson/content")

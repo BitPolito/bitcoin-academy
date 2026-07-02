@@ -51,8 +51,15 @@ async def generate_course_outline(
         )
 
 
-async def generate_course_content(ctx, course_id: str, run_id: str) -> None:
-    """ARQ job: generate content for all draft lessons in a course."""
+async def generate_course_content(
+    ctx, course_id: str, run_id: str, lesson_ids: list | None = None
+) -> None:
+    """ARQ job: generate content for draft lessons in a course.
+
+    lesson_ids: when given, only regenerate those lessons (bypasses cache) —
+    the "regenerate this lesson" action from the review UI. Otherwise
+    processes every draft lesson in the course.
+    """
     from app.db.session import get_db_context
     from app.services import lesson_service
 
@@ -61,6 +68,7 @@ async def generate_course_content(ctx, course_id: str, run_id: str) -> None:
             course_id=course_id,
             db=db,
             run_id=run_id,
+            lesson_ids=lesson_ids,
         )
 
 

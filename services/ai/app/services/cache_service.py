@@ -123,3 +123,25 @@ def set_cached(query: str, course_id: str, answer: Any) -> None:
         logger.debug("Semantic cache SET for course '%s' (TTL=%ds)", course_id, _TTL)
     except Exception as exc:
         logger.debug("Cache store error: %s", exc)
+
+
+def invalidate_course(course_id: str) -> int:
+    """Delete every cached entry for a course. Used by course deletion.
+
+    Returns the number of keys removed (0 if Redis is unavailable/disabled —
+    never raises, since a stale cache entry is harmless, unlike a failed delete).
+    """
+    if not _ENABLED:
+        return 0
+    client = _redis_client()
+    if client is None:
+        return 0
+    try:
+        keys = client.keys(f"rag:cache:{course_id}:*")
+        if not keys:
+            return 0
+        client.delete(*keys)
+        return len(keys)
+    except Exception as exc:
+        logger.debug("Cache invalidation error for course '%s': %s", course_id, exc)
+        return 0

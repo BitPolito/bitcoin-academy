@@ -11,6 +11,7 @@ from sqlalchemy import text
 
 from app.api.auth_api import router as auth_router
 from app.api.certificates_api import router as certificates_router
+from app.api.chapter_test_api import router as chapter_test_router
 from app.api.chat_api import router as chat_router
 from app.api.courses_api import router as courses_router
 from app.api.documents_api import router as documents_router
@@ -146,6 +147,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth_router)
 app.include_router(certificates_router)
+app.include_router(chapter_test_router)
 app.include_router(chat_router)
 app.include_router(courses_router)
 app.include_router(documents_router)

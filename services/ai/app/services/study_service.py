@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 _QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 _TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 
+# Bump when any prompt in _SYSTEM_PROMPTS below changes meaning (not just
+# wording) — tracked in app/prompts/registry.py for cross-system auditing.
+STUDY_PROMPT_VERSION = "v1"
+
 # Retrieval client: 45 s read covers dense search + BM25 on large corpora.
 _qvac_client = httpx.AsyncClient(
     base_url=_QVAC_SERVICE_URL,

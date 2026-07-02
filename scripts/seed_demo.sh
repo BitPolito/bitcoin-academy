@@ -14,6 +14,9 @@
 #   2. Creates a "Bitcoin Standard — Demo" course
 #   3. Uploads the Bitcoin whitepaper PDF (downloads it if not present)
 #   4. Polls until the document reaches 'ready' status (max 10 min)
+#   5. Runs the course builder: outline generation → content generation → publish,
+#      so the demo opens on a course with real AI-authored chapters and lessons,
+#      not just an indexed document.
 #
 # Requires: curl, jq
 
@@ -146,11 +149,97 @@ done
 
 if [[ $ELAPSED -ge $MAX_POLL_SECONDS ]]; then
   warn "Timed out waiting for ingestion. The document may still be processing."
+  warn "Skipping course builder — re-run this script once ingestion completes."
+  exit 0
 fi
+
+# ── 6. Poll a GenerationRun until it reaches done/error ──────────────────────
+
+poll_run() {
+  local run_id="$1"
+  local label="$2"
+  local elapsed=0
+  while [[ $elapsed -lt $MAX_POLL_SECONDS ]]; do
+    local run_resp
+    run_resp=$(call GET "/api/generation-runs/$run_id")
+    local run_status
+    run_status=$(echo "$run_resp" | jq -r '.status // "unknown"')
+    local run_stage
+    run_stage=$(echo "$run_resp" | jq -r '.stage // "-"')
+
+    if [[ "$run_status" == "done" ]]; then
+      echo ""
+      log "$label complete."
+      return 0
+    elif [[ "$run_status" == "error" ]]; then
+      echo ""
+      error "$label failed: $(echo "$run_resp" | jq -r '.error_message // "unknown error"')"
+      return 1
+    fi
+
+    printf "\r${YELLOW}[seed]${NC} %s status: %-10s stage: %-20s elapsed: %ds …" \
+      "$label" "$run_status" "$run_stage" "$elapsed"
+    sleep $POLL_INTERVAL
+    elapsed=$((elapsed + POLL_INTERVAL))
+  done
+  echo ""
+  warn "$label timed out after ${MAX_POLL_SECONDS}s."
+  return 1
+}
+
+# ── 7. Generate outline (map-reduce over the indexed document) ──────────────
+
+log "Generating course outline (chapters/lessons draft) …"
+OUTLINE_RESP=$(call POST "/api/courses/$COURSE_ID/outline/generate" \
+  -H "Content-Type: application/json" -d '{}')
+OUTLINE_RUN_ID=$(echo "$OUTLINE_RESP" | jq -r '.run_id // empty')
+
+if [[ -z "$OUTLINE_RUN_ID" ]]; then
+  warn "Could not start outline generation. Response: $OUTLINE_RESP"
+  warn "Skipping course builder — the demo course will only have the indexed document."
+  echo ""
+  log "Done! Demo content loaded:"
+  log "  Course: Bitcoin Standard — Demo (id: $COURSE_ID)"
+  log "  Document: bitcoin_whitepaper.pdf (id: $DOC_ID)"
+  exit 0
+fi
+
+if ! poll_run "$OUTLINE_RUN_ID" "Outline generation"; then
+  warn "Continuing without AI-authored lessons — the demo course will only have the indexed document."
+  exit 0
+fi
+
+# ── 8. Generate lesson content for every draft lesson ────────────────────────
+
+log "Generating lesson content (Markdown + quiz per lesson) …"
+CONTENT_RESP=$(call POST "/api/courses/$COURSE_ID/content/generate" \
+  -H "Content-Type: application/json" -d '{}')
+CONTENT_RUN_ID=$(echo "$CONTENT_RESP" | jq -r '.run_id // empty')
+
+if [[ -z "$CONTENT_RUN_ID" ]]; then
+  warn "Could not start content generation. Response: $CONTENT_RESP"
+  exit 0
+fi
+
+if ! poll_run "$CONTENT_RUN_ID" "Content generation"; then
+  warn "Some lessons may be in 'needs_review' — review them before publishing."
+  exit 0
+fi
+
+# ── 9. Publish chapters whose lessons all passed the groundedness judge ─────
+
+log "Publishing course …"
+PUBLISH_RESP=$(call POST "/api/courses/$COURSE_ID/publish")
+PUBLISHED_CH=$(echo "$PUBLISH_RESP" | jq -r '.published_chapters // 0')
+PUBLISHED_LS=$(echo "$PUBLISH_RESP" | jq -r '.published_lessons // 0')
+SKIPPED_CH=$(echo "$PUBLISH_RESP" | jq -r '.skipped_chapters // 0')
+
+log "Published $PUBLISHED_CH chapter(s), $PUBLISHED_LS lesson(s). $SKIPPED_CH chapter(s) need review."
 
 echo ""
 log "Done! Demo content loaded:"
 log "  Course: Bitcoin Standard — Demo (id: $COURSE_ID)"
 log "  Document: bitcoin_whitepaper.pdf (id: $DOC_ID)"
+log "  Chapters published: $PUBLISHED_CH ($SKIPPED_CH pending review)"
 log ""
 log "Open the platform at http://localhost:3000 and start exploring."
