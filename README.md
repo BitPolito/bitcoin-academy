@@ -1,6 +1,6 @@
 # BitPolito Academy
 
-[![CI](https://github.com/BitPolito/bitcoin-academy/actions/workflows/ci.yml/badge.svg?branch=rag)](https://github.com/BitPolito/bitcoin-academy/actions/workflows/ci.yml)
+[![CI](https://github.com/BitPolito/bitcoin-academy/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/BitPolito/bitcoin-academy/actions/workflows/ci.yml)
 
 Educational platform for Bitcoin study built at BitPolito. Upload slides, PDFs, or textbooks and interact with them through eight study actions: **explain**, **summarize**, **retrieve**, **open\_questions**, **quiz**, **oral**, **derive**, **compare**.
 
@@ -144,7 +144,7 @@ cd workers/qvac-service && npm test
 
 The RAG suite runs 35 queries across 7 categories (basic, chapter, conceptual, comparative, synthesis, adversarial, stress) through the full retrieval pipeline, scoring each PASS / WARN / FAIL by retrieval confidence. Results are saved as JSON for baseline comparisons.
 
-CI runs on every push and pull request to `main` and `rag` via GitHub Actions (`.github/workflows/ci.yml`).
+CI runs on every push and pull request to `master` via GitHub Actions (`.github/workflows/ci.yml`). See [`AGENTS.md`](AGENTS.md) for the contribution workflow.
 
 ---
 
