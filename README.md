@@ -115,9 +115,9 @@ Set `ENVIRONMENT=development` to enable Swagger UI and relaxed CORS.
 | `RAG_CACHE_THRESHOLD` | `0.92` | Cosine similarity threshold for a cache hit |
 | `RAG_CACHE_TTL_SECONDS` | `86400` | Cache entry lifetime (24 h) |
 | `USE_DOCLING` | `false` | Use Docling for PDF parsing instead of pymupdf4llm |
-| `SKIP_CHROMA_INDEX` | `true` | Skip ChromaDB write during ingestion (QVAC-only mode) |
+| `SKIP_CHROMA_INDEX` | `false` (`true` in `.env.example`) | Skip ChromaDB write during ingestion (QVAC-only mode) |
 
-Full list: [`docs/configuration.md`](docs/configuration.md).
+Full list: [`services/ai/.env.example`](services/ai/.env.example).
 
 ---
 
@@ -152,11 +152,9 @@ CI runs on every push and pull request to `main` and `rag` via GitHub Actions (`
 
 | Document | Contents |
 |---|---|
-| [`docs/architecture.md`](docs/architecture.md) | Project layout, tech stack, component overview |
-| [`docs/api.md`](docs/api.md) | Full REST API reference |
-| [`docs/configuration.md`](docs/configuration.md) | All environment variables |
-
-> `docs/` is in `.gitignore` and not committed to the repo.
+| [`docs/overview.md`](docs/overview.md) | Vision, product scope, architecture, technical principles |
+| [`docs/specifications.md`](docs/specifications.md) | Functional requirements with implementation status |
+| [`AGENTS.md`](AGENTS.md) | Contribution workflow — branching, PRs, CI, merge rules |
 
 ---
 
