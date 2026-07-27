@@ -57,7 +57,7 @@ def _detect_total_ram_gb() -> Optional[float]:
     """Total RAM in GiB, or None if it truly can't be determined."""
     try:
         import psutil
-        return psutil.virtual_memory().total / (1024 ** 3)
+        return float(psutil.virtual_memory().total / (1024 ** 3))
     except ImportError:
         logger.warning("psutil not installed — falling back to os.sysconf for RAM detection")
     try:
@@ -109,7 +109,7 @@ def _auto_detect() -> str:
 # persistito" per docs/agent-memory-plan.md) is a later-phase follow-up —
 # this only fixes in-process staleness.
 _TIER_CACHE_TTL_SECONDS = 300
-_tier_cache: Optional[tuple] = None  # (tier, detected_at_monotonic)
+_tier_cache: Optional[tuple[str, float]] = None  # (tier, detected_at_monotonic)
 
 
 def detect_tier() -> str:

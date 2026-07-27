@@ -187,7 +187,8 @@ def _get_section_tree(doc: CourseDocument, db: Session) -> Optional[List[Dict[st
     """Return the section tree for a document, rebuilding from parents if needed."""
     if doc.section_tree_json:
         try:
-            return json.loads(doc.section_tree_json)
+            tree: list[dict[str, Any]] = json.loads(doc.section_tree_json)
+            return tree
         except json.JSONDecodeError:
             pass
 

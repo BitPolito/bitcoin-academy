@@ -26,7 +26,7 @@ def upsert_lesson_progress(
     score: Optional[int] = None,
 ) -> UserLessonProgress:
     record = get_lesson_progress(db, user_id, lesson_id)
-    now = datetime.now()
+    now = datetime.now().isoformat()
     if record is None:
         record = UserLessonProgress(
             user_id=user_id,
@@ -64,7 +64,7 @@ def upsert_course_progress(
     status: str,
 ) -> UserCourseProgress:
     record = get_course_progress(db, user_id, course_id)
-    now = datetime.now()
+    now = datetime.now().isoformat()
     if record is None:
         record = UserCourseProgress(
             user_id=user_id,

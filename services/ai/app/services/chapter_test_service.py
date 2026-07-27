@@ -45,7 +45,9 @@ def _select_questions(db: Session, lessons: List[Lesson]) -> List[Question]:
         .order_by(Quiz.created_at.asc())
         .all()
     )
-    quiz_by_lesson = {q.lesson_id: q for q in quizzes}
+    # The query above filters on scope == LESSON and lesson_id.in_(...),
+    # so lesson_id is never NULL here; the guard makes that explicit.
+    quiz_by_lesson = {q.lesson_id: q for q in quizzes if q.lesson_id is not None}
 
     pools: Dict[str, List[Question]] = {}
     for lesson_id, quiz in quiz_by_lesson.items():

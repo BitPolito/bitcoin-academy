@@ -39,7 +39,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         request.state.request_id = request_id
 
         # Process request
-        response = await call_next(request)
+        response: Response = await call_next(request)
 
         # Add to response headers
         response.headers["X-Request-ID"] = request_id
@@ -72,7 +72,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         self.environment = environment
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        response = await call_next(request)
+        response: Response = await call_next(request)
 
         # Basic security headers (always applied)
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -282,4 +282,5 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
                 status_code=413,
                 media_type="application/json",
             )
-        return await call_next(request)
+        response: Response = await call_next(request)
+        return response

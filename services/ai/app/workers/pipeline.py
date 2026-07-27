@@ -50,7 +50,7 @@ def _register_module_aliases() -> None:
     for ns_name in ("services", "services.ai", "services.ai.app"):
         if ns_name not in _sys.modules:
             ns = _types.ModuleType(ns_name)
-            ns.__path__ = []  # type: ignore[attr-defined]
+            ns.__path__ = []
             _sys.modules[ns_name] = ns
 
     for name in list(_sys.modules):
@@ -214,7 +214,7 @@ def parse_pptx_pages(file_path: str) -> tuple[list[dict], int]:
                 and shape.placeholder_format is not None
                 and shape.placeholder_format.idx != 0
             ):
-                body_parts.append(shape.text_frame.text.strip())  # type: ignore[union-attr]
+                body_parts.append(shape.text_frame.text.strip())
         body = "\n".join(p for p in body_parts if p)
         notes = ""
         if slide.has_notes_slide:
@@ -602,7 +602,8 @@ def build_parent_child_chunks(
                 continue
 
             if btype == "heading":
-                level = len(re.match(r'^#{1,4}', btext).group(0))
+                _hashes = re.match(r'^#{1,4}', btext)
+                level = len(_hashes.group(0)) if _hashes else 1
                 heading_text = re.sub(r'^#{1,4}\s+', '', btext).strip()
                 current_section = heading_text
                 pending_heading = btext
@@ -708,7 +709,8 @@ def build_section_tree(section_events: list[dict]) -> list[dict]:
     def _propagate_page_end(node: dict) -> int:
         for child in node["children"]:
             node["page_end"] = max(node["page_end"], _propagate_page_end(child))
-        return node["page_end"]
+        page_end: int = node["page_end"]
+        return page_end
 
     for root in roots:
         _propagate_page_end(root)
@@ -833,7 +835,7 @@ def _build_bm25_index(child_chunks: list[dict], workspace: str, doc_id: str) -> 
     Su re-ingest dello stesso doc_id, i vecchi entry vengono prima rimossi.
     """
     try:
-        from rank_bm25 import BM25Okapi  # type: ignore[import]
+        from rank_bm25 import BM25Okapi
     except ImportError:
         logger.warning("rank_bm25 non installato — BM25 index non costruito")
         return
@@ -1110,7 +1112,7 @@ def run(
                         ids=ids,
                         embeddings=embeddings,
                         documents=texts,
-                        metadatas=metadatas,  # type: ignore[arg-type]
+                        metadatas=metadatas,
                     )
                     logger.info("Indexed %d vectors into ChromaDB at %s", len(ids), CHROMA_DB_PATH)
             else:

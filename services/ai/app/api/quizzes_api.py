@@ -26,6 +26,7 @@ from app.db.models import (
     QuizScope,
 )
 from app.db.session import get_db
+from app.core.config import TokenPayload
 from app.middleware.auth import CurrentUser, get_current_user
 from app.services import quiz_generation
 
@@ -180,6 +181,14 @@ async def generate_quiz(
         course_id=course_id,
     )
 
+    # persist_quiz returns None when handed an empty question list. That is
+    # already ruled out above, but relying on it silently turns a future change
+    # in quiz_generation into an AttributeError on quiz.id.
+    if quiz is None:
+        raise ValidationError_(
+            "Could not persist the generated quiz. Try a more specific topic."
+        )
+
     questions = (
         db.query(Question)
         .filter(Question.quiz_id == quiz.id)
@@ -252,7 +261,7 @@ def get_quiz(
 def submit_quiz(
     body: SubmitAnswersRequest,
     quiz_id: str = Path(..., description="Quiz ID"),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> JSONResponse:
     quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
@@ -327,7 +336,7 @@ def submit_quiz(
 )
 def list_my_attempts(
     course_id: Optional[str] = None,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> JSONResponse:
     q = (

@@ -51,7 +51,7 @@ def _compress_one(query: str, text: str) -> str:
             timeout=_TIMEOUT,
         )
         resp.raise_for_status()
-        compressed = resp.json().get("answer", "").strip()
+        compressed: str = resp.json().get("answer", "").strip()
         if not compressed or compressed == "<not_relevant>":
             return text
         logger.debug(
