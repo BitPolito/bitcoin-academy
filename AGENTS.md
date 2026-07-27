@@ -35,6 +35,25 @@ scripts/, tests/      Evaluation tooling and cross-service test assets
 
 ## 3. Workflow
 
+### 3.0 Branch model
+
+Two long-lived branches, and nothing else:
+
+| Branch | Role |
+|---|---|
+| `master` | Default branch. Protected. Only ever updated through a merged pull request. |
+| `mvp-testing` | The active development line, where the MVP is built and tested. |
+
+`master` receives reviewed, gated work. `mvp-testing` periodically receives `master` — that
+direction only — so it is tested with the current gate and fixes in place. Work travels back toward
+`master` in reviewable slices, not as one large merge.
+
+CI runs on both. Feature branches are short-lived: created from the branch they target, merged, and
+deleted immediately. A branch that outlives its pull request is drift waiting to happen.
+
+> The former `mvp` branch was deleted: it contained no commits that `mvp-testing` did not already
+> have, so keeping it only invited work to land on a stale line.
+
 ### 3.1 Pick up work
 
 Work starts from a GitHub issue. Assign it to yourself and move it to **In Progress** on the

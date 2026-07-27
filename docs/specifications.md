@@ -262,7 +262,20 @@ The system must authenticate users and protect its endpoints.
 
 **Implementation.** JWT-based authentication with refresh, a token blacklist for revocation,
 account lockout after repeated failures, `admin`/`student` roles, rate limiting, security headers
-and audit middleware. Development accounts are seeded automatically.
+and audit middleware. Development accounts are seeded automatically, and seeding refuses to run
+when `ENVIRONMENT=production`.
+
+Endpoint protection is asserted structurally rather than by convention:
+`tests/integration/test_authorization_matrix.py` derives the endpoint list from the live OpenAPI
+schema, so an endpoint added without authentication fails the build. Endpoints that are deliberately
+public are listed explicitly in `PUBLIC_ENDPOINTS`, which makes publishing one a visible decision.
+
+Two defects in this area were found and fixed by that suite: sixteen endpoints across the courses
+and documents APIs declared no authentication at all, and logout blacklisted a refresh token whose
+`jti` the refresh endpoint never checked — so a revoked token kept minting access tokens until it
+expired on its own.
+
+**Not yet implemented.** Refresh token rotation with reuse detection.
 
 ---
 

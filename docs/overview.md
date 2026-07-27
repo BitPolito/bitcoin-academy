@@ -160,7 +160,37 @@ architectural work and is the highest-priority refactor in the roadmap.
 
 ---
 
-## 5. Documentation map
+## 5. Development pipeline
+
+Work proceeds in a deliberate order, tracked as milestones on GitHub. The order matters and is not
+the obvious one:
+
+```
+1. Testing        →  2. Persistence  →  3. Agent harness  →  4. Implementation completion
+   (M2)               (M3)               (M4)                 (M5)
+```
+
+**Testing comes first.** The quality gate is established before any substantial code lands, so every
+later phase merges through it. The alternative — integrating a large body of work and then building
+the gate — means the largest, riskiest change is the one thing the gate never protected. This
+project has already seen what an unenforced gate costs: CI was configured for branches that were not
+the default branch, so nothing ran on `master` for weeks and nobody noticed.
+
+**Persistence comes before the agent harness.** An agent that plans, generates, critiques and
+repairs is expensive to run. Without durable memory, every repetition pays that cost again. Building
+the harness first would mean building it against a memory model that is about to change.
+
+**Implementation completion comes last.** The `mvp-testing` branch carries a large body of working,
+tested code — quiz unification, the course builder, structured generation, the inference ladder.
+Integrating it is sequenced last so it lands on top of the gate, the persistence layer and the agent
+foundations, rather than underneath them.
+
+Milestones M6–M9 (topic base, retrieval consolidation, assessment and exam prep, platform health)
+follow, and are not strictly ordered relative to each other.
+
+---
+
+## 6. Documentation map
 
 | Document | Contents |
 |---|---|
