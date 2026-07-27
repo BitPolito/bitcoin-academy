@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.middleware.auth import CurrentUser, get_current_user
 from app.services import course_service
 from app.schemas.course_schemas import CourseSchema, LessonSchema
 from app.core.errors import NotFoundError, ValidationError_
@@ -28,6 +29,7 @@ class ReindexResponse(BaseModel):
 def create_course(
     body: CreateCourseBody,
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     """Create a new course workspace."""
     return course_service.create_course(db, title=body.title, description=body.description)
@@ -38,6 +40,7 @@ def get_courses(
     skip: int = Query(default=0, ge=0, le=1000, description="Number of courses to skip"),
     limit: int = Query(default=100, ge=1, le=100, description="Maximum number of courses to return"),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     """Get a list of all available courses."""
     return course_service.list_courses(db, skip=skip, limit=limit)
@@ -47,6 +50,7 @@ def get_courses(
 def get_course(
     course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     """Get details of a specific course by UUID."""
     try:
@@ -67,6 +71,7 @@ def get_course(
 def get_course_lessons(
     course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     """Get all lessons for a specific course."""
     try:
@@ -90,6 +95,7 @@ async def reindex_course(
     background_tasks: BackgroundTasks,
     course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ) -> ReindexResponse:
     """Re-ingest all documents in a course (full parse → chunk → BM25 → QVAC)."""
     from app.services import document_service
@@ -142,6 +148,7 @@ async def reindex_course(
 def get_lesson(
     lesson_id: str = Path(..., min_length=1, max_length=36, description="Lesson UUID"),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     """Get details of a specific lesson by UUID."""
     try:

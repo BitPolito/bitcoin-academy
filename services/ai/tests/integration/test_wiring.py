@@ -67,6 +67,7 @@ def test_upload_and_chat_use_same_qvac_workspace(client, db):
         resp = client.post(
             f"/api/courses/{course.id}/documents",
             files={"file": ("doc.pdf", b"%PDF fake", "application/pdf")},
+            headers=_auth(user.id),
         )
     assert resp.status_code == 201
     upload_course_id = mock_pipeline.call_args[1]["course_id"]
@@ -126,11 +127,13 @@ def test_different_courses_use_different_workspaces(client, db):
 def test_pipeline_receives_correct_args_from_upload_api(client, db):
     """Upload API must forward document_id, course_id, filename, and file_path to pipeline.run."""
     course, _ = make_course_with_lessons(db)
+    user = make_user(db)
 
     with patch("app.workers.pipeline.run") as mock_pipeline:
         resp = client.post(
             f"/api/courses/{course.id}/documents",
             files={"file": ("lecture.pdf", b"%PDF fake", "application/pdf")},
+            headers=_auth(user.id),
         )
 
     assert resp.status_code == 201

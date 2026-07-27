@@ -201,6 +201,43 @@ in code.
 Do not weaken or delete a failing test to make CI pass. A failing test is either a real defect or a
 test that no longer describes intended behaviour — say which, in the PR.
 
+### The quality gate
+
+Every pull request targeting `master` runs the full gate. The `Quality gate` job aggregates all
+others and is the single required status check.
+
+| Job | What it enforces |
+|---|---|
+| Backend | mypy, pytest, coverage above the ratchet |
+| Frontend | tsc, lint (zero warnings), Jest, coverage above the ratchet |
+| QVAC service | Node tests |
+| Production build | All three Docker images build |
+
+Run it locally before pushing:
+
+```bash
+cd services/ai && pytest --cov=app --cov-report=term-missing
+cd apps/web && npm run type-check && npm run lint && npm test
+cd workers/qvac-service && npm test
+```
+
+**Coverage is a ratchet.** Thresholds live in `services/ai/setup.cfg` (`[coverage:report] fail_under`)
+and `apps/web/jest.config.js` (`coverageThreshold`). Raise them when coverage rises; never lower one
+to make a build pass. A drop means new code arrived untested — add the tests instead.
+
+Some behaviour is asserted structurally and will fail the moment new code forgets it:
+
+- **Authorization** — `tests/integration/test_authorization_matrix.py` derives the endpoint list from
+  the live OpenAPI schema. A new endpoint without authentication fails the build automatically. An
+  endpoint that is deliberately public goes in `PUBLIC_ENDPOINTS`, which makes the decision visible
+  in review.
+- **Contracts** — the evidence pack shape, the study action registry and documented configuration
+  defaults are pinned in `tests/unit/test_contracts.py`. A failure there is not necessarily a bug: it
+  means a contract changed and the test must be updated in the same PR.
+
+Flaky tests are quarantined and fixed, never retried until green. Re-running a red build until it
+passes teaches everyone to ignore red.
+
 ---
 
 ## 6. Security

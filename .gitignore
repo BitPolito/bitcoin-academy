@@ -157,3 +157,8 @@ chroma_db/
 services/ai/uploads/
 services/ai/qvac_ingest/
 services/ai/rag_test_results*.json
+
+# Coverage artifacts
+htmlcov/
+coverage.xml
+.coverage

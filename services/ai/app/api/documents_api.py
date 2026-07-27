@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Pa
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.middleware.auth import CurrentUser, get_current_user
 from app.services import document_service
 from app.workers import pipeline
 from app.workers.pipeline import UPLOADS_DIR
@@ -35,6 +36,7 @@ _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 def list_documents(
     course_id: str = PathParam(..., description="Course ID"),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     return document_service.list_documents(db, course_id)
 
@@ -52,6 +54,7 @@ async def upload_document(
     file: UploadFile = File(...),
     document_type: str = Form("lecture"),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     if file.content_type not in _ALLOWED_MIME_TYPES:
         raise HTTPException(status_code=415, detail="Unsupported file type. Allowed: PDF, PPTX, DOCX.")
@@ -112,6 +115,7 @@ async def reindex_document(
     background_tasks: BackgroundTasks,
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     doc = document_service.get_document(db, document_id)
     if doc is None:
@@ -149,6 +153,7 @@ async def retry_document(
     background_tasks: BackgroundTasks,
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     doc = document_service.get_document(db, document_id)
     if doc is None:
@@ -192,6 +197,7 @@ async def retry_document(
 def get_document_status(
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     doc = document_service.get_document(db, document_id)
     if doc is None:
@@ -206,6 +212,7 @@ def get_document_status(
 def get_document_detail(
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     doc = document_service.get_document(db, document_id)
     if doc is None:
@@ -220,6 +227,7 @@ def get_document_detail(
 def get_document_preview(
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     preview = document_service.get_preview(db, document_id)
     if preview is None:
@@ -234,6 +242,7 @@ def get_document_preview(
 def delete_document(
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     deleted = document_service.delete_document(db, document_id)
     if not deleted:

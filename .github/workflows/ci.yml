@@ -1,10 +1,18 @@
 name: CI
 
+# Runs on every pull request targeting master, and on every push to master.
+# The `quality-gate` job at the bottom aggregates all others — configure that
+# single job as the required status check in branch protection.
+
 on:
   push:
     branches: [master]
   pull_request:
     branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
@@ -30,6 +38,11 @@ jobs:
       run:
         working-directory: services/ai
 
+    env:
+      DATABASE_URL: postgresql://bitcoin_academy:bitcoin_academy@localhost:5432/bitcoin_academy
+      SECRET_KEY: CI-AUTH-JWT-KEY-FOR-PIPELINE-ONLY-32!
+      ENVIRONMENT: development
+
     steps:
       - uses: actions/checkout@v4
 
@@ -45,16 +58,36 @@ jobs:
 
       - name: Type check (mypy)
         run: mypy app
-        env:
-          DATABASE_URL: postgresql://bitcoin_academy:bitcoin_academy@localhost:5432/bitcoin_academy
-          SECRET_KEY: CI-AUTH-JWT-KEY-FOR-PIPELINE-ONLY-32!
 
-      - name: Run tests (pytest)
-        run: pytest
-        env:
-          DATABASE_URL: postgresql://bitcoin_academy:bitcoin_academy@localhost:5432/bitcoin_academy
-          SECRET_KEY: CI-AUTH-JWT-KEY-FOR-PIPELINE-ONLY-32!
-          ENVIRONMENT: development
+      # Coverage thresholds live in services/ai/setup.cfg ([coverage:report]
+      # fail_under). The run fails if coverage drops below the ratchet.
+      - name: Run tests with coverage (pytest)
+        run: |
+          pytest --cov=app \
+                 --cov-report=term-missing \
+                 --cov-report=xml:coverage.xml \
+                 --cov-report=html:htmlcov
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          {
+            echo "### Backend coverage"
+            echo ""
+            echo '```'
+            coverage report --show-missing | tail -40
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: |
+            services/ai/coverage.xml
+            services/ai/htmlcov
+          retention-days: 14
 
   frontend:
     name: Frontend (Node.js)
@@ -85,8 +118,16 @@ jobs:
         env:
           NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api
 
-      - name: Run tests (Jest)
-        run: npm test -- --ci --passWithNoTests
+      - name: Run tests with coverage (Jest)
+        run: npm test -- --ci --coverage --passWithNoTests
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: apps/web/coverage
+          retention-days: 14
 
   qvac-service:
     name: QVAC Service (Node.js)
@@ -111,3 +152,57 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Validates that both compose files parse, merge, and reference only
+      # declared volumes, services and build targets. Catches the class of
+      # defect where the stack is broken but nothing builds it in CI.
+      - name: Validate compose configuration (production)
+        run: docker compose -f docker-compose.yml config --quiet
+
+      - name: Validate compose configuration (development merge)
+        run: docker compose config --quiet
+
+      - name: Build backend image
+        run: docker build -t bitcoin-academy-api:ci ./services/ai
+
+      - name: Build frontend image (production target)
+        run: docker build --target runner -t bitcoin-academy-web:ci ./apps/web
+
+      - name: Build frontend image (development target)
+        run: docker build --target dev -t bitcoin-academy-web:ci-dev ./apps/web
+
+      - name: Build QVAC service image
+        run: docker build -t bitcoin-academy-qvac:ci ./workers/qvac-service
+
+  # Aggregates every job above into one check. Set THIS as the required status
+  # check on master: adding a job below does not then require reconfiguring
+  # branch protection, and a skipped or cancelled job cannot pass silently.
+  quality-gate:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [backend, frontend, qvac-service, build]
+
+    steps:
+      - name: Verify every job succeeded
+        run: |
+          echo "backend:      ${{ needs.backend.result }}"
+          echo "frontend:     ${{ needs.frontend.result }}"
+          echo "qvac-service: ${{ needs.qvac-service.result }}"
+          echo "build:        ${{ needs.build.result }}"
+
+          if [ "${{ needs.backend.result }}" != "success" ] || \
+             [ "${{ needs.frontend.result }}" != "success" ] || \
+             [ "${{ needs.qvac-service.result }}" != "success" ] || \
+             [ "${{ needs.build.result }}" != "success" ]; then
+            echo "::error::Quality gate failed — one or more jobs did not succeed."
+            exit 1
+          fi
+          echo "All checks passed."

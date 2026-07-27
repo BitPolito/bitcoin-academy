@@ -35,21 +35,27 @@ def _skip_if_missing(path: Path):
         pytest.skip(f"Fixture not found: {path}")
 
 
+@pytest.fixture
+def auth_headers(db) -> dict:
+    """Document endpoints require authentication."""
+    return _auth(make_user(db).id)
+
+
 # ---------------------------------------------------------------------------
 # List documents — no auth required per router definition
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_list_documents_empty_course(client, db):
+def test_list_documents_empty_course(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
-    resp = client.get(f"/api/courses/{course.id}/documents")
+    resp = client.get(f"/api/courses/{course.id}/documents", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json() == []
 
 
 @pytest.mark.integration
-def test_list_documents_unknown_course_returns_empty(client, db):
-    resp = client.get("/api/courses/nonexistent-course-id/documents")
+def test_list_documents_unknown_course_returns_empty(client, db, auth_headers):
+    resp = client.get("/api/courses/nonexistent-course-id/documents", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json() == []
 
@@ -59,7 +65,7 @@ def test_list_documents_unknown_course_returns_empty(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_upload_pdf_returns_201(client, db):
+def test_upload_pdf_returns_201(client, db, auth_headers):
     _skip_if_missing(PDF_PATH)
     course, _ = make_course_with_lessons(db)
 
@@ -67,6 +73,7 @@ def test_upload_pdf_returns_201(client, db):
         mock_run.return_value = None
         resp = client.post(
             f"/api/courses/{course.id}/documents",
+            headers=auth_headers,
             files={"file": ("bitcoin_technical_document.pdf", PDF_PATH.read_bytes(), "application/pdf")},
         )
 
@@ -77,7 +84,7 @@ def test_upload_pdf_returns_201(client, db):
 
 
 @pytest.mark.integration
-def test_upload_pptx_returns_201(client, db):
+def test_upload_pptx_returns_201(client, db, auth_headers):
     _skip_if_missing(PPTX_PATH)
     course, _ = make_course_with_lessons(db)
 
@@ -85,6 +92,7 @@ def test_upload_pptx_returns_201(client, db):
         mock_run.return_value = None
         resp = client.post(
             f"/api/courses/{course.id}/documents",
+            headers=auth_headers,
             files={"file": (
                 "bitcoin_creative_commons_en.pptx",
                 PPTX_PATH.read_bytes(),
@@ -98,26 +106,27 @@ def test_upload_pptx_returns_201(client, db):
 
 
 @pytest.mark.integration
-def test_upload_creates_document_record(client, db):
+def test_upload_creates_document_record(client, db, auth_headers):
     _skip_if_missing(PDF_PATH)
     course, _ = make_course_with_lessons(db)
 
     with patch("app.workers.pipeline.run"):
         resp = client.post(
             f"/api/courses/{course.id}/documents",
+            headers=auth_headers,
             files={"file": ("test.pdf", PDF_PATH.read_bytes(), "application/pdf")},
         )
 
     doc_id = resp.json()["id"]
 
-    list_resp = client.get(f"/api/courses/{course.id}/documents")
+    list_resp = client.get(f"/api/courses/{course.id}/documents", headers=auth_headers)
     assert list_resp.status_code == 200
     ids = [d["id"] for d in list_resp.json()]
     assert doc_id in ids
 
 
 @pytest.mark.integration
-def test_upload_triggers_pipeline_background_task(client, db):
+def test_upload_triggers_pipeline_background_task(client, db, auth_headers):
     _skip_if_missing(PDF_PATH)
     course, _ = make_course_with_lessons(db)
 
@@ -125,6 +134,7 @@ def test_upload_triggers_pipeline_background_task(client, db):
         mock_run.return_value = None
         resp = client.post(
             f"/api/courses/{course.id}/documents",
+            headers=auth_headers,
             files={"file": ("test.pdf", PDF_PATH.read_bytes(), "application/pdf")},
         )
 
@@ -139,7 +149,7 @@ def test_upload_triggers_pipeline_background_task(client, db):
 
 
 @pytest.mark.integration
-def test_upload_tiny_file(client, db):
+def test_upload_tiny_file(client, db, auth_headers):
     """Upload a minimal valid payload (in-memory bytes, not a real file)."""
     course, _ = make_course_with_lessons(db)
     fake_content = b"%PDF-1.4 fake pdf content"
@@ -147,6 +157,7 @@ def test_upload_tiny_file(client, db):
     with patch("app.workers.pipeline.run"):
         resp = client.post(
             f"/api/courses/{course.id}/documents",
+            headers=auth_headers,
             files={"file": ("tiny.pdf", io.BytesIO(fake_content), "application/pdf")},
         )
 
@@ -159,17 +170,18 @@ def test_upload_tiny_file(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_get_document_status_after_upload(client, db):
+def test_get_document_status_after_upload(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
 
     with patch("app.workers.pipeline.run"):
         upload_resp = client.post(
             f"/api/courses/{course.id}/documents",
+            headers=auth_headers,
             files={"file": ("test.pdf", b"%PDF fake", "application/pdf")},
         )
 
     doc_id = upload_resp.json()["id"]
-    status_resp = client.get(f"/api/documents/{doc_id}/status")
+    status_resp = client.get(f"/api/documents/{doc_id}/status", headers=auth_headers)
     assert status_resp.status_code == 200
     data = status_resp.json()
     assert "status" in data
@@ -177,8 +189,8 @@ def test_get_document_status_after_upload(client, db):
 
 
 @pytest.mark.integration
-def test_get_document_status_unknown_id_returns_404(client, db):
-    resp = client.get("/api/documents/nonexistent-doc-id/status")
+def test_get_document_status_unknown_id_returns_404(client, db, auth_headers):
+    resp = client.get("/api/documents/nonexistent-doc-id/status", headers=auth_headers)
     assert resp.status_code == 404
 
 
@@ -187,24 +199,25 @@ def test_get_document_status_unknown_id_returns_404(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_get_document_detail_after_upload(client, db):
+def test_get_document_detail_after_upload(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
 
     with patch("app.workers.pipeline.run"):
         upload_resp = client.post(
             f"/api/courses/{course.id}/documents",
+            headers=auth_headers,
             files={"file": ("test.pdf", b"%PDF fake", "application/pdf")},
         )
 
     doc_id = upload_resp.json()["id"]
-    detail_resp = client.get(f"/api/documents/{doc_id}")
+    detail_resp = client.get(f"/api/documents/{doc_id}", headers=auth_headers)
     assert detail_resp.status_code == 200
     assert detail_resp.json()["id"] == doc_id
 
 
 @pytest.mark.integration
-def test_get_document_detail_unknown_returns_404(client, db):
-    resp = client.get("/api/documents/does-not-exist")
+def test_get_document_detail_unknown_returns_404(client, db, auth_headers):
+    resp = client.get("/api/documents/does-not-exist", headers=auth_headers)
     assert resp.status_code == 404
 
 
@@ -213,26 +226,27 @@ def test_get_document_detail_unknown_returns_404(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_delete_document(client, db):
+def test_delete_document(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
 
     with patch("app.workers.pipeline.run"):
         upload_resp = client.post(
             f"/api/courses/{course.id}/documents",
+            headers=auth_headers,
             files={"file": ("test.pdf", b"%PDF fake", "application/pdf")},
         )
 
     doc_id = upload_resp.json()["id"]
-    del_resp = client.delete(f"/api/documents/{doc_id}")
+    del_resp = client.delete(f"/api/documents/{doc_id}", headers=auth_headers)
     assert del_resp.status_code == 200
 
     # Should now be absent from list
-    list_resp = client.get(f"/api/courses/{course.id}/documents")
+    list_resp = client.get(f"/api/courses/{course.id}/documents", headers=auth_headers)
     ids = [d["id"] for d in list_resp.json()]
     assert doc_id not in ids
 
 
 @pytest.mark.integration
-def test_delete_nonexistent_returns_404(client, db):
-    resp = client.delete("/api/documents/nonexistent-id")
+def test_delete_nonexistent_returns_404(client, db, auth_headers):
+    resp = client.delete("/api/documents/nonexistent-id", headers=auth_headers)
     assert resp.status_code == 404

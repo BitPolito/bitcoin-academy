@@ -1,0 +1,5 @@
+Static assets served at the site root by Next.js.
+
+This directory is intentionally tracked even while empty: the production
+Dockerfile copies it from the build stage, and the image build fails outright
+if it does not exist.
