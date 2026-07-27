@@ -160,11 +160,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Validates that both compose files parse, merge, and reference only
+      # declared volumes, services and build targets. Catches the class of
+      # defect where the stack is broken but nothing builds it in CI.
+      - name: Validate compose configuration (production)
+        run: docker compose -f docker-compose.yml config --quiet
+
+      - name: Validate compose configuration (development merge)
+        run: docker compose config --quiet
+
       - name: Build backend image
         run: docker build -t bitcoin-academy-api:ci ./services/ai
 
-      - name: Build frontend image
-        run: docker build -t bitcoin-academy-web:ci ./apps/web
+      - name: Build frontend image (production target)
+        run: docker build --target runner -t bitcoin-academy-web:ci ./apps/web
+
+      - name: Build frontend image (development target)
+        run: docker build --target dev -t bitcoin-academy-web:ci-dev ./apps/web
 
       - name: Build QVAC service image
         run: docker build -t bitcoin-academy-qvac:ci ./workers/qvac-service
