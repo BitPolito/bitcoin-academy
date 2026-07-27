@@ -2,7 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY pyproject.toml .
+# pyproject declares `packages = ["app"]` and `readme = "README.md"`, so both must
+# exist before the install: with only pyproject.toml present, setuptools fails
+# with "package directory 'app' does not exist" and the image cannot be built.
+COPY pyproject.toml README.md ./
+COPY app ./app
 RUN pip install --no-cache-dir .
 
 COPY . .
