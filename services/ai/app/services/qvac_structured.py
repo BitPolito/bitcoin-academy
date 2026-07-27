@@ -150,7 +150,8 @@ async def generate_json(
         body = resp.json()
         if attempt > 1:
             logger.info("QVAC /generate_json succeeded on transport attempt %d", attempt)
-        return body["json"]
+        parsed_json: Dict[str, Any] = body["json"]
+        return parsed_json
 
     assert last_exc is not None
     raise last_exc

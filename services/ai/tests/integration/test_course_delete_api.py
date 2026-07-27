@@ -47,7 +47,7 @@ class TestDeleteCourse:
         assert body["counts"]["lessons"] == len(lessons)
 
         # Soft-deleted — no longer returned by GET
-        get_resp = client.get(f"/api/courses/{course.id}")
+        get_resp = client.get(f"/api/courses/{course.id}", headers=_auth(user.id))
         assert get_resp.status_code == 404
 
     @pytest.mark.integration

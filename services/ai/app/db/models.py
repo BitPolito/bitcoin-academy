@@ -273,8 +273,8 @@ class QuizAttempt(Base):
     )
     quiz_id: Mapped[str] = mapped_column(ForeignKey("quiz.id"))
     user_id: Mapped[str] = mapped_column(ForeignKey("app_user.id"))
-    started_at: Mapped[datetime] = mapped_column(String, default=func.now())
-    finished_at: Mapped[Optional[datetime]] = mapped_column(String)
+    started_at: Mapped[str] = mapped_column(String, default=func.now())
+    finished_at: Mapped[Optional[str]] = mapped_column(String)
     score_pct: Mapped[Optional[int]] = mapped_column(Integer)
     passed: Mapped[Optional[bool]] = mapped_column(Boolean)
 
@@ -312,7 +312,7 @@ class UserLessonProgress(Base):
     lesson_id: Mapped[str] = mapped_column(
         ForeignKey("lesson.id"), primary_key=True)
     status: Mapped[str] = mapped_column(String, default="not_started")
-    last_activity: Mapped[datetime] = mapped_column(String, default=func.now())
+    last_activity: Mapped[str] = mapped_column(String, default=func.now())
     last_score: Mapped[Optional[int]] = mapped_column(Integer)
 
     user: Mapped["User"] = relationship(back_populates="lesson_progress")
@@ -327,7 +327,7 @@ class UserChapterProgress(Base):
     chapter_id: Mapped[str] = mapped_column(
         ForeignKey("chapter.id"), primary_key=True)
     status: Mapped[str] = mapped_column(String, default="not_started")
-    last_activity: Mapped[datetime] = mapped_column(String, default=func.now())
+    last_activity: Mapped[str] = mapped_column(String, default=func.now())
 
     user: Mapped["User"] = relationship(back_populates="chapter_progress")
     chapter: Mapped["Chapter"] = relationship(back_populates="progress")
@@ -342,7 +342,7 @@ class UserCourseProgress(Base):
         ForeignKey("course.id"), primary_key=True)
     percent: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String, default="not_started")
-    updated_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    updated_at: Mapped[str] = mapped_column(String, default=func.now())
 
     user: Mapped["User"] = relationship(back_populates="course_progress")
     course: Mapped["Course"] = relationship(back_populates="progress")
@@ -379,7 +379,7 @@ class CourseDocument(Base):
     section_tree_json: Mapped[Optional[str]] = mapped_column(Text)
     sample_chunks_json: Mapped[Optional[str]] = mapped_column(Text)
 
-    created_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    created_at: Mapped[str] = mapped_column(String, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         String, default=func.now(), onupdate=func.now()
     )
@@ -405,7 +405,7 @@ class GenerationRun(Base):
     started_at: Mapped[Optional[str]] = mapped_column(String)
     finished_at: Mapped[Optional[str]] = mapped_column(String)
     options_json: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    created_at: Mapped[str] = mapped_column(String, default=func.now())
 
     course: Mapped["Course"] = relationship()
 
@@ -428,7 +428,7 @@ class Resource(Base):
     is_public: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[Optional[str]] = mapped_column(
         ForeignKey("app_user.id"))
-    created_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    created_at: Mapped[str] = mapped_column(String, default=func.now())
 
     creator: Mapped[Optional["User"]] = relationship(
         back_populates="created_resources")
@@ -461,7 +461,7 @@ class UserBadge(Base):
     )
     user_id: Mapped[str] = mapped_column(ForeignKey("app_user.id"))
     badge_id: Mapped[str] = mapped_column(ForeignKey("badge.id"))
-    earned_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    earned_at: Mapped[str] = mapped_column(String, default=func.now())
     # ID of the lesson or course that triggered the award
     context_id: Mapped[Optional[str]] = mapped_column(String)
 
@@ -499,7 +499,7 @@ class AnswerFeedback(Base):
     answer: Mapped[str] = mapped_column(Text)
     rating: Mapped[int] = mapped_column(Integer)  # 1 = helpful, -1 = not helpful
     comment: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    created_at: Mapped[str] = mapped_column(String, default=func.now())
 
 
 # 12. Certificates
@@ -511,14 +511,14 @@ class Certificate(Base):
     )
     user_id: Mapped[str] = mapped_column(ForeignKey("app_user.id"))
     course_id: Mapped[str] = mapped_column(ForeignKey("course.id"))
-    issued_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    issued_at: Mapped[str] = mapped_column(String, default=func.now())
     code: Mapped[str] = mapped_column(String, unique=True)
     verification_hash: Mapped[str] = mapped_column(String, unique=True)
     grade_pct: Mapped[Optional[int]] = mapped_column(Integer)
     hours: Mapped[Optional[int]] = mapped_column(Integer)
     issuer_name: Mapped[Optional[str]] = mapped_column(String)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
-    revoked_at: Mapped[Optional[datetime]] = mapped_column(String)
+    revoked_at: Mapped[Optional[str]] = mapped_column(String)
     metadata_json: Mapped[Optional[str]] = mapped_column(Text)
 
     user: Mapped["User"] = relationship(back_populates="certificates")

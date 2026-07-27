@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import UserRole
 from app.db.session import get_db
+from app.core.config import TokenPayload
 from app.middleware.auth import CurrentUser, get_current_user
 
 router = APIRouter(prefix="/api", tags=["Certificates"])
@@ -107,7 +108,7 @@ def _to_dict(cert, course_name: str) -> dict:
 def issue_certificate(
     course_id: str = Path(..., description="Course ID"),
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
 ) -> JSONResponse:
     from app.db.models import UserCourseProgress
 
@@ -132,7 +133,7 @@ def issue_certificate(
 )
 def list_my_certificates(
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
 ) -> JSONResponse:
     from app.db.models import Certificate, Course
 

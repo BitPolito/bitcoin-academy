@@ -1,11 +1,14 @@
 """Evidence pack service — reranks, deduplicates, and assembles EvidencePack."""
 import logging
+import os
 
 from app.schemas.evidence_pack import EvidenceChunk, EvidencePack
 
 logger = logging.getLogger(__name__)
 
-_TOP_EVIDENCE = 6
+# Max evidence chunks returned by the study endpoint (documented as
+# RAG_MAX_EVIDENCE in the README configuration table).
+_TOP_EVIDENCE = int(os.getenv("RAG_MAX_EVIDENCE", "6"))
 _MAX_TOKENS = 2000
 
 

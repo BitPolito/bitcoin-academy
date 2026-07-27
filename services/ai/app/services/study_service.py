@@ -338,7 +338,7 @@ async def _retrieve_multi(
         if isinstance(res, BaseException):
             logger.warning("Two-hop sub-retrieval failed: %s", res)
             continue
-        raw_ans, pack = res  # type: ignore[misc]
+        raw_ans, pack = res
         if raw_ans:
             raw_answers.append(raw_ans)
         for chunk in pack.chunks:

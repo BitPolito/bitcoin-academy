@@ -28,6 +28,7 @@ from app.db.models import (
     QuizScope,
     Section,
 )
+from app.core.config import create_access_token
 from app.db.session import get_db
 from app.main import app
 
@@ -133,8 +134,24 @@ def _seed_parent(db, cid, course_id, text="Bitcoin is a peer-to-peer cash system
 # POST /courses/{id}/content/generate
 # ---------------------------------------------------------------------------
 
+
+@pytest.fixture
+def auth_headers(db_session) -> dict:
+    """These endpoints require authentication.
+
+    Built on this module's own db_session fixture: the app is wired to that
+    session, so a user created in the shared conftest session would not be
+    visible to the request under test.
+    """
+    from tests.conftest import make_user
+
+    user = make_user(db_session)
+    role = getattr(user.role, "value", user.role)
+    return {"Authorization": f"Bearer {create_access_token(user.id, user.email, role)}"}
+
+
 class TestGenerateContent:
-    def test_returns_202_with_run_id(self, client, db_session):
+    def test_returns_202_with_run_id(self, client, db_session, auth_headers):
         course = _seed_course(db_session)
         ch = _seed_draft_chapter(db_session, course.id)
         _seed_lesson(db_session, ch.id, source_refs=["p1"])
@@ -142,7 +159,8 @@ class TestGenerateContent:
         # Prevent the background task from running in a separate DB context
         with patch("app.api.content_api._run_content_bg", new_callable=AsyncMock):
             resp = client.post(
-                f"/api/courses/{course.id}/content/generate", json={}
+                f"/api/courses/{course.id}/content/generate", json={},
+                headers=auth_headers,
             )
         assert resp.status_code == 202
         body = resp.json()
@@ -156,7 +174,7 @@ class TestGenerateContent:
         assert run is not None
         assert run.course_id == course.id
 
-    def test_422_when_no_draft_lessons(self, client, db_session):
+    def test_422_when_no_draft_lessons(self, client, db_session, auth_headers):
         course = _seed_course(db_session)
         # Chapter is published — lessons won't appear in draft count
         ch = Chapter(
@@ -171,20 +189,23 @@ class TestGenerateContent:
         _seed_lesson(db_session, ch.id)
 
         resp = client.post(
-            f"/api/courses/{course.id}/content/generate", json={}
+            f"/api/courses/{course.id}/content/generate", json={},
+            headers=auth_headers,
         )
         assert resp.status_code == 422
 
-    def test_404_when_course_not_found(self, client, db_session):
+    def test_404_when_course_not_found(self, client, db_session, auth_headers):
         resp = client.post(
-            "/api/courses/nonexistent-course/content/generate", json={}
+            "/api/courses/nonexistent-course/content/generate", json={},
+            headers=auth_headers,
         )
         assert resp.status_code == 404
 
-    def test_422_when_course_has_no_chapters(self, client, db_session):
+    def test_422_when_course_has_no_chapters(self, client, db_session, auth_headers):
         course = _seed_course(db_session)
         resp = client.post(
-            f"/api/courses/{course.id}/content/generate", json={}
+            f"/api/courses/{course.id}/content/generate", json={},
+            headers=auth_headers,
         )
         assert resp.status_code == 422
 
@@ -194,13 +215,13 @@ class TestGenerateContent:
 # ---------------------------------------------------------------------------
 
 class TestPublishCourse:
-    def test_publishes_chapters_with_all_published_lessons(self, client, db_session):
+    def test_publishes_chapters_with_all_published_lessons(self, client, db_session, auth_headers):
         course = _seed_course(db_session)
         ch = _seed_draft_chapter(db_session, course.id)
         _seed_lesson(db_session, ch.id, status="published", content="good")
         _seed_lesson(db_session, ch.id, status="published", content="good")
 
-        resp = client.post(f"/api/courses/{course.id}/publish")
+        resp = client.post(f"/api/courses/{course.id}/publish", headers=auth_headers)
         assert resp.status_code == 200
         body = resp.json()
         assert body["published_chapters"] == 1
@@ -210,25 +231,25 @@ class TestPublishCourse:
         db_session.refresh(ch)
         assert ch.status == "published"
 
-    def test_skips_chapters_with_needs_review_lessons(self, client, db_session):
+    def test_skips_chapters_with_needs_review_lessons(self, client, db_session, auth_headers):
         course = _seed_course(db_session)
         ch = _seed_draft_chapter(db_session, course.id)
         _seed_lesson(db_session, ch.id, status="published", content="ok")
         _seed_lesson(db_session, ch.id, status="needs_review", content="problem")
 
-        resp = client.post(f"/api/courses/{course.id}/publish")
+        resp = client.post(f"/api/courses/{course.id}/publish", headers=auth_headers)
         assert resp.status_code == 200
         body = resp.json()
         assert body["published_chapters"] == 0
         assert body["skipped_chapters"] == 1
 
-    def test_404_when_course_not_found(self, client, db_session):
-        resp = client.post("/api/courses/nonexistent/publish")
+    def test_404_when_course_not_found(self, client, db_session, auth_headers):
+        resp = client.post("/api/courses/nonexistent/publish", headers=auth_headers)
         assert resp.status_code == 404
 
-    def test_empty_result_when_no_draft_chapters(self, client, db_session):
+    def test_empty_result_when_no_draft_chapters(self, client, db_session, auth_headers):
         course = _seed_course(db_session)
-        resp = client.post(f"/api/courses/{course.id}/publish")
+        resp = client.post(f"/api/courses/{course.id}/publish", headers=auth_headers)
         assert resp.status_code == 200
         body = resp.json()
         assert body["published_chapters"] == 0
@@ -241,7 +262,7 @@ class TestPublishCourse:
 # ---------------------------------------------------------------------------
 
 class TestGetLessonContent:
-    def test_returns_lesson_content(self, client, db_session):
+    def test_returns_lesson_content(self, client, db_session, auth_headers):
         course = _seed_course(db_session)
         ch = _seed_draft_chapter(db_session, course.id)
         _seed_parent(db_session, "p1", course.id)
@@ -252,7 +273,7 @@ class TestGetLessonContent:
             content="## Bitcoin\n\nBitcoin is a currency.",
         )
 
-        resp = client.get(f"/api/lessons/{ls.id}/content")
+        resp = client.get(f"/api/lessons/{ls.id}/content", headers=auth_headers)
         assert resp.status_code == 200
         body = resp.json()
         assert body["id"] == ls.id
@@ -262,7 +283,7 @@ class TestGetLessonContent:
         assert body["source_refs"] == ["p1"]
         assert body["quiz"] is None
 
-    def test_returns_quiz_when_present(self, client, db_session):
+    def test_returns_quiz_when_present(self, client, db_session, auth_headers):
         course = _seed_course(db_session)
         ch = _seed_draft_chapter(db_session, course.id)
         ls = _seed_lesson(db_session, ch.id, status="published", content="content")
@@ -294,7 +315,7 @@ class TestGetLessonContent:
             ))
         db_session.commit()
 
-        resp = client.get(f"/api/lessons/{ls.id}/content")
+        resp = client.get(f"/api/lessons/{ls.id}/content", headers=auth_headers)
         assert resp.status_code == 200
         body = resp.json()
         assert body["quiz"] is not None
@@ -305,16 +326,16 @@ class TestGetLessonContent:
         for opt in body["quiz"]["questions"][0]["options"]:
             assert "is_correct" not in opt
 
-    def test_404_when_lesson_not_found(self, client, db_session):
-        resp = client.get("/api/lessons/nonexistent-lesson/content")
+    def test_404_when_lesson_not_found(self, client, db_session, auth_headers):
+        resp = client.get("/api/lessons/nonexistent-lesson/content", headers=auth_headers)
         assert resp.status_code == 404
 
-    def test_empty_source_refs_when_none(self, client, db_session):
+    def test_empty_source_refs_when_none(self, client, db_session, auth_headers):
         course = _seed_course(db_session)
         ch = _seed_draft_chapter(db_session, course.id)
         ls = _seed_lesson(db_session, ch.id, source_refs=None, content="content")
 
-        resp = client.get(f"/api/lessons/{ls.id}/content")
+        resp = client.get(f"/api/lessons/{ls.id}/content", headers=auth_headers)
         assert resp.status_code == 200
         body = resp.json()
         assert body["source_refs"] == []

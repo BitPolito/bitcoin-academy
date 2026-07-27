@@ -29,7 +29,7 @@ from app.db.models import (
     UserRole,
 )
 from app.db.session import get_db
-from app.middleware.auth import CurrentUser
+from app.middleware.auth import CurrentUser, get_current_user
 from app.services import course_service
 from app.services import lesson_service
 
@@ -171,6 +171,7 @@ async def generate_content(
     body: GenerateContentBody,
     course_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     course = course_service.get_course(db, course_id)
     if course is None:
@@ -236,6 +237,7 @@ async def generate_content(
 def publish_course(
     course_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     course = course_service.get_course(db, course_id)
     if course is None:
@@ -257,6 +259,7 @@ def publish_course(
 def get_lesson_content(
     lesson_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     lesson = db.query(Lesson).filter(Lesson.id == lesson_id).first()
     if lesson is None:

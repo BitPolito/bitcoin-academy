@@ -45,7 +45,8 @@ def _embed(text: str) -> Optional[list[float]]:
         return None
     try:
         vecs = list(model.embed([text]))
-        return vecs[0].tolist()
+        vec: list[float] = vecs[0].tolist()
+        return vec
     except Exception as exc:
         logger.debug("Cache embed failed: %s", exc)
         return None
@@ -57,7 +58,7 @@ def _cosine(a: list[float], b: list[float]) -> float:
     nb = sum(x * x for x in b) ** 0.5
     if na == 0 or nb == 0:
         return 0.0
-    return dot / (na * nb)
+    return float(dot / (na * nb))
 
 
 def _redis_client():
