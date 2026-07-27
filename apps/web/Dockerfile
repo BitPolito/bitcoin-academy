@@ -25,6 +25,15 @@ CMD ["npm", "run", "dev", "--", "--hostname", "0.0.0.0"]
 # ---------------------------------------------------------------------------
 FROM node:20-alpine AS builder
 WORKDIR /app
+
+# next.config.js refuses to run a production build without this value, by
+# design: NEXT_PUBLIC_* is baked into the browser bundle at build time, so a
+# wrong or missing URL cannot be corrected later by an environment variable.
+# It must therefore be a build argument, not a runtime one. The default keeps
+# plain `docker build` working; compose passes the deployment's real URL.
+ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
+ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+
 COPY package*.json ./
 RUN npm ci
 COPY . .

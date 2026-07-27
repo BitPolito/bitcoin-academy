@@ -165,6 +165,11 @@ services:
     build:
       context: ./apps/web
       target: runner
+      args:
+        # Baked into the browser bundle at build time — see apps/web/Dockerfile.
+        # Changing NEXT_PUBLIC_API_BASE_URL requires rebuilding the image, not
+        # just restarting the container.
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
     restart: unless-stopped
     env_file:
       - path: ./apps/web/.env.local
