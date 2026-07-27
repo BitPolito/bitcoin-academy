@@ -12,6 +12,7 @@ from app.core.config import (
     validate_refresh_token,
     verify_password,
 )
+from app.core.token_blacklist import is_token_blacklisted
 from app.db.models import User, UserRole
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth_schemas import (
@@ -146,6 +147,20 @@ class AuthService:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired refresh token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Reject tokens revoked by logout. The blacklist was previously consulted
+        # only by get_current_user (access tokens), so a refresh token invalidated
+        # at logout kept minting new access tokens until it expired naturally —
+        # meaning a stolen refresh token could not be revoked at all.
+        # The jti fallback mirrors the logout handler so tokens issued before the
+        # jti field existed are still matched.
+        token_id = payload.jti or refresh_token[:32]
+        if is_token_blacklisted(token_id):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token has been revoked",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 

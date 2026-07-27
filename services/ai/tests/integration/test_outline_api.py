@@ -23,7 +23,8 @@ from app.db.models import (
     GenerationRunStatus,
     Lesson,
 )
-from tests.conftest import make_course_with_lessons
+from app.core.config import create_access_token
+from tests.conftest import make_course_with_lessons, make_user
 
 
 # ---------------------------------------------------------------------------
@@ -90,11 +91,19 @@ def _make_draft_chapter(db, course_id, title="Draft Chapter", order_index=0):
 # GET /api/courses/{id}/outline — empty
 # ---------------------------------------------------------------------------
 
+@pytest.fixture
+def auth_headers(db) -> dict:
+    """These endpoints require authentication."""
+    user = make_user(db)
+    role = getattr(user.role, "value", user.role)
+    return {"Authorization": f"Bearer {create_access_token(user.id, user.email, role)}"}
+
+
 @pytest.mark.integration
-def test_get_outline_empty(client, db):
+def test_get_outline_empty(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
 
-    resp = client.get(f"/api/courses/{course.id}/outline")
+    resp = client.get(f"/api/courses/{course.id}/outline", headers=auth_headers)
     assert resp.status_code == 200
     body = resp.json()
     assert body["course_id"] == course.id
@@ -106,11 +115,11 @@ def test_get_outline_empty(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_get_outline_returns_draft_chapters(client, db):
+def test_get_outline_returns_draft_chapters(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
     chapter, lesson = _make_draft_chapter(db, course.id)
 
-    resp = client.get(f"/api/courses/{course.id}/outline")
+    resp = client.get(f"/api/courses/{course.id}/outline", headers=auth_headers)
     assert resp.status_code == 200
     body = resp.json()
     assert len(body["chapters"]) == 1
@@ -125,8 +134,8 @@ def test_get_outline_returns_draft_chapters(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_get_outline_unknown_course_404(client, db):
-    resp = client.get(f"/api/courses/{uuid.uuid4()}/outline")
+def test_get_outline_unknown_course_404(client, db, auth_headers):
+    resp = client.get(f"/api/courses/{uuid.uuid4()}/outline", headers=auth_headers)
     assert resp.status_code == 404
 
 
@@ -135,7 +144,7 @@ def test_get_outline_unknown_course_404(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_generate_outline_enqueues_and_returns_run_id(client, db):
+def test_generate_outline_enqueues_and_returns_run_id(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
     _make_ready_doc(db, course.id)
 
@@ -145,6 +154,7 @@ def test_generate_outline_enqueues_and_returns_run_id(client, db):
     ) as mock_bg:
         resp = client.post(
             f"/api/courses/{course.id}/outline/generate",
+            headers=auth_headers,
             json={},
         )
 
@@ -160,18 +170,19 @@ def test_generate_outline_enqueues_and_returns_run_id(client, db):
 
 
 @pytest.mark.integration
-def test_generate_outline_no_ready_docs_422(client, db):
+def test_generate_outline_no_ready_docs_422(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
     # no documents at all
 
-    resp = client.post(f"/api/courses/{course.id}/outline/generate", json={})
+    resp = client.post(f"/api/courses/{course.id}/outline/generate", json={}, headers=auth_headers)
     assert resp.status_code == 422
 
 
 @pytest.mark.integration
-def test_generate_outline_unknown_course_404(client, db):
+def test_generate_outline_unknown_course_404(client, db, auth_headers):
     resp = client.post(
-        f"/api/courses/{uuid.uuid4()}/outline/generate", json={}
+        f"/api/courses/{uuid.uuid4()}/outline/generate", json={},
+        headers=auth_headers,
     )
     assert resp.status_code == 404
 
@@ -181,12 +192,13 @@ def test_generate_outline_unknown_course_404(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_patch_outline_renames_chapter(client, db):
+def test_patch_outline_renames_chapter(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
     chapter, lesson = _make_draft_chapter(db, course.id)
 
     resp = client.patch(
         f"/api/courses/{course.id}/outline",
+        headers=auth_headers,
         json={
             "chapters": [
                 {
@@ -210,13 +222,14 @@ def test_patch_outline_renames_chapter(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_patch_outline_reorders_chapters(client, db):
+def test_patch_outline_reorders_chapters(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
     ch0, _ = _make_draft_chapter(db, course.id, title="Chapter A", order_index=0)
     ch1, _ = _make_draft_chapter(db, course.id, title="Chapter B", order_index=1)
 
     resp = client.patch(
         f"/api/courses/{course.id}/outline",
+        headers=auth_headers,
         json={
             "chapters": [
                 {"id": ch0.id, "order_index": 1, "lessons": []},
@@ -237,12 +250,13 @@ def test_patch_outline_reorders_chapters(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_patch_outline_deletes_chapter(client, db):
+def test_patch_outline_deletes_chapter(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
     chapter, lesson = _make_draft_chapter(db, course.id)
 
     resp = client.patch(
         f"/api/courses/{course.id}/outline",
+        headers=auth_headers,
         json={"chapters": [{"id": chapter.id, "delete": True, "lessons": []}]},
     )
     assert resp.status_code == 200
@@ -257,12 +271,13 @@ def test_patch_outline_deletes_chapter(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_patch_outline_deletes_lesson(client, db):
+def test_patch_outline_deletes_lesson(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
     chapter, lesson = _make_draft_chapter(db, course.id)
 
     resp = client.patch(
         f"/api/courses/{course.id}/outline",
+        headers=auth_headers,
         json={
             "chapters": [
                 {
@@ -283,11 +298,11 @@ def test_patch_outline_deletes_lesson(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_get_generation_run_returns_status(client, db):
+def test_get_generation_run_returns_status(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
     run = _make_run(db, course.id, status=GenerationRunStatus.DONE)
 
-    resp = client.get(f"/api/generation-runs/{run.id}")
+    resp = client.get(f"/api/generation-runs/{run.id}", headers=auth_headers)
     assert resp.status_code == 200
     body = resp.json()
     assert body["id"] == run.id
@@ -296,13 +311,13 @@ def test_get_generation_run_returns_status(client, db):
 
 
 @pytest.mark.integration
-def test_get_generation_run_unknown_404(client, db):
-    resp = client.get(f"/api/generation-runs/{uuid.uuid4()}")
+def test_get_generation_run_unknown_404(client, db, auth_headers):
+    resp = client.get(f"/api/generation-runs/{uuid.uuid4()}", headers=auth_headers)
     assert resp.status_code == 404
 
 
 @pytest.mark.integration
-def test_get_generation_run_running_has_stage(client, db):
+def test_get_generation_run_running_has_stage(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
     run = GenerationRun(
         id=str(uuid.uuid4()),
@@ -316,6 +331,6 @@ def test_get_generation_run_running_has_stage(client, db):
     db.add(run)
     db.commit()
 
-    resp = client.get(f"/api/generation-runs/{run.id}")
+    resp = client.get(f"/api/generation-runs/{run.id}", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json()["stage"] == "map_1/2"

@@ -22,6 +22,7 @@ from app.db.models import (
     Lesson,
 )
 from app.db.session import get_db
+from app.middleware.auth import CurrentUser, get_current_user
 from app.schemas.outline_schemas import (
     ChapterDraftSchema,
     GenerateOutlineBody,
@@ -100,6 +101,7 @@ async def generate_outline(
     body: GenerateOutlineBody,
     course_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     course = course_service.get_course(db, course_id)
     if course is None:
@@ -161,6 +163,7 @@ async def generate_outline(
 def get_outline(
     course_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     course = course_service.get_course(db, course_id)
     if course is None:
@@ -193,6 +196,7 @@ def patch_outline(
     body: PatchOutlineBody,
     course_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     course = course_service.get_course(db, course_id)
     if course is None:
@@ -268,6 +272,7 @@ def patch_outline(
 def get_generation_run(
     run_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     run = db.query(GenerationRun).filter(GenerationRun.id == run_id).first()
     if run is None:

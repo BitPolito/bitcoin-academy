@@ -10,7 +10,8 @@ import uuid
 import pytest
 
 from app.db.models import ChunkParent, CourseDocument, DocumentStatus
-from tests.conftest import make_course_with_lessons
+from app.core.config import create_access_token
+from tests.conftest import make_course_with_lessons, make_user
 
 _TREE = [
     {
@@ -49,12 +50,20 @@ def _make_document(db, course_id: str, **overrides) -> CourseDocument:
     return doc
 
 
+@pytest.fixture
+def auth_headers(db) -> dict:
+    """These endpoints require authentication."""
+    user = make_user(db)
+    role = getattr(user.role, "value", user.role)
+    return {"Authorization": f"Bearer {create_access_token(user.id, user.email, role)}"}
+
+
 @pytest.mark.integration
-def test_structure_returns_ingest_tree(client, db):
+def test_structure_returns_ingest_tree(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
     doc = _make_document(db, course.id, section_tree_json=json.dumps(_TREE))
 
-    resp = client.get(f"/api/documents/{doc.id}/structure")
+    resp = client.get(f"/api/documents/{doc.id}/structure", headers=auth_headers)
     assert resp.status_code == 200
     body = resp.json()
     assert body["source"] == "ingest"
@@ -65,7 +74,7 @@ def test_structure_returns_ingest_tree(client, db):
 
 
 @pytest.mark.integration
-def test_structure_rebuilds_flat_tree_from_chunk_parents(client, db):
+def test_structure_rebuilds_flat_tree_from_chunk_parents(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
     doc = _make_document(db, course.id)  # READY, no section_tree_json
     for idx, (section, page) in enumerate([("Intro", 1), ("Intro", 2), ("Mining", 5)]):
@@ -79,7 +88,7 @@ def test_structure_rebuilds_flat_tree_from_chunk_parents(client, db):
         ))
     db.commit()
 
-    resp = client.get(f"/api/documents/{doc.id}/structure")
+    resp = client.get(f"/api/documents/{doc.id}/structure", headers=auth_headers)
     assert resp.status_code == 200
     body = resp.json()
     assert body["source"] == "rebuilt"
@@ -93,11 +102,11 @@ def test_structure_rebuilds_flat_tree_from_chunk_parents(client, db):
 
 
 @pytest.mark.integration
-def test_structure_unavailable_when_not_ready(client, db):
+def test_structure_unavailable_when_not_ready(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
     doc = _make_document(db, course.id, status=DocumentStatus.PROCESSING)
 
-    resp = client.get(f"/api/documents/{doc.id}/structure")
+    resp = client.get(f"/api/documents/{doc.id}/structure", headers=auth_headers)
     assert resp.status_code == 200
     body = resp.json()
     assert body["source"] == "unavailable"
@@ -105,16 +114,16 @@ def test_structure_unavailable_when_not_ready(client, db):
 
 
 @pytest.mark.integration
-def test_structure_unavailable_when_no_parents(client, db):
+def test_structure_unavailable_when_no_parents(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
     doc = _make_document(db, course.id)  # READY but nothing in chunk_parent
 
-    resp = client.get(f"/api/documents/{doc.id}/structure")
+    resp = client.get(f"/api/documents/{doc.id}/structure", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json()["source"] == "unavailable"
 
 
 @pytest.mark.integration
-def test_structure_unknown_document_404(client, db):
-    resp = client.get(f"/api/documents/{uuid.uuid4()}/structure")
+def test_structure_unknown_document_404(client, db, auth_headers):
+    resp = client.get(f"/api/documents/{uuid.uuid4()}/structure", headers=auth_headers)
     assert resp.status_code == 404

@@ -21,6 +21,18 @@ const customJestConfig = {
     '!src/**/*.d.ts',
     '!src/**/*.stories.{js,jsx,ts,tsx}',
   ],
+  // Ratchet, not a target: raise these when coverage rises, never lower them to
+  // make a build pass. A drop means new code arrived untested.
+  // Frontend coverage is well below the backend — the service and API-client
+  // layers are the priority for raising it (see the test-gate issues).
+  coverageThreshold: {
+    global: {
+      statements: 32,
+      branches: 36,
+      functions: 25,
+      lines: 33,
+    },
+  },
 };
 
 // createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async

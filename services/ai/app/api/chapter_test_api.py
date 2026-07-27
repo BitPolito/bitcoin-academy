@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import NotFoundError, ValidationError_
 from app.db.models import Chapter, OptionChoice, Question, UserRole
 from app.db.session import get_db
-from app.middleware.auth import CurrentUser
+from app.middleware.auth import CurrentUser, get_current_user
 from app.services import chapter_test_service
 
 router = APIRouter(prefix="/api", tags=["Chapter Tests"])

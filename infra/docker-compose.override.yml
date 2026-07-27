@@ -1,7 +1,10 @@
 # Development overrides — merged automatically by `docker compose up`.
-# Adds source-code volume mounts for hot reload and exposes internal ports
-# for direct access (bypassing Caddy).
-# DO NOT use in production: `docker compose -f infra/docker-compose.yml up`
+#
+# Adds source-code mounts with working hot reload, exposes internal ports for
+# direct access (bypassing Caddy), and enables development mode.
+#
+# For the production stack without these overrides:
+#   docker compose -f docker-compose.yml up --build
 
 services:
   postgres:
@@ -22,18 +25,53 @@ services:
     volumes:
       - ../services/ai:/app
       - qvac_ingest:/qvac_ingest
+      # Compose merges volume lists by mount target, so the base file's
+      # api_uploads volume stays mounted unless the same target is redefined.
+      # Bind it to the host instead: in development uploaded files should be
+      # inspectable in ./services/ai/uploads.
+      - ../services/ai/uploads:/app/uploads
     environment:
       - ENVIRONMENT=development
+      - DEBUG_MODE=${DEBUG_MODE:-false}
+    # The base image runs uvicorn with 4 workers and no reloader, so mounting
+    # source over /app changed nothing until the container was restarted.
+    # A single worker with --reload is what makes the mount actually useful.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   arq-worker:
     volumes:
       - ../services/ai:/app
       - qvac_ingest:/qvac_ingest
+      # Must match the api service: both read and write the same upload paths.
+      - ../services/ai/uploads:/app/uploads
+    environment:
+      - ENVIRONMENT=development
 
   web:
+    build:
+      context: ../apps/web
+      # The production runner has no devDependencies and serves a prebuilt
+      # .next, so it cannot hot reload. The dev stage runs `next dev`.
+      target: dev
     ports:
       - "3000:3000"
     volumes:
       - ../apps/web:/app
+      # Anonymous volumes keep the container's own node_modules and .next,
+      # which must not be shadowed by the host directory.
       - /app/node_modules
       - /app/.next
+    environment:
+      - NODE_ENV=development
+    # `next dev` compiles on demand; the production healthcheck does not apply.
+    healthcheck:
+      disable: true
+
+  # The base file waits for `web` to be healthy. With that healthcheck disabled
+  # in development, fall back to plain start ordering.
+  caddy:
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started

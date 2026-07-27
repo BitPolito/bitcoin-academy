@@ -1,21 +1,30 @@
 # Production-ready base configuration.
-# Development overrides (source mounts, exposed ports, hot reload) live in
+#
+# Development overrides (source mounts, hot reload, exposed ports) live in
 # docker-compose.override.yml, which Docker Compose merges automatically.
-# Run from repo root: docker compose -f infra/docker-compose.yml up
-# Production-only:    docker compose -f infra/docker-compose.yml --profile prod up
+# To run the production stack without those overrides:
+#
+#   docker compose -f docker-compose.yml up --build
+#
+# Every setting has a working default, so `docker compose up` succeeds on a
+# fresh clone with no .env file present. Override anything via the root .env —
+# see .env.example. For a real deployment you MUST set SECRET_KEY and
+# POSTGRES_PASSWORD to values of your own.
+#
+# Requires Docker Compose v2.24 or newer (optional env_file support).
 
 services:
   postgres:
     image: postgres:15-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: bitcoin_academy
-      POSTGRES_PASSWORD: bitcoin_academy
-      POSTGRES_DB: bitcoin_academy
+      POSTGRES_USER: ${POSTGRES_USER:-bitcoin_academy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bitcoin_academy}
+      POSTGRES_DB: ${POSTGRES_DB:-bitcoin_academy}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bitcoin_academy"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bitcoin_academy}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,29 +33,6 @@ services:
         limits:
           memory: 256m
           cpus: '0.5'
-
-  qvac:
-    build: ../workers/qvac-service
-    restart: unless-stopped
-    volumes:
-      - qvac_data:/app/hyperdb
-      - qvac_ingest:/qvac_ingest
-    environment:
-      - QVAC_PORT=3001
-      - QVAC_INGEST_DIR=/qvac_ingest
-      # 8192-token context (course builder); set 4096 to fit a 4g memory limit.
-      - QVAC_LLM_CTX=${QVAC_LLM_CTX:-8192}
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 300s
-    deploy:
-      resources:
-        limits:
-          memory: 5g
-          cpus: '4'
 
   redis:
     image: redis:7-alpine
@@ -64,18 +50,47 @@ services:
           memory: 256m
           cpus: '0.5'
 
+  qvac:
+    build: ../workers/qvac-service
+    restart: unless-stopped
+    volumes:
+      - qvac_data:/app/hyperdb
+      - qvac_models:/root/.cache
+      - qvac_ingest:/qvac_ingest
+    environment:
+      - QVAC_PORT=3001
+      - QVAC_INGEST_DIR=/qvac_ingest
+      - QVAC_LLM_ENABLED=${QVAC_LLM_ENABLED:-true}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Models are downloaded on first run (~3 GB); allow generous time before
+      # the container is considered failed.
+      start_period: 600s
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+          cpus: '4'
+
   api:
     build:
       context: ../services/ai
     restart: unless-stopped
     volumes:
       - qvac_ingest:/qvac_ingest
+      - api_uploads:/app/uploads
     env_file:
-      - ../services/ai/.env
+      # Optional: compose still starts on a fresh clone without this file.
+      - path: ../services/ai/.env
+        required: false
     environment:
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy}
+      - SECRET_KEY=${SECRET_KEY:-CHANGE-ME-INSECURE-DEFAULT-32-CHARS!!}
       - ENVIRONMENT=${ENVIRONMENT:-production}
-      - CORS_ORIGINS=http://localhost:3000
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
       - QVAC_SERVICE_URL=http://qvac:3001
       - QVAC_INGEST_DIR=/qvac_ingest
       - REDIS_URL=redis://redis:6379/0
@@ -86,6 +101,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # python:3.11-slim has no curl or wget, so the check is done in Python.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=4).status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -99,10 +125,14 @@ services:
     restart: unless-stopped
     volumes:
       - qvac_ingest:/qvac_ingest
+      - api_uploads:/app/uploads
     env_file:
-      - ../services/ai/.env
+      - path: ../services/ai/.env
+        required: false
     environment:
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy}
+      - SECRET_KEY=${SECRET_KEY:-CHANGE-ME-INSECURE-DEFAULT-32-CHARS!!}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
       - QVAC_SERVICE_URL=http://qvac:3001
       - QVAC_INGEST_DIR=/qvac_ingest
       - REDIS_URL=redis://redis:6379/0
@@ -113,12 +143,18 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # The previous check shelled out to redis-cli, which does not exist in the
+    # python:3.11-slim image — the worker was therefore permanently unhealthy.
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -h redis -p 6379 ping | grep -q PONG"]
+      test:
+        - CMD
+        - python
+        - -c
+        - "import redis,os,sys; sys.exit(0 if redis.Redis.from_url(os.environ['REDIS_URL']).ping() else 1)"
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 20s
     deploy:
       resources:
         limits:
@@ -128,15 +164,26 @@ services:
   web:
     build:
       context: ../apps/web
+      target: runner
+      args:
+        # Baked into the browser bundle at build time — see apps/web/Dockerfile.
+        # Changing NEXT_PUBLIC_API_BASE_URL requires rebuilding the image, not
+        # just restarting the container.
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
     restart: unless-stopped
     env_file:
-      - ../apps/web/.env.local
+      - path: ../apps/web/.env.local
+        required: false
     environment:
-      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
+      # Baked into the browser bundle: must be an address the browser can reach.
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
+      # Used for server-side rendering inside the container network.
       - API_BASE_URL=http://api:8000/api
-      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-CHANGE-ME-INSECURE-DEFAULT}
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -147,16 +194,18 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - api
-      - web
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -166,7 +215,9 @@ services:
 volumes:
   postgres_data:
   qvac_data:
+  qvac_models:
   qvac_ingest:
+  api_uploads:
   redis_data:
   caddy_data:
   caddy_config:

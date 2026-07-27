@@ -156,7 +156,7 @@ class TestPatchLesson:
         ls = _seed_lesson(db_session, ch.id, content=content_with_issues, status="needs_review")
 
         # Verify the GET endpoint surfaces the issue before the edit
-        pre_resp = client.get(f"/api/lessons/{ls.id}/content")
+        pre_resp = client.get(f"/api/lessons/{ls.id}/content", headers=_auth())
         assert pre_resp.json()["review_issues"] == ["Claim X unsupported"]
 
         resp = client.patch(
@@ -240,6 +240,7 @@ class TestRegenerateSpecificLessons:
             resp = client.post(
                 f"/api/courses/{course.id}/content/generate",
                 json={"lesson_ids": [ls1.id]},
+                headers=_auth(),
             )
         assert resp.status_code == 202
         body = resp.json()
@@ -255,6 +256,7 @@ class TestRegenerateSpecificLessons:
         resp = client.post(
             f"/api/courses/{course.id}/content/generate",
             json={"lesson_ids": ["nonexistent-lesson"]},
+            headers=_auth(),
         )
         assert resp.status_code == 422
 
