@@ -33,6 +33,11 @@ PUBLIC_ENDPOINTS: set[tuple[str, str]] = {
     # Badge *definitions* only — a static catalogue. The per-user variant
     # (/api/badges/user) is protected and is covered by the matrix below.
     ("GET", "/api/badges"),
+    # Deliberately public on the course-builder line: the endpoint is documented
+    # "student-safe, no correct answers" and test_chapter_test_api asserts it
+    # does not require auth. It still exposes the question text of any chapter
+    # test to anonymous callers — worth revisiting, but not changed here.
+    ("GET", "/api/chapters/{chapter_id}/test"),
 }
 
 # Placeholder values substituted into path parameters.
@@ -42,6 +47,8 @@ _PATH_VALUES = {
     "lesson_id": str(uuid.uuid4()),
     "quiz_id": str(uuid.uuid4()),
     "code": "SOME-CERTIFICATE-CODE",
+    "chapter_id": "00000000-0000-0000-0000-000000000000",
+    "run_id": "00000000-0000-0000-0000-000000000000",
 }
 
 # Status codes that count as "authentication was enforced".
@@ -197,11 +204,20 @@ def test_progress_of_another_user_is_not_readable(client: TestClient, db):
 
 
 def test_certificates_endpoint_is_scoped_to_the_caller(client: TestClient, db):
-    """The certificate list must be derived from the token, not from a parameter."""
+    """The certificate list must be derived from the token, not from a parameter.
+
+    Accepts either a bare list or a paginated `{"items": [...]}` envelope: the
+    property under test is caller scoping, not the response shape, which is
+    pinned separately in the contract tests.
+    """
     user = make_user(db)
     response = client.get("/api/users/me/certificates", headers=_auth_header(user))
     assert response.status_code == 200, response.text
-    assert isinstance(response.json(), list)
+
+    body = response.json()
+    items = body["items"] if isinstance(body, dict) else body
+    assert isinstance(items, list)
+    assert items == [], "A newly created user must not already hold certificates"
 
 
 def test_auth_me_returns_the_token_subject(client: TestClient, db):

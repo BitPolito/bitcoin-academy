@@ -127,7 +127,7 @@ def test_parse_citations_preserves_anchor_metadata():
 @pytest.mark.unit
 async def test_generate_calls_qvac_generate_endpoint():
     resp = _make_httpx_resp({"answer": "Bitcoin uses proof-of-work."})
-    with patch("app.services.study_service._qvac_client") as mock_client:
+    with patch("app.services.study_service._qvac_gen_client") as mock_client:
         mock_client.post = AsyncMock(return_value=resp)
         from app.services.study_service import _generate
         result = await _generate(StudyAction.EXPLAIN, "What is PoW?", "[ref_1] context text")
@@ -146,7 +146,7 @@ async def test_generate_calls_qvac_generate_endpoint():
 @pytest.mark.unit
 async def test_generate_passes_action_specific_system_prompt():
     resp = _make_httpx_resp({"answer": "Q1..."})
-    with patch("app.services.study_service._qvac_client") as mock_client:
+    with patch("app.services.study_service._qvac_gen_client") as mock_client:
         mock_client.post = AsyncMock(return_value=resp)
         from app.services.study_service import _generate, _SYSTEM_PROMPTS
         await _generate(StudyAction.QUIZ, "Quiz me.", "some context")
@@ -159,7 +159,7 @@ async def test_generate_passes_action_specific_system_prompt():
 @pytest.mark.unit
 async def test_generate_returns_none_on_qvac_http_error():
     import httpx
-    with patch("app.services.study_service._qvac_client") as mock_client:
+    with patch("app.services.study_service._qvac_gen_client") as mock_client:
         mock_client.post = AsyncMock(side_effect=httpx.ConnectError("refused"))
         from app.services.study_service import _generate
         result = await _generate(StudyAction.EXPLAIN, "question", "context")
@@ -171,7 +171,7 @@ async def test_generate_returns_none_on_qvac_http_error():
 @pytest.mark.unit
 async def test_generate_returns_none_on_empty_answer():
     resp = _make_httpx_resp({"answer": ""})
-    with patch("app.services.study_service._qvac_client") as mock_client:
+    with patch("app.services.study_service._qvac_gen_client") as mock_client:
         mock_client.post = AsyncMock(return_value=resp)
         from app.services.study_service import _generate
         result = await _generate(StudyAction.EXPLAIN, "question", "context")

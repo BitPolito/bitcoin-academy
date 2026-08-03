@@ -27,6 +27,7 @@ def create(db: Session, doc: CourseDocument) -> CourseDocument:
     return doc
 
 
-def delete(db: Session, doc: CourseDocument) -> None:
+def delete(db: Session, doc: CourseDocument, commit: bool = True) -> None:
     db.delete(doc)
-    db.commit()
+    if commit:
+        db.commit()

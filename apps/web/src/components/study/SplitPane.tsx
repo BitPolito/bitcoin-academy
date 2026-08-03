@@ -99,10 +99,10 @@ export function SplitPane({
 
       <div
         onMouseDown={onMouseDown}
-        className="flex-shrink-0 w-1.5 cursor-col-resize bg-gray-200 hover:bg-orange-300 active:bg-orange-400 transition-colors relative group"
+        className="flex-shrink-0 w-1.5 cursor-col-resize bg-blue-dark/10 hover:bg-blue-dark/30 active:bg-blue-dark/50 dark:bg-white/10 dark:hover:bg-white/25 dark:active:bg-white/40 transition-colors relative group"
       >
         <div className="absolute inset-y-0 -left-1 -right-1" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-8 w-1 rounded-full bg-gray-400 group-hover:bg-orange-500 transition-colors" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-8 w-1 rounded-full bg-blue-dark/30 group-hover:bg-blue-dark dark:bg-white/30 dark:group-hover:bg-white transition-colors" />
       </div>
 
       <div style={{ width: `${100 - leftPercent}%` }} className="overflow-auto">

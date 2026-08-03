@@ -2,16 +2,42 @@
 
 import { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { ApiStudyResponse } from '@/lib/api/types';
 import { CitationCard } from './CitationCard';
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard not available */
+    }
+  }
+  return (
+    <button
+      onClick={handleCopy}
+      title="Copy to clipboard"
+      className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity p-1 rounded b-thin font-mono text-[10px] tracking-[0.12em]"
+    >
+      {copied ? '✓' : (
+        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+        </svg>
+      )}
+    </button>
+  );
+}
 
 interface StudyOutputProps {
   result: ApiStudyResponse;
   courseId: string;
-  onOralFollowUp?: (query: string) => void;
 }
 
-export function StudyOutput({ result, courseId, onOralFollowUp }: StudyOutputProps) {
+export function StudyOutput({ result, courseId }: StudyOutputProps) {
   const [showSources, setShowSources] = useState(result.action === 'retrieve');
 
   const hasOutput = result.answer && result.answer.trim().length > 0;
@@ -25,24 +51,41 @@ export function StudyOutput({ result, courseId, onOralFollowUp }: StudyOutputPro
         </p>
       )}
 
+      {/* Retrieval unavailable — no citations returned for an action that requires them */}
+      {!hasCitations && !result.retrieval_used && result.action !== 'retrieve' && hasOutput && (
+        <div
+          className="b-thin rounded-md px-4 py-3 text-sm"
+          style={{ borderColor: '#a55a00', color: '#a55a00' }}
+        >
+          Retrieval service temporarily unavailable. Response generated without source context — verify facts independently.
+        </div>
+      )}
+
       {!hasOutput && hasCitations && result.action !== 'retrieve' && (
         <div
           className="b-thin rounded-md px-4 py-3 text-sm"
           style={{ borderColor: '#a55a00', color: '#a55a00' }}
         >
-          LLM generation unavailable (OPENAI_API_KEY not configured). Showing source passages below.
+          LLM generation unavailable. Showing source passages below.
         </div>
       )}
 
-      {hasOutput && result.action === 'quiz' ? (
-        <QuizOutput text={result.answer} />
-      ) : hasOutput && result.action === 'oral' ? (
-        <OralOutput text={result.answer} onSubmit={onOralFollowUp} />
-      ) : hasOutput && result.action === 'open_questions' ? (
-        <QuestionsOutput text={result.answer} />
-      ) : hasOutput ? (
-        <ReactMarkdown className="md-prose">{result.answer}</ReactMarkdown>
-      ) : null}
+      {hasOutput && (
+        <div className="relative group">
+          <div className="absolute top-0 right-0 z-10">
+            <CopyButton text={result.answer} />
+          </div>
+          {result.action === 'quiz' ? (
+            <QuizOutput text={result.answer} />
+          ) : result.action === 'oral' ? (
+            <OralOutput text={result.answer} />
+          ) : result.action === 'open_questions' ? (
+            <QuestionsOutput text={result.answer} />
+          ) : (
+            <ReactMarkdown className="md-prose" remarkPlugins={[remarkGfm]}>{result.answer}</ReactMarkdown>
+          )}
+        </div>
+      )}
 
       {/* Sources toggle (non-retrieve actions) */}
       {hasCitations && result.action !== 'retrieve' && (
@@ -91,6 +134,7 @@ interface ParsedQuestion {
   question: string;
   options: string[];
   correctLetter: string;
+  explanation: string;
 }
 
 function parseQuizQuestion(raw: string): ParsedQuestion {
@@ -103,19 +147,22 @@ function parseQuizQuestion(raw: string): ParsedQuestion {
   const options = lines.filter((l) => /^[A-D][).]\s/.test(l));
   const answerLine = lines.find((l) => /^Answer:/i.test(l));
   const correctLetter = answerLine
-    ? answerLine
-        .replace(/^Answer:\s*/i, '')
-        .trim()
-        .charAt(0)
-        .toUpperCase()
+    ? answerLine.replace(/^Answer:\s*/i, '').trim().charAt(0).toUpperCase()
     : '';
-  return { question, options, correctLetter };
+  // Extract explanation: text after "Answer: B) " and before any [ref_N]
+  const explanation = answerLine
+    ? answerLine
+        .replace(/^Answer:\s*[A-D][).]\s*/i, '')
+        .replace(/\[ref_\d+\]/gi, '')
+        .trim()
+    : '';
+  return { question, options, correctLetter, explanation };
 }
 
 function QuizQuestion({ raw, index }: { raw: string; index: number }) {
   const [selected, setSelected] = useState('');
   const [revealed, setRevealed] = useState(false);
-  const { question, options, correctLetter } = useMemo(() => parseQuizQuestion(raw), [raw]);
+  const { question, options, correctLetter, explanation } = useMemo(() => parseQuizQuestion(raw), [raw]);
 
   return (
     <div className="b-thin rounded-lg p-4 bg-white dark:bg-blue-dark/20">
@@ -172,6 +219,13 @@ function QuizQuestion({ raw, index }: { raw: string; index: number }) {
               </p>
             )}
           </div>
+
+          {/* Rationale shown after reveal */}
+          {revealed && explanation && (
+            <p className="mt-2 text-[12px] leading-snug opacity-70 border-t border-current/10 pt-2">
+              {explanation}
+            </p>
+          )}
         </div>
       ) : (
         /* Fallback: options not parseable — show plain reveal */
@@ -190,6 +244,9 @@ function QuizQuestion({ raw, index }: { raw: string; index: number }) {
               <p className="font-mono text-[12px]" style={{ color: '#1a7f3a' }}>
                 Answer: {correctLetter}
               </p>
+              {explanation && (
+                <p className="mt-1 text-[12px] leading-snug opacity-70">{explanation}</p>
+              )}
             </div>
           )}
         </div>
@@ -199,7 +256,8 @@ function QuizQuestion({ raw, index }: { raw: string; index: number }) {
 }
 
 function QuizOutput({ text }: { text: string }) {
-  const questions = text.split(/\n(?=Q:)/g).filter((s) => s.trim());
+  // Both alternatives accept Q<n>: and Q<n>. to handle LLM format variance.
+  const questions = text.split(/\n\s*\n(?=Q\d*[:.])|\n(?=Q\d*[:.] )/g).filter((s) => s.trim());
   if (questions.length === 0) {
     return (
       <pre className="whitespace-pre-wrap font-sans text-[13.5px] leading-relaxed">{text}</pre>
@@ -216,51 +274,124 @@ function QuizOutput({ text }: { text: string }) {
 
 // ── Oral ──────────────────────────────────────────────────────────────────────
 
-function OralOutput({ text, onSubmit }: { text: string; onSubmit?: (query: string) => void }) {
-  const [answers, setAnswers] = useState<Record<number, string>>({});
-  const questions = text.split(/\n(?=Q\d+:)/g).filter((s) => s.trim());
+interface OralQuestion {
+  question: string;
+  modelAnswer: string;
+  followUp: string;
+}
 
-  function handleSubmit(idx: number, questionText: string) {
-    const answer = (answers[idx] ?? '').trim();
-    if (!answer || !onSubmit) return;
-    onSubmit(`${questionText.trim()}\n\nMy answer: ${answer}`);
-  }
+// Labels the ORAL system prompt mandates; plus common LLM deviations.
+const _MODEL_ANSWER_RE =
+  /(?:Model\s+answer|Model\s+risposta|Answer|Risposta(?:\s+del\s+modello)?):\s*([\s\S]*?)(?:\n(?:Follow-?up|Follow\s+up|Deeper\s+(?:question|probe)|Domanda\s+(?:di\s+)?approfondimento|Approfondimento):|$)/i;
+const _FOLLOW_UP_RE =
+  /(?:Follow-?up|Follow\s+up|Deeper\s+(?:question|probe)|Domanda\s+(?:di\s+)?approfondimento|Approfondimento):\s*([\s\S]*?)(?:\n(?:Q\d+:|$))/i;
 
-  function answerBox(idx: number, questionText: string) {
-    return (
-      <div className="mt-3 space-y-2">
-        <textarea
-          value={answers[idx] ?? ''}
-          onChange={(e) => setAnswers((prev) => ({ ...prev, [idx]: e.target.value }))}
-          placeholder="Type your answer here…"
-          rows={3}
-          className="w-full resize-none rounded-md b-thin px-3 py-2 text-sm bg-transparent outline-none focus:ring-1 focus:ring-blue-dark"
-        />
-        {(answers[idx] ?? '').trim() && onSubmit && (
-          <button onClick={() => handleSubmit(idx, questionText)} className="btn-ghost text-[11px]">
-            Submit answer →
-          </button>
-        )}
-      </div>
-    );
-  }
+function parseOralOutput(text: string): OralQuestion[] {
+  // Accept Q<n>: and Q<n>. as block delimiters.
+  const blocks = text.split(/\n\s*\n(?=Q\d+[:.])|\n(?=Q\d+[:.])/g).filter((b) => b.trim());
+  if (blocks.length === 0) return [];
+
+  return blocks.map((block) => {
+    const lines = block.split('\n');
+    // Question: first line matching Q<n>: or Q<n>.
+    const qLine = lines.find((l) => /^Q\d+[:.]/i.test(l.trim())) ?? '';
+    const question = qLine.replace(/^Q\d+[:.]\s*/i, '').trim();
+
+    // Model answer: text between the answer label and the follow-up label (or end)
+    const modelAnswerMatch = block.match(_MODEL_ANSWER_RE);
+    const modelAnswer = modelAnswerMatch ? modelAnswerMatch[1].trim() : '';
+
+    // Follow-up: text after the follow-up label
+    const followUpMatch = block.match(_FOLLOW_UP_RE);
+    const followUp = followUpMatch ? followUpMatch[1].trim() : '';
+
+    return { question, modelAnswer, followUp };
+  });
+}
+
+type OralPhase = 'idle' | 'submitted' | 'revealed';
+
+function OralQuestionCard({ q, index }: { q: OralQuestion; index: number }) {
+  const [phase, setPhase] = useState<OralPhase>('idle');
+  const [studentAnswer, setStudentAnswer] = useState('');
+
+  return (
+    <div className="b-thin rounded-lg p-4 bg-white dark:bg-blue-dark/20 space-y-3">
+      <p className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-50">Q{index + 1}</p>
+      <p className="text-[13.5px] font-medium leading-snug">{q.question}</p>
+
+      {phase === 'idle' && (
+        <div className="space-y-2">
+          <textarea
+            value={studentAnswer}
+            onChange={(e) => setStudentAnswer(e.target.value)}
+            placeholder="Type your answer here…"
+            rows={3}
+            className="w-full resize-none rounded-md b-thin px-3 py-2 text-sm bg-transparent outline-none focus:ring-1 focus:ring-blue-dark"
+          />
+          {studentAnswer.trim() && (
+            <button
+              onClick={() => setPhase('submitted')}
+              className="btn-ghost text-[11px]"
+            >
+              Submit answer →
+            </button>
+          )}
+        </div>
+      )}
+
+      {phase !== 'idle' && (
+        <div className="b-thin rounded-md px-3 py-2 bg-blue-dark/5 dark:bg-white/5">
+          <p className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-50 mb-1">Your answer</p>
+          <p className="text-[13px] leading-snug">{studentAnswer}</p>
+        </div>
+      )}
+
+      {phase === 'submitted' && (
+        <button
+          onClick={() => setPhase('revealed')}
+          className="btn-ghost text-[11px]"
+        >
+          See model answer ▾
+        </button>
+      )}
+
+      {phase === 'revealed' && q.modelAnswer && (
+        <div className="space-y-2">
+          <div
+            className="b-thin rounded-md px-3 py-2"
+            style={{ borderColor: '#1a7f3a', background: 'rgba(26,127,58,0.05)' }}
+          >
+            <p className="font-mono text-[10px] tracking-[0.18em] uppercase mb-1" style={{ color: '#1a7f3a' }}>
+              Model answer
+            </p>
+            <p className="text-[13px] leading-snug">{q.modelAnswer}</p>
+          </div>
+          {q.followUp && (
+            <div className="b-thin rounded-md px-3 py-2 bg-blue-dark/5 dark:bg-white/5">
+              <p className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-50 mb-1">Follow-up</p>
+              <p className="text-[13px] leading-snug italic">{q.followUp}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OralOutput({ text }: { text: string }) {
+  const questions = useMemo(() => parseOralOutput(text), [text]);
 
   if (questions.length === 0) {
     return (
-      <div>
-        <ReactMarkdown className="md-prose">{text}</ReactMarkdown>
-        {answerBox(0, text)}
-      </div>
+      <ReactMarkdown className="md-prose" remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
     );
   }
 
   return (
     <div className="space-y-4">
       {questions.map((q, i) => (
-        <div key={i} className="b-thin rounded-lg p-4 bg-white dark:bg-blue-dark/20">
-          <ReactMarkdown className="md-prose">{q.trim()}</ReactMarkdown>
-          {answerBox(i, q)}
-        </div>
+        <OralQuestionCard key={i} q={q} index={i} />
       ))}
     </div>
   );

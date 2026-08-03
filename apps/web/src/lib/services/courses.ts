@@ -44,3 +44,23 @@ export async function createCourse(title: string, description?: string): Promise
     body: { title, description },
   });
 }
+
+export async function updateCourse(
+  courseId: string,
+  title: string,
+  description?: string,
+  accessToken?: string,
+): Promise<Course> {
+  return apiFetch<Course>(`/courses/${courseId}`, {
+    method: 'PATCH',
+    body: { title, description },
+    accessToken,
+  });
+}
+
+export async function deleteCourse(courseId: string, accessToken?: string): Promise<void> {
+  await apiFetch<{ message: string }>(`/courses/${courseId}`, {
+    method: 'DELETE',
+    accessToken,
+  });
+}

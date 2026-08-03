@@ -376,6 +376,7 @@ async def stream_answer(
     ]
 
     accumulated: list[str] = []
+    stream_failed = False
 
     try:
         async with _client.stream(
@@ -392,24 +393,43 @@ async def stream_answer(
                     break
                 try:
                     token = _json.loads(payload)
-                    yield token
-                    accumulated.append(token)
                 except Exception:
-                    yield payload
-                    accumulated.append(payload)
+                    token = payload
+                # QVAC returns "[ERROR] ..." as a regular token when the LLM is busy.
+                # Treat any error token as a stream failure and fall back to /generate.
+                if isinstance(token, str) and token.startswith("[ERROR]"):
+                    logger.warning("QVAC /stream error token: %s", token)
+                    stream_failed = True
+                    break
+                yield token
+                accumulated.append(token)
     except httpx.HTTPError as exc:
         logger.warning("QVAC /stream failed (%s) — falling back to buffered generate", exc)
+        stream_failed = True
+
+    # Fall back to buffered /generate when streaming errored or returned nothing.
+    if stream_failed or not accumulated:
         try:
             gen_resp = await _client.post(
                 "/generate",
                 json={"question": question, "context": context_blocks},
             )
             gen_resp.raise_for_status()
-            token = _clean_answer(gen_resp.json().get("answer", "Risposta non disponibile."))
+            token = _clean_answer(gen_resp.json().get("answer", ""))
+            if not token:
+                token = "Risposta non disponibile."
             yield token
             accumulated.append(token)
-        except httpx.HTTPError:
-            yield "Risposta non disponibile."
+        except httpx.HTTPError as exc2:
+            logger.warning("QVAC /generate also failed (%s)", exc2)
+            if context_blocks:
+                raw = context_blocks[0]["text"]
+                snippet = raw[:600].rstrip() + ("…" if len(raw) > 600 else "")
+                token = f"Generazione LLM non disponibile. Passaggio più rilevante:\n\n{snippet}"
+            else:
+                token = "Risposta non disponibile."
+            yield token
+            accumulated.append(token)
 
     full_answer = "".join(accumulated)
     if full_answer:

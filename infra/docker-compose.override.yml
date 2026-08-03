@@ -23,13 +23,13 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./services/ai:/app
+      - ../services/ai:/app
       - qvac_ingest:/qvac_ingest
       # Compose merges volume lists by mount target, so the base file's
       # api_uploads volume stays mounted unless the same target is redefined.
       # Bind it to the host instead: in development uploaded files should be
       # inspectable in ./services/ai/uploads.
-      - ./services/ai/uploads:/app/uploads
+      - ../services/ai/uploads:/app/uploads
     environment:
       - ENVIRONMENT=development
       - DEBUG_MODE=${DEBUG_MODE:-false}
@@ -40,23 +40,23 @@ services:
 
   arq-worker:
     volumes:
-      - ./services/ai:/app
+      - ../services/ai:/app
       - qvac_ingest:/qvac_ingest
       # Must match the api service: both read and write the same upload paths.
-      - ./services/ai/uploads:/app/uploads
+      - ../services/ai/uploads:/app/uploads
     environment:
       - ENVIRONMENT=development
 
   web:
     build:
-      context: ./apps/web
+      context: ../apps/web
       # The production runner has no devDependencies and serves a prebuilt
       # .next, so it cannot hot reload. The dev stage runs `next dev`.
       target: dev
     ports:
       - "3000:3000"
     volumes:
-      - ./apps/web:/app
+      - ../apps/web:/app
       # Anonymous volumes keep the container's own node_modules and .next,
       # which must not be shadowed by the host directory.
       - /app/node_modules
