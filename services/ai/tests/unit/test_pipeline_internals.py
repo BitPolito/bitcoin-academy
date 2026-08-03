@@ -390,3 +390,14 @@ def test_module_aliases_are_registered_without_error():
     """Registering aliases twice must be safe — the worker imports it repeatedly."""
     pipeline._register_module_aliases()
     pipeline._register_module_aliases()
+
+    import sys
+    assert "services.ai.app.workers.pipeline" in sys.modules, (
+        "The long-form alias was not registered — the ingester's sys.path "
+        "setup silently stopped working."
+    )
+    assert sys.modules["services.ai.app.workers.pipeline"] is pipeline, (
+        "The alias points at a different module object than the canonical "
+        "app.workers.pipeline — re-registration created a duplicate instead "
+        "of reusing the existing one."
+    )
