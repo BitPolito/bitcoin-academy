@@ -199,6 +199,26 @@ def _env_example_keys() -> set[str]:
     return keys
 
 
+def _env_example_defaults() -> dict[str, str]:
+    defaults = {}
+    for line in (_SERVICES_AI / ".env.example").read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        defaults[name.strip()] = value.strip()
+    return defaults
+
+
+def _readme_rag_defaults() -> dict[str, str]:
+    readme = (_REPO_ROOT / "README.md").read_text()
+    return dict(re.findall(
+        r"^\|\s*`([A-Z][A-Z0-9_]+)`\s*\|\s*`([^`]+)`\s*\|",
+        readme,
+        re.MULTILINE,
+    ))
+
+
 def test_env_example_exists_and_is_populated():
     keys = _env_example_keys()
     assert len(keys) > 10, f"services/ai/.env.example looks empty: {keys}"
@@ -231,6 +251,30 @@ def test_readme_documents_the_rag_variables_that_exist():
             f"README documents `{name}` but no module reads it. Either the "
             f"variable was removed and the README is stale, or it is misspelled."
         )
+
+
+def test_documented_rag_defaults_match_env_example_and_code():
+    """Fail when a documented default drifts from the runnable configuration."""
+    documented = _readme_rag_defaults()
+    env_defaults = _env_example_defaults()
+    sources = "\n".join(p.read_text() for p in (_SERVICES_AI / "app").rglob("*.py"))
+
+    for name, documented_default in sorted(documented.items()):
+        assert name in env_defaults, f"{name} is documented but absent from .env.example"
+        assert env_defaults[name] == documented_default, (
+            f"{name}: README says {documented_default!r}, but .env.example uses "
+            f"{env_defaults[name]!r}"
+        )
+
+        literal_defaults = set(re.findall(
+            rf'os\.getenv\("{re.escape(name)}",\s*"([^"]*)"\)',
+            sources,
+        ))
+        if literal_defaults:
+            assert literal_defaults == {documented_default}, (
+                f"{name}: README says {documented_default!r}, but code defaults are "
+                f"{sorted(literal_defaults)!r}"
+            )
 
 
 def test_debug_mode_is_off_by_default():

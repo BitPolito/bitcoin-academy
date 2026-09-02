@@ -35,6 +35,30 @@ scripts/, tests/      Evaluation tooling and cross-service test assets
 
 ## 3. Workflow
 
+### 3.0 Branch model
+
+The repository deliberately keeps three long-lived branches while the MVP line is integrated:
+
+| Branch | Purpose | What merges into it |
+|---|---|---|
+| `master` | Default, release-ready branch. It must remain deployable. | Reviewed release PRs from `mvp-testing`, plus urgent fixes branched from `master`. |
+| `mvp` | Stable MVP checkpoint used to compare and recover the pre-integration line. | Reconciliation merges only; do not target feature PRs here. |
+| `mvp-testing` | Active MVP integration and validation branch. | Short-lived feature, fix, test, and documentation branches based on `mvp-testing`. |
+
+Normal MVP work branches from `mvp-testing` and opens a PR back to `mvp-testing`. Once the full
+quality gate is green and the integration is reviewable, `mvp-testing` opens a release PR to
+`master` (for example, #170). Work intended as an urgent production fix branches from `master`,
+targets `master`, and is then merged back into `mvp-testing` so the fix is not lost.
+
+`mvp` is not a general PR target. It remains available as the stable MVP checkpoint until the
+current integration finishes. After each MVP release reaches `master`, reconcile both long-lived
+MVP branches from `master`: merge `master` into `mvp-testing`, run the full gate there, then update
+`mvp` from the same reviewed release point. At that point all three branches share the released
+history before the next MVP iteration begins.
+
+No pull request may target another long-lived branch unless this section is updated first. Before
+opening a PR, verify its base branch in GitHub; changing the local upstream is not sufficient.
+
 ### 3.1 Pick up work
 
 Work starts from a GitHub issue. Assign it to yourself and move it to **In Progress** on the

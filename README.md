@@ -150,13 +150,13 @@ Set `ENVIRONMENT=development` to enable Swagger UI and relaxed CORS.
 | `RAG_MAX_EVIDENCE` | `6` | Max evidence chunks returned by the study endpoint |
 | `RAG_HYDE` | `true` | Hypothetical Document Embedding query expansion |
 | `RAG_QUERY_REWRITE` | `false` | Rewrite the raw question into a dense retrieval query |
-| `RAG_COMPRESS_CONTEXT` | `true` | Trim each passage to relevant sentences before the LLM |
+| `RAG_COMPRESS_CONTEXT` | `false` | Trim each passage to relevant sentences before the LLM |
 | `RAG_CONTEXTUAL_CHUNKS` | `false` | Prepend an AI-generated context prefix at ingest time |
 | `RAG_SEMANTIC_CACHE` | `true` | Enable semantic cache (requires Redis) |
 | `RAG_CACHE_THRESHOLD` | `0.92` | Cosine similarity threshold for a cache hit |
 | `RAG_CACHE_TTL_SECONDS` | `86400` | Cache entry lifetime (24 h) |
 | `USE_DOCLING` | `false` | Use Docling for PDF parsing instead of pymupdf4llm |
-| `SKIP_CHROMA_INDEX` | `false` (`true` in `.env.example`) | Skip ChromaDB write during ingestion (QVAC-only mode) |
+| `SKIP_CHROMA_INDEX` | `false` | Skip ChromaDB write during ingestion (QVAC-only mode) |
 
 Full list: [`services/ai/.env.example`](services/ai/.env.example).
 
