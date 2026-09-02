@@ -51,7 +51,7 @@ services:
           cpus: '0.5'
 
   qvac:
-    build: ./workers/qvac-service
+    build: ../workers/qvac-service
     restart: unless-stopped
     volumes:
       - qvac_data:/app/hyperdb
@@ -77,14 +77,14 @@ services:
 
   api:
     build:
-      context: ./services/ai
+      context: ../services/ai
     restart: unless-stopped
     volumes:
       - qvac_ingest:/qvac_ingest
       - api_uploads:/app/uploads
     env_file:
       # Optional: compose still starts on a fresh clone without this file.
-      - path: ./services/ai/.env
+      - path: ../services/ai/.env
         required: false
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy}
@@ -120,14 +120,14 @@ services:
 
   arq-worker:
     build:
-      context: ./services/ai
+      context: ../services/ai
     command: arq app.workers.arq_worker.WorkerSettings
     restart: unless-stopped
     volumes:
       - qvac_ingest:/qvac_ingest
       - api_uploads:/app/uploads
     env_file:
-      - path: ./services/ai/.env
+      - path: ../services/ai/.env
         required: false
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy}
@@ -163,7 +163,7 @@ services:
 
   web:
     build:
-      context: ./apps/web
+      context: ../apps/web
       target: runner
       args:
         # Baked into the browser bundle at build time — see apps/web/Dockerfile.
@@ -172,7 +172,7 @@ services:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
     restart: unless-stopped
     env_file:
-      - path: ./apps/web/.env.local
+      - path: ../apps/web/.env.local
         required: false
     environment:
       # Baked into the browser bundle: must be an address the browser can reach.

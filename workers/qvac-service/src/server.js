@@ -2,6 +2,7 @@ import { createServer } from "http";
 import { initModels, shutdownModels } from "./models.js";
 import { ingestFromJsonl } from "./ingest.js";
 import { queryRag, retrieveChunks, generateFromContext, streamFromContext } from "./query.js";
+import { generateJson, LlmDisabledError, JsonGenerationError } from "./generate-json.js";
 
 const PORT = parseInt(process.env.QVAC_PORT ?? "3001", 10);
 
@@ -51,21 +52,26 @@ const server = createServer(async (req, res) => {
       return send(res, 200, result);
     }
 
-    // POST /generate  { question: string, context: [{ label: string, text: string }], systemPrompt?: string }
+    // POST /generate  { question: string, context: [{ label: string, text: string }],
+    //                   systemPrompt?: string, preserveMarkdown?: boolean, enableThinking?: boolean }
     // LLM generation from pre-built parent context — no retrieval.
     // systemPrompt overrides the default; omit to use the BitPolito Academy default.
+    // preserveMarkdown: skip _stripMarkdown (pass true for structured study action output).
+    // enableThinking: omit /nothink suffix (pass true for DERIVE to use Qwen3 reasoning).
     // Returns { answer: string }
     if (req.method === "POST" && req.url === "/generate") {
-      const { question, context = [], systemPrompt = null } = await readBody(req);
-      const result = await generateFromContext(question, context, systemPrompt);
+      const { question, context = [], systemPrompt = null, preserveMarkdown = false, enableThinking = false } = await readBody(req);
+      const result = await generateFromContext(question, context, systemPrompt, { preserveMarkdown, enableThinking });
       return send(res, 200, result);
     }
 
-    // POST /stream  { question: string, context: [{ label, text }], systemPrompt?: string }
+    // POST /stream  { question: string, context: [{ label, text }], systemPrompt?: string,
+    //                enableThinking?: boolean }
     // Server-Sent Events stream — writes tokens as "data: <token>\n\n" until done.
     // Client should consume with EventSource or fetch + ReadableStream.
+    // Note: preserveMarkdown is not needed here — streaming tokens are never stripped.
     if (req.method === "POST" && req.url === "/stream") {
-      const { question, context = [], systemPrompt = null } = await readBody(req);
+      const { question, context = [], systemPrompt = null, enableThinking = false } = await readBody(req);
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
@@ -73,7 +79,7 @@ const server = createServer(async (req, res) => {
         "Transfer-Encoding": "chunked",
       });
       try {
-        for await (const token of streamFromContext(question, context, systemPrompt)) {
+        for await (const token of streamFromContext(question, context, systemPrompt, { enableThinking })) {
           res.write(`data: ${JSON.stringify(token)}\n\n`);
         }
         res.write("data: [DONE]\n\n");
@@ -81,6 +87,28 @@ const server = createServer(async (req, res) => {
         res.write(`data: ${JSON.stringify("[ERROR] " + err.message)}\n\n`);
       }
       return res.end();
+    }
+
+    // POST /generate_json  { prompt: string, schema: object, context?: [{ label?, text }],
+    //                        systemPrompt?: string, maxRetries?: number, generationParams?: object }
+    // Schema-validated JSON generation (course builder: outlines, lesson metadata, judges).
+    // Returns 200 { json, attempts } — json is guaranteed to validate against schema.
+    // 422 when the model cannot produce valid JSON after retries (body has errors + raw).
+    // 503 when the LLM is disabled (QVAC_LLM_ENABLED=false).
+    if (req.method === "POST" && req.url === "/generate_json") {
+      const { prompt, schema, context = [], systemPrompt = null, maxRetries, generationParams } = await readBody(req);
+      try {
+        const result = await generateJson({ prompt, schema, context, systemPrompt, maxRetries, generationParams });
+        return send(res, 200, result);
+      } catch (err) {
+        if (err instanceof LlmDisabledError) {
+          return send(res, 503, { error: err.message });
+        }
+        if (err instanceof JsonGenerationError) {
+          return send(res, 422, { error: err.message, errors: err.errors, raw: err.raw, attempts: err.attempts });
+        }
+        throw err;
+      }
     }
 
     // GET /health — used by FastAPI to detect whether the service is up.

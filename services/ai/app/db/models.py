@@ -28,6 +28,7 @@ class UserRole(str, Enum):
 class QuizScope(str, Enum):
     LESSON = "lesson"
     CHAPTER_TEST = "chapter_test"
+    COURSE = "course"
 
 
 class QuestionType(str, Enum):
@@ -57,6 +58,13 @@ class DocumentStatus(str, Enum):
     UPLOADING = "uploading"
     PROCESSING = "processing"
     READY = "ready"
+    ERROR = "error"
+
+
+class GenerationRunStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
     ERROR = "error"
 
 
@@ -138,6 +146,7 @@ class Chapter(Base):
     title: Mapped[str] = mapped_column(String)
     description: Mapped[Optional[str]] = mapped_column(Text)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[Optional[str]] = mapped_column(String, default="published")
 
     course: Mapped["Course"] = relationship(back_populates="chapters")
     lessons: Mapped[List["Lesson"]] = relationship(back_populates="chapter")
@@ -159,6 +168,9 @@ class Lesson(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
     content: Mapped[str] = mapped_column(Text)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[Optional[str]] = mapped_column(String, default="published")
+    source_refs_json: Mapped[Optional[str]] = mapped_column(Text)
+    content_hash: Mapped[Optional[str]] = mapped_column(String)
 
     chapter: Mapped["Chapter"] = relationship(back_populates="lessons")
     quizzes: Mapped[List["Quiz"]] = relationship(back_populates="lesson")
@@ -177,6 +189,8 @@ class Quiz(Base):
     title: Mapped[Optional[str]] = mapped_column(String)
     passing_score: Mapped[int] = mapped_column(Integer, default=70)
     lesson_id: Mapped[Optional[str]] = mapped_column(ForeignKey("lesson.id"))
+    course_id: Mapped[Optional[str]] = mapped_column(ForeignKey("course.id"))
+    created_at: Mapped[Optional[str]] = mapped_column(String, default=func.now())
 
     lesson: Mapped[Optional["Lesson"]] = relationship(back_populates="quizzes")
     questions: Mapped[List["Question"]] = relationship(back_populates="quiz")
@@ -225,6 +239,8 @@ class Question(Base):
     prompt: Mapped[str] = mapped_column(Text)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
     source_ref: Mapped[Optional[str]] = mapped_column(String)
+    concept_tag: Mapped[Optional[str]] = mapped_column(String)
+    difficulty: Mapped[Optional[str]] = mapped_column(String)
 
     quiz: Mapped["Quiz"] = relationship(back_populates="questions")
     options: Mapped[List["OptionChoice"]] = relationship(
@@ -257,8 +273,8 @@ class QuizAttempt(Base):
     )
     quiz_id: Mapped[str] = mapped_column(ForeignKey("quiz.id"))
     user_id: Mapped[str] = mapped_column(ForeignKey("app_user.id"))
-    started_at: Mapped[datetime] = mapped_column(String, default=func.now())
-    finished_at: Mapped[Optional[datetime]] = mapped_column(String)
+    started_at: Mapped[str] = mapped_column(String, default=func.now())
+    finished_at: Mapped[Optional[str]] = mapped_column(String)
     score_pct: Mapped[Optional[int]] = mapped_column(Integer)
     passed: Mapped[Optional[bool]] = mapped_column(Boolean)
 
@@ -296,7 +312,7 @@ class UserLessonProgress(Base):
     lesson_id: Mapped[str] = mapped_column(
         ForeignKey("lesson.id"), primary_key=True)
     status: Mapped[str] = mapped_column(String, default="not_started")
-    last_activity: Mapped[datetime] = mapped_column(String, default=func.now())
+    last_activity: Mapped[str] = mapped_column(String, default=func.now())
     last_score: Mapped[Optional[int]] = mapped_column(Integer)
 
     user: Mapped["User"] = relationship(back_populates="lesson_progress")
@@ -311,7 +327,7 @@ class UserChapterProgress(Base):
     chapter_id: Mapped[str] = mapped_column(
         ForeignKey("chapter.id"), primary_key=True)
     status: Mapped[str] = mapped_column(String, default="not_started")
-    last_activity: Mapped[datetime] = mapped_column(String, default=func.now())
+    last_activity: Mapped[str] = mapped_column(String, default=func.now())
 
     user: Mapped["User"] = relationship(back_populates="chapter_progress")
     chapter: Mapped["Chapter"] = relationship(back_populates="progress")
@@ -326,7 +342,7 @@ class UserCourseProgress(Base):
         ForeignKey("course.id"), primary_key=True)
     percent: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String, default="not_started")
-    updated_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    updated_at: Mapped[str] = mapped_column(String, default=func.now())
 
     user: Mapped["User"] = relationship(back_populates="course_progress")
     course: Mapped["Course"] = relationship(back_populates="progress")
@@ -358,9 +374,12 @@ class CourseDocument(Base):
     metadata_json: Mapped[Optional[str]] = mapped_column(Text)
     extracted_text_preview: Mapped[Optional[str]] = mapped_column(Text)
     sections_json: Mapped[Optional[str]] = mapped_column(Text)
+    # Nested heading tree with page spans and parent-chunk anchors
+    # (course builder outline source). See pipeline.build_section_tree().
+    section_tree_json: Mapped[Optional[str]] = mapped_column(Text)
     sample_chunks_json: Mapped[Optional[str]] = mapped_column(Text)
 
-    created_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    created_at: Mapped[str] = mapped_column(String, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         String, default=func.now(), onupdate=func.now()
     )
@@ -368,7 +387,30 @@ class CourseDocument(Base):
     course: Mapped["Course"] = relationship(back_populates="documents")
 
 
-# 6. Supplemental Materials
+# 6. Course Builder — generation provenance
+class GenerationRun(Base):
+    """Provenance record for each outline or content generation job."""
+
+    __tablename__ = "generation_run"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    course_id: Mapped[str] = mapped_column(ForeignKey("course.id"))
+    doc_ids_json: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String, default=GenerationRunStatus.QUEUED)
+    stage: Mapped[Optional[str]] = mapped_column(String)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    prompt_version: Mapped[Optional[str]] = mapped_column(String)
+    started_at: Mapped[Optional[str]] = mapped_column(String)
+    finished_at: Mapped[Optional[str]] = mapped_column(String)
+    options_json: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(String, default=func.now())
+
+    course: Mapped["Course"] = relationship()
+
+
+# 8. Supplemental Materials
 class Resource(Base):
     __tablename__ = "resource"
 
@@ -386,13 +428,13 @@ class Resource(Base):
     is_public: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[Optional[str]] = mapped_column(
         ForeignKey("app_user.id"))
-    created_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    created_at: Mapped[str] = mapped_column(String, default=func.now())
 
     creator: Mapped[Optional["User"]] = relationship(
         back_populates="created_resources")
 
 
-# 6. Badges
+# 9. Badges
 class Badge(Base):
     """Badge definition — one row per badge type."""
 
@@ -419,7 +461,7 @@ class UserBadge(Base):
     )
     user_id: Mapped[str] = mapped_column(ForeignKey("app_user.id"))
     badge_id: Mapped[str] = mapped_column(ForeignKey("badge.id"))
-    earned_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    earned_at: Mapped[str] = mapped_column(String, default=func.now())
     # ID of the lesson or course that triggered the award
     context_id: Mapped[Optional[str]] = mapped_column(String)
 
@@ -427,7 +469,7 @@ class UserBadge(Base):
     badge: Mapped["Badge"] = relationship(back_populates="awards")
 
 
-# 7. RAG parent chunks (parent-child chunking — Sprint 2)
+# 10. RAG parent chunks (parent-child chunking — Sprint 2)
 class ChunkParent(Base):
     """Parent chunk: 1200-word context block used by the LLM after child retrieval."""
 
@@ -442,7 +484,7 @@ class ChunkParent(Base):
     citation_section: Mapped[str] = mapped_column(String, default="")
 
 
-# 8. Answer Feedback (Q8 — student thumbs up/down on RAG answers)
+# 11. Answer Feedback (Q8 — student thumbs up/down on RAG answers)
 class AnswerFeedback(Base):
     """Student rating of a RAG-generated answer (thumbs up/down + optional comment)."""
 
@@ -457,10 +499,10 @@ class AnswerFeedback(Base):
     answer: Mapped[str] = mapped_column(Text)
     rating: Mapped[int] = mapped_column(Integer)  # 1 = helpful, -1 = not helpful
     comment: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    created_at: Mapped[str] = mapped_column(String, default=func.now())
 
 
-# 9. Certificates
+# 12. Certificates
 class Certificate(Base):
     __tablename__ = "certificate"
 
@@ -469,14 +511,14 @@ class Certificate(Base):
     )
     user_id: Mapped[str] = mapped_column(ForeignKey("app_user.id"))
     course_id: Mapped[str] = mapped_column(ForeignKey("course.id"))
-    issued_at: Mapped[datetime] = mapped_column(String, default=func.now())
+    issued_at: Mapped[str] = mapped_column(String, default=func.now())
     code: Mapped[str] = mapped_column(String, unique=True)
     verification_hash: Mapped[str] = mapped_column(String, unique=True)
     grade_pct: Mapped[Optional[int]] = mapped_column(Integer)
     hours: Mapped[Optional[int]] = mapped_column(Integer)
     issuer_name: Mapped[Optional[str]] = mapped_column(String)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
-    revoked_at: Mapped[Optional[datetime]] = mapped_column(String)
+    revoked_at: Mapped[Optional[str]] = mapped_column(String)
     metadata_json: Mapped[Optional[str]] = mapped_column(Text)
 
     user: Mapped["User"] = relationship(back_populates="certificates")

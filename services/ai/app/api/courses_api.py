@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.db.models import UserRole
 from app.middleware.auth import CurrentUser, get_current_user
 from app.services import course_service
 from app.schemas.course_schemas import CourseSchema, LessonSchema
@@ -16,6 +17,11 @@ router = APIRouter(prefix="/api", tags=["Courses"])
 
 
 class CreateCourseBody(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class UpdateCourseBody(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=500)
 
@@ -65,6 +71,55 @@ def get_course(
     if result is None:
         raise NotFoundError(resource="Course", identifier=course_id)
     return result
+
+
+@router.patch("/courses/{course_id}", response_model=CourseSchema)
+def update_course(
+    body: UpdateCourseBody,
+    course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
+    db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(
+        CurrentUser(roles=[UserRole.ADMIN, UserRole.INSTRUCTOR])
+    ),
+):
+    """Update course title and description."""
+    try:
+        UUID(course_id)
+    except ValueError:
+        raise ValidationError_(
+            message="Invalid course ID format. Expected UUID.",
+            details={"course_id": course_id},
+        )
+
+    result = course_service.update_course(
+        db, course_id=course_id, **body.model_dump(exclude_unset=True)
+    )
+    if result is None:
+        raise NotFoundError(resource="Course", identifier=course_id)
+    return result
+
+
+@router.delete("/courses/{course_id}")
+def delete_course(
+    course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
+    db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(CurrentUser(roles=[UserRole.ADMIN, UserRole.INSTRUCTOR])),
+):
+    """Delete a course: documents (+ files, QVAC vectors, chunks), chapters,
+    lessons, quizzes, attempts, generation runs, and progress. Certificates
+    are revoked, not deleted, so verification stays honest. Instructor/admin only."""
+    try:
+        UUID(course_id)
+    except ValueError:
+        raise ValidationError_(
+            message="Invalid course ID format. Expected UUID.",
+            details={"course_id": course_id},
+        )
+
+    counts = course_service.delete_course(db, course_id)
+    if counts is None:
+        raise NotFoundError(resource="Course", identifier=course_id)
+    return {"message": "Course deleted", "counts": counts}
 
 
 @router.get("/courses/{course_id}/lessons", response_model=List[LessonSchema])

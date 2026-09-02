@@ -261,17 +261,18 @@ def test_split_paragraph_no_overlap_produces_disjoint_starts():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.unit
-def test_build_parent_child_returns_two_lists():
+def test_build_parent_child_returns_three_lists():
     pages = [{"page": 1, "text": "Bitcoin uses UTXO. " * 5}]
-    parents, children = pipeline_mod.build_parent_child_chunks(pages, "DOC1")
+    parents, children, sections = pipeline_mod.build_parent_child_chunks(pages, "DOC1")
     assert isinstance(parents, list)
     assert isinstance(children, list)
+    assert isinstance(sections, list)
 
 
 @pytest.mark.unit
 def test_build_parent_child_non_empty_for_real_text():
     pages = [{"page": 1, "text": "Bitcoin is a peer-to-peer electronic cash system. " * 30}]
-    parents, children = pipeline_mod.build_parent_child_chunks(pages, "DOC1")
+    parents, children, _ = pipeline_mod.build_parent_child_chunks(pages, "DOC1")
     assert len(parents) > 0
     assert len(children) > 0
 
@@ -279,7 +280,7 @@ def test_build_parent_child_non_empty_for_real_text():
 @pytest.mark.unit
 def test_build_parent_child_every_child_has_valid_parent_id():
     pages = [{"page": 1, "text": "Satoshi Nakamoto published the Bitcoin whitepaper in 2008. " * 30}]
-    parents, children = pipeline_mod.build_parent_child_chunks(pages, "DOC1")
+    parents, children, _ = pipeline_mod.build_parent_child_chunks(pages, "DOC1")
     parent_ids = {p["id"] for p in parents}
     for child in children:
         assert child["parent_id"] in parent_ids, f"Child parent_id {child['parent_id']!r} not in parents"
@@ -288,7 +289,7 @@ def test_build_parent_child_every_child_has_valid_parent_id():
 @pytest.mark.unit
 def test_build_parent_child_ids_follow_naming_convention():
     pages = [{"page": 1, "text": "Bitcoin uses UTXO. " * 40}]
-    parents, children = pipeline_mod.build_parent_child_chunks(pages, "DOC1")
+    parents, children, _ = pipeline_mod.build_parent_child_chunks(pages, "DOC1")
     for p in parents:
         assert p["id"].startswith("DOC1_p"), f"Parent id format wrong: {p['id']}"
     for c in children:
@@ -299,14 +300,14 @@ def test_build_parent_child_ids_follow_naming_convention():
 def test_build_parent_child_table_block_produces_table_child():
     table_text = "| Col1 | Col2 |\n|------|------|\n| A    | B    |\n| C    | D    |"
     pages = [{"page": 1, "text": table_text}]
-    _, children = pipeline_mod.build_parent_child_chunks(pages, "DOC1")
+    _, children, _ = pipeline_mod.build_parent_child_chunks(pages, "DOC1")
     table_children = [c for c in children if c["chunk_type"] == "table"]
     assert len(table_children) > 0
 
 
 @pytest.mark.unit
 def test_build_parent_child_empty_pages_returns_empty():
-    parents, children = pipeline_mod.build_parent_child_chunks([], "DOC1")
+    parents, children, _ = pipeline_mod.build_parent_child_chunks([], "DOC1")
     assert parents == []
     assert children == []
 

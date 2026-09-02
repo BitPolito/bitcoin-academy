@@ -295,7 +295,7 @@ def test_empty_chunk_list_filters_to_empty():
 
 def test_build_parent_child_chunks_returns_both_levels():
     pages = [{"page": 1, "text": " ".join(f"word{i}" for i in range(300))}]
-    parents, children = pipeline.build_parent_child_chunks(pages, "doc1")
+    parents, children, _sections = pipeline.build_parent_child_chunks(pages, "doc1")
 
     assert parents, "Expected at least one parent chunk"
     assert children, "Expected at least one child chunk"
@@ -304,7 +304,7 @@ def test_build_parent_child_chunks_returns_both_levels():
 def test_every_child_maps_to_an_existing_parent():
     """An orphaned child cannot be expanded, so its generation context degrades."""
     pages = [{"page": 1, "text": " ".join(f"word{i}" for i in range(600))}]
-    parents, children = pipeline.build_parent_child_chunks(pages, "doc1")
+    parents, children, _sections = pipeline.build_parent_child_chunks(pages, "doc1")
 
     parent_ids = {p["id"] for p in parents}
     from app.services.parent_expansion import _parent_id_from_child
@@ -320,7 +320,7 @@ def test_every_child_maps_to_an_existing_parent():
 def test_children_are_smaller_than_parents():
     """Children are the retrieval unit, parents the context unit."""
     pages = [{"page": 1, "text": " ".join(f"word{i}" for i in range(900))}]
-    parents, children = pipeline.build_parent_child_chunks(pages, "doc1")
+    parents, children, _sections = pipeline.build_parent_child_chunks(pages, "doc1")
 
     avg_parent = sum(pipeline._word_count(p["text"]) for p in parents) / len(parents)
     avg_child = sum(pipeline._word_count(c["text"]) for c in children) / len(children)
@@ -331,7 +331,7 @@ def test_child_chunks_respect_the_embedding_word_cap():
     """Children longer than the cap get truncated by the embedding model, which
     silently discards the tail of the passage."""
     pages = [{"page": 1, "text": " ".join(f"word{i}" for i in range(2000))}]
-    _, children = pipeline.build_parent_child_chunks(pages, "doc1")
+    _, children, _sections = pipeline.build_parent_child_chunks(pages, "doc1")
 
     for child in children:
         assert pipeline._word_count(child["text"]) <= pipeline._CHILD_MAX_WORDS, (
@@ -342,9 +342,10 @@ def test_child_chunks_respect_the_embedding_word_cap():
 
 
 def test_empty_pages_produce_no_chunks():
-    parents, children = pipeline.build_parent_child_chunks([], "doc1")
+    parents, children, sections = pipeline.build_parent_child_chunks([], "doc1")
     assert parents == []
     assert children == []
+    assert sections == []
 
 
 def test_page_numbers_are_preserved_through_chunking():
@@ -353,7 +354,7 @@ def test_page_numbers_are_preserved_through_chunking():
         {"page": 5, "text": " ".join(f"alpha{i}" for i in range(200))},
         {"page": 6, "text": " ".join(f"beta{i}" for i in range(200))},
     ]
-    _, children = pipeline.build_parent_child_chunks(pages, "doc1")
+    _, children, _sections = pipeline.build_parent_child_chunks(pages, "doc1")
     pages_seen = {c["citation_page"] for c in children}
     assert pages_seen <= {5, 6}
     assert pages_seen, "No page metadata survived chunking"
@@ -389,3 +390,14 @@ def test_module_aliases_are_registered_without_error():
     """Registering aliases twice must be safe — the worker imports it repeatedly."""
     pipeline._register_module_aliases()
     pipeline._register_module_aliases()
+
+    import sys
+    assert "services.ai.app.workers.pipeline" in sys.modules, (
+        "The long-form alias was not registered — the ingester's sys.path "
+        "setup silently stopped working."
+    )
+    assert sys.modules["services.ai.app.workers.pipeline"] is pipeline, (
+        "The alias points at a different module object than the canonical "
+        "app.workers.pipeline — re-registration created a duplicate instead "
+        "of reusing the existing one."
+    )

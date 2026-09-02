@@ -35,8 +35,50 @@ async def reindex_document_qvac(ctx, document_id: str, course_id: str) -> None:
     )
 
 
+async def generate_course_outline(
+    ctx, course_id: str, doc_ids: list, run_id: str
+) -> None:
+    """ARQ job: map-reduce pipeline that generates draft Chapter/Lesson rows."""
+    from app.db.session import get_db_context
+    from app.services import outline_service
+
+    with get_db_context() as db:
+        await outline_service.generate_outline(
+            course_id=course_id,
+            doc_ids=doc_ids,
+            db=db,
+            run_id=run_id,
+        )
+
+
+async def generate_course_content(
+    ctx, course_id: str, run_id: str, lesson_ids: list | None = None
+) -> None:
+    """ARQ job: generate content for draft lessons in a course.
+
+    lesson_ids: when given, only regenerate those lessons (bypasses cache) —
+    the "regenerate this lesson" action from the review UI. Otherwise
+    processes every draft lesson in the course.
+    """
+    from app.db.session import get_db_context
+    from app.services import lesson_service
+
+    with get_db_context() as db:
+        await lesson_service.generate_course_content(
+            course_id=course_id,
+            db=db,
+            run_id=run_id,
+            lesson_ids=lesson_ids,
+        )
+
+
 class WorkerSettings:
-    functions = [ingest_document, reindex_document_qvac]
+    functions = [
+        ingest_document,
+        reindex_document_qvac,
+        generate_course_outline,
+        generate_course_content,
+    ]
     redis_settings = RedisSettings.from_dsn(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
     job_timeout = 600
     max_tries = 2

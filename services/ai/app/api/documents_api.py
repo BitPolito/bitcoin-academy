@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Path as PathParam, Request, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -15,6 +16,7 @@ from app.schemas.document_schemas import (
     DocumentListItem,
     DocumentPreview,
     DocumentStatusResponse,
+    DocumentStructure,
 )
 from app.core.errors import NotFoundError
 from app.core.rate_limit import limiter
@@ -191,6 +193,30 @@ async def retry_document(
 
 
 @router.get(
+    "/documents/{document_id}/file",
+    summary="Stream the original uploaded file (inline)",
+)
+def get_document_file(
+    document_id: str = PathParam(..., description="Document ID"),
+    db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
+):
+    doc = document_service.get_document(db, document_id)
+    if doc is None:
+        raise NotFoundError(resource="Document", identifier=document_id)
+
+    file_path = UPLOADS_DIR / doc.course_id / f"{doc.id}_{doc.filename}"
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Original file not found on disk.")
+
+    return FileResponse(
+        path=str(file_path),
+        media_type=doc.mime_type or "application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{doc.filename}"'},
+    )
+
+
+@router.get(
     "/documents/{document_id}/status",
     response_model=DocumentStatusResponse,
 )
@@ -233,6 +259,22 @@ def get_document_preview(
     if preview is None:
         raise NotFoundError(resource="Document", identifier=document_id)
     return preview
+
+
+@router.get(
+    "/documents/{document_id}/structure",
+    response_model=DocumentStructure,
+    summary="Heading tree with page spans and parent-chunk anchors",
+)
+def get_document_structure(
+    document_id: str = PathParam(..., description="Document ID"),
+    db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
+):
+    result = document_service.get_section_tree(db, document_id)
+    if result is None:
+        raise NotFoundError(resource="Document", identifier=document_id)
+    return DocumentStructure(document_id=document_id, **result)
 
 
 @router.delete(

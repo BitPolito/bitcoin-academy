@@ -55,6 +55,33 @@ const nextConfig = {
     'comma-separated-tokens',
     'decode-named-character-reference',
     'character-entities',
+    // Added with remark-gfm: GFM tables, strikethrough, task lists and
+    // footnotes pull in their own ESM-only chain. next/jest derives Jest's
+    // transformIgnorePatterns from this list, so anything missing here fails
+    // the test run with "Cannot use import statement outside a module".
+    'ccount',
+    'longest-streak',
+    'markdown-table',
+    'mdast-util-find-and-replace',
+    'mdast-util-gfm',
+    'mdast-util-gfm-autolink-literal',
+    'mdast-util-gfm-footnote',
+    'mdast-util-gfm-strikethrough',
+    'mdast-util-gfm-table',
+    'mdast-util-gfm-task-list-item',
+    'mdast-util-phrasing',
+    'mdast-util-to-markdown',
+    'micromark-extension-gfm',
+    'micromark-extension-gfm-autolink-literal',
+    'micromark-extension-gfm-footnote',
+    'micromark-extension-gfm-strikethrough',
+    'micromark-extension-gfm-table',
+    'micromark-extension-gfm-tagfilter',
+    'micromark-extension-gfm-task-list-item',
+    'remark-gfm',
+    'zwitch',
+    // Nested under mdast-util-find-and-replace as an ESM-only v5.
+    'escape-string-regexp',
   ],
   env: {
     NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api',

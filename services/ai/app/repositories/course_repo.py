@@ -1,11 +1,72 @@
 """Course repository - data access for course aggregate."""
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.db.models import Chapter, Course, Lesson, Section
 
 _DEFAULT_SECTION_TITLE = "User Courses"
+
+
+def delete_lessons_cascade(db: Session, lesson_ids: List[str]) -> None:
+    """Delete lessons and everything that references them.
+
+    A lesson may own one or more Quiz rows (created during content generation);
+    Quiz.lesson_id has no ON DELETE, so deleting the lesson first violates the
+    FK on Postgres and orphans rows on SQLite. Order: attempt answers → attempts
+    → option choices → questions → quizzes → lesson progress → lessons.
+    Does NOT commit — the caller owns the transaction boundary.
+    """
+    from app.db.models import (
+        AttemptAnswer,
+        OptionChoice,
+        Question,
+        Quiz,
+        QuizAttempt,
+        UserLessonProgress,
+    )
+
+    if not lesson_ids:
+        return
+
+    quiz_ids = [
+        row.id for row in db.query(Quiz.id).filter(Quiz.lesson_id.in_(lesson_ids)).all()
+    ]
+    if quiz_ids:
+        question_ids = [
+            row.id
+            for row in db.query(Question.id).filter(Question.quiz_id.in_(quiz_ids)).all()
+        ]
+        attempt_ids = [
+            row.id
+            for row in db.query(QuizAttempt.id)
+            .filter(QuizAttempt.quiz_id.in_(quiz_ids))
+            .all()
+        ]
+        if attempt_ids:
+            db.query(AttemptAnswer).filter(
+                AttemptAnswer.attempt_id.in_(attempt_ids)
+            ).delete(synchronize_session=False)
+            db.query(QuizAttempt).filter(QuizAttempt.id.in_(attempt_ids)).delete(
+                synchronize_session=False
+            )
+        if question_ids:
+            db.query(OptionChoice).filter(
+                OptionChoice.question_id.in_(question_ids)
+            ).delete(synchronize_session=False)
+            db.query(Question).filter(Question.id.in_(question_ids)).delete(
+                synchronize_session=False
+            )
+        db.query(Quiz).filter(Quiz.id.in_(quiz_ids)).delete(synchronize_session=False)
+
+    db.query(UserLessonProgress).filter(
+        UserLessonProgress.lesson_id.in_(lesson_ids)
+    ).delete(synchronize_session=False)
+    db.query(Lesson).filter(Lesson.id.in_(lesson_ids)).delete(
+        synchronize_session=False
+    )
+    db.flush()
 
 
 def _get_or_create_default_section(db: Session) -> str:
@@ -46,3 +107,137 @@ def get_lessons_by_course_id(db: Session, course_id: str) -> List[Lesson]:
 
 def get_lesson_by_id(db: Session, lesson_id: str) -> Optional[Lesson]:
     return db.query(Lesson).filter(Lesson.id == lesson_id).first()
+
+
+_UNSET: Any = object()
+
+
+def update_course(
+    db: Session, course_id: str, title: Any = _UNSET, description: Any = _UNSET
+) -> Optional[Course]:
+    """Partial update: only fields explicitly passed by the caller are written,
+    so a PATCH that omits ``description`` no longer clears it."""
+    course = get_course_by_id(db, course_id)
+    if course is None:
+        return None
+    if title is not _UNSET and title is not None:
+        course.title = title
+    if description is not _UNSET:
+        course.description = description
+    db.commit()
+    db.refresh(course)
+    return course
+
+
+def delete_course_cascade(db: Session, course_id: str) -> Optional[Dict[str, int]]:
+    """Delete every DB-owned child of a course, then soft-delete the course row.
+
+    The course row itself stays soft-deleted (is_active=False) rather than
+    hard-deleted: Certificate.course_id is a FK to course.id and certificates
+    are revoked, not removed, so verification stays honest for anyone who
+    kept a link — a hard course delete would either violate that FK or force
+    nulling course_id on historical certificates, losing provenance.
+
+    Documents are NOT deleted here — document_service.delete_document handles
+    their file/QVAC/chunk_parent side effects and is called per-document by
+    the caller (course_service.delete_course) before this runs.
+
+    Does NOT commit — the caller commits once, after this cascade, the
+    document deletions, and certificate revocation all succeed, so a
+    mid-operation failure rolls back the whole delete instead of leaving a
+    course partially deleted (documents gone, chapters/lessons/quizzes
+    still there, course still is_active=True).
+
+    Returns None if the course doesn't exist, otherwise a dict of row counts
+    deleted per entity, for the caller to report back to the client.
+    """
+    from app.db.models import (
+        AttemptAnswer,
+        ChapterTest,
+        ChapterTestQuiz,
+        GenerationRun,
+        OptionChoice,
+        Question,
+        Quiz,
+        QuizAttempt,
+        UserCourseProgress,
+        UserLessonProgress,
+    )
+
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if course is None:
+        return None
+
+    chapter_ids = [c.id for c in db.query(Chapter.id).filter(Chapter.course_id == course_id).all()]
+    lesson_ids = [
+        row.id for row in db.query(Lesson.id).filter(Lesson.chapter_id.in_(chapter_ids)).all()
+    ] if chapter_ids else []
+
+    # Quizzes attached to this course at any scope: per-lesson, per-course
+    # ad-hoc, and chapter tests (via the chapter_test_quiz join).
+    chapter_test_ids = [
+        row.id for row in db.query(ChapterTest.id).filter(ChapterTest.chapter_id.in_(chapter_ids)).all()
+    ] if chapter_ids else []
+    quiz_id_subq = (
+        db.query(Quiz.id)
+        .outerjoin(ChapterTestQuiz, ChapterTestQuiz.quiz_id == Quiz.id)
+        .filter(
+            or_(
+                Quiz.course_id == course_id,
+                Quiz.lesson_id.in_(lesson_ids),
+                ChapterTestQuiz.chapter_test_id.in_(chapter_test_ids),
+            )
+        )
+    )
+    quiz_ids = [row.id for row in quiz_id_subq.all()]
+
+    question_ids = [
+        row.id for row in db.query(Question.id).filter(Question.quiz_id.in_(quiz_ids)).all()
+    ] if quiz_ids else []
+    attempt_ids = [
+        row.id for row in db.query(QuizAttempt.id).filter(QuizAttempt.quiz_id.in_(quiz_ids)).all()
+    ] if quiz_ids else []
+
+    counts: Dict[str, int] = {}
+
+    if attempt_ids:
+        counts["attempt_answers"] = (
+            db.query(AttemptAnswer).filter(AttemptAnswer.attempt_id.in_(attempt_ids)).delete(synchronize_session=False)
+        )
+        counts["quiz_attempts"] = (
+            db.query(QuizAttempt).filter(QuizAttempt.id.in_(attempt_ids)).delete(synchronize_session=False)
+        )
+    if question_ids:
+        counts["option_choices"] = (
+            db.query(OptionChoice).filter(OptionChoice.question_id.in_(question_ids)).delete(synchronize_session=False)
+        )
+        counts["questions"] = (
+            db.query(Question).filter(Question.id.in_(question_ids)).delete(synchronize_session=False)
+        )
+    if chapter_test_ids:
+        counts["chapter_test_quiz_links"] = (
+            db.query(ChapterTestQuiz).filter(ChapterTestQuiz.chapter_test_id.in_(chapter_test_ids)).delete(synchronize_session=False)
+        )
+        counts["chapter_tests"] = (
+            db.query(ChapterTest).filter(ChapterTest.id.in_(chapter_test_ids)).delete(synchronize_session=False)
+        )
+    if quiz_ids:
+        counts["quizzes"] = db.query(Quiz).filter(Quiz.id.in_(quiz_ids)).delete(synchronize_session=False)
+
+    if lesson_ids:
+        counts["lesson_progress"] = (
+            db.query(UserLessonProgress).filter(UserLessonProgress.lesson_id.in_(lesson_ids)).delete(synchronize_session=False)
+        )
+        counts["lessons"] = db.query(Lesson).filter(Lesson.id.in_(lesson_ids)).delete(synchronize_session=False)
+    if chapter_ids:
+        counts["chapters"] = db.query(Chapter).filter(Chapter.id.in_(chapter_ids)).delete(synchronize_session=False)
+
+    counts["course_progress"] = (
+        db.query(UserCourseProgress).filter(UserCourseProgress.course_id == course_id).delete(synchronize_session=False)
+    )
+    counts["generation_runs"] = (
+        db.query(GenerationRun).filter(GenerationRun.course_id == course_id).delete(synchronize_session=False)
+    )
+
+    course.is_active = False
+    return counts
