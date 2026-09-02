@@ -98,22 +98,40 @@ async def study_stream(
             action=body.action,
             rag_only=body.rag_only,
         )
+        # The next-token task is created once and awaited across keepalive ticks.
+        # We must NOT wrap gen.__anext__() in asyncio.wait_for: a timeout there
+        # cancels the in-flight step, which finishes the async generator and
+        # ends the stream empty — exactly on the slow retrievals the keepalive
+        # exists to cover. Instead we poll the same pending task with a timeout.
+        pending: "asyncio.Future | None" = None
         try:
             while True:
-                try:
-                    chunk = await asyncio.wait_for(
-                        gen.__anext__(), timeout=_SSE_KEEPALIVE_INTERVAL
-                    )
-                    yield f"data: {_sse_encode(chunk)}\n\n"
-                except asyncio.TimeoutError:
-                    # No token yet — send SSE comment to keep TCP connection alive.
+                if pending is None:
+                    pending = asyncio.ensure_future(gen.__anext__())
+                done, _ = await asyncio.wait(
+                    {pending}, timeout=_SSE_KEEPALIVE_INTERVAL
+                )
+                if not done:
+                    # No token yet — send SSE comment to keep the connection alive.
                     # Browsers and SSE clients silently ignore comment lines.
                     yield ": keepalive\n\n"
+                    continue
+                try:
+                    chunk = pending.result()
                 except StopAsyncIteration:
                     break
+                finally:
+                    pending = None
+                yield f"data: {_sse_encode(chunk)}\n\n"
         except Exception as exc:
             yield f"data: {_sse_encode('[ERROR] ' + str(exc))}\n\n"
         finally:
+            if pending is not None:
+                pending.cancel()
+                try:
+                    await pending
+                except (asyncio.CancelledError, StopAsyncIteration, Exception):
+                    pass
             await gen.aclose()
         yield "data: [DONE]\n\n"
 

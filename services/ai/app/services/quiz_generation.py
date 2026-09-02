@@ -136,12 +136,19 @@ def persist_quiz(
     if not questions:
         return None
 
-    existing_q = db.query(Quiz).filter(Quiz.scope == scope)
-    if lesson_id is not None:
-        existing_q = existing_q.filter(Quiz.lesson_id == lesson_id)
-    if course_id is not None:
-        existing_q = existing_q.filter(Quiz.course_id == course_id)
-    existing = existing_q.order_by(Quiz.created_at.desc()).first()
+    # COURSE-scoped quizzes are ad-hoc, per-request study quizzes with no
+    # single owner: replacing "the newest unattempted one" would let one user's
+    # generate call delete another user's in-progress quiz (their later submit
+    # then 404s). Only the single-writer instructor flows (LESSON / CHAPTER_TEST)
+    # get the replace-in-place behaviour; COURSE always appends.
+    existing = None
+    if scope != QuizScope.COURSE:
+        existing_q = db.query(Quiz).filter(Quiz.scope == scope)
+        if lesson_id is not None:
+            existing_q = existing_q.filter(Quiz.lesson_id == lesson_id)
+        if course_id is not None:
+            existing_q = existing_q.filter(Quiz.course_id == course_id)
+        existing = existing_q.order_by(Quiz.created_at.desc()).first()
     if existing:
         has_attempts = (
             db.query(QuizAttempt).filter(QuizAttempt.quiz_id == existing.id).first()

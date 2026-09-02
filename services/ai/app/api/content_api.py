@@ -171,7 +171,7 @@ async def generate_content(
     body: GenerateContentBody,
     course_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    _current_user: CurrentUser = Depends(_require_reviewer),
 ):
     course = course_service.get_course(db, course_id)
     if course is None:
@@ -237,7 +237,7 @@ async def generate_content(
 def publish_course(
     course_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    _current_user: CurrentUser = Depends(_require_reviewer),
 ):
     course = course_service.get_course(db, course_id)
     if course is None:

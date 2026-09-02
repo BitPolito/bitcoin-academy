@@ -117,15 +117,18 @@ def test_persist_quiz_returns_none_for_empty_questions():
     assert quiz is None
 
 
-def test_persist_quiz_replaces_existing_for_same_course():
+def test_persist_quiz_appends_for_same_course():
+    """COURSE-scoped quizzes are ad-hoc, per-request study quizzes with no single
+    owner, so a second generate must NOT delete the first (another user may still
+    be answering it). Both rows survive; callers pick the newest by created_at."""
     db, course, chapter = _make_db()
     q1 = persist_quiz(db, _QUESTIONS, scope=QuizScope.COURSE, title="V1", course_id=course.id)
     q2 = persist_quiz(db, _QUESTIONS, scope=QuizScope.COURSE, title="V2", course_id=course.id)
 
     quizzes = db.query(Quiz).filter(Quiz.course_id == course.id).all()
-    assert len(quizzes) == 1
-    assert quizzes[0].id == q2.id
-    assert quizzes[0].title == "V2"
+    assert {q.id for q in quizzes} == {q1.id, q2.id}
+    newest = max(quizzes, key=lambda q: q.created_at)
+    assert newest.id == q2.id
 
 
 def test_persist_quiz_replaces_existing_for_same_lesson():
@@ -198,25 +201,31 @@ def test_persist_quiz_keeps_attempted_quiz_and_versions_alongside_it():
 def test_persist_quiz_replaces_unattempted_quiz_even_if_an_older_one_was_attempted():
     """Only the quiz actually being replaced is checked for attempts — an
     older, already-superseded quiz's attempt history doesn't freeze the
-    'current' slot forever."""
+    'current' slot forever. (Replace-in-place applies to LESSON scope; COURSE
+    scope always appends — see test_persist_quiz_appends_for_same_course.)"""
+    from app.db.models import Lesson
+
     db, course, chapter = _make_db()
+    lesson = Lesson(
+        id=str(uuid.uuid4()), chapter_id=chapter.id, title="L1", content="", order_index=0
+    )
     user = User(
         id=str(uuid.uuid4()), email=f"s-{uuid.uuid4()}@test.com", password_hash="x",
         display_name="S", role=UserRole.STUDENT,
     )
-    db.add(user)
+    db.add_all([lesson, user])
     db.commit()
 
-    q1 = persist_quiz(db, _QUESTIONS, scope=QuizScope.COURSE, title="V1", course_id=course.id)
+    q1 = persist_quiz(db, _QUESTIONS, scope=QuizScope.LESSON, title="V1", lesson_id=lesson.id)
     db.add(QuizAttempt(id=str(uuid.uuid4()), quiz_id=q1.id, user_id=user.id, score_pct=100, passed=True))
     db.commit()
 
-    q2 = persist_quiz(db, _QUESTIONS, scope=QuizScope.COURSE, title="V2", course_id=course.id)
+    q2 = persist_quiz(db, _QUESTIONS, scope=QuizScope.LESSON, title="V2", lesson_id=lesson.id)
     # q2 has no attempts yet — a third generation should replace q2 in place.
-    q3 = persist_quiz(db, _QUESTIONS, scope=QuizScope.COURSE, title="V3", course_id=course.id)
+    q3 = persist_quiz(db, _QUESTIONS, scope=QuizScope.LESSON, title="V3", lesson_id=lesson.id)
 
     assert db.query(Quiz).filter(Quiz.id == q2.id).first() is None  # replaced
     assert db.query(Quiz).filter(Quiz.id == q1.id).first() is not None  # kept (attempted)
     assert db.query(Quiz).filter(Quiz.id == q3.id).first() is not None
-    quizzes = db.query(Quiz).filter(Quiz.course_id == course.id).all()
+    quizzes = db.query(Quiz).filter(Quiz.lesson_id == lesson.id).all()
     assert len(quizzes) == 2

@@ -22,6 +22,7 @@ from app.db.models import (
     GenerationRun,
     GenerationRunStatus,
     Lesson,
+    UserRole,
 )
 from app.core.config import create_access_token
 from tests.conftest import make_course_with_lessons, make_user
@@ -93,8 +94,16 @@ def _make_draft_chapter(db, course_id, title="Draft Chapter", order_index=0):
 
 @pytest.fixture
 def auth_headers(db) -> dict:
-    """These endpoints require authentication."""
-    user = make_user(db)
+    """Outline generate/patch are instructor/admin only; the GET reads work for
+    any authenticated user, so an instructor token covers every case here."""
+    user = make_user(db, UserRole.INSTRUCTOR)
+    role = getattr(user.role, "value", user.role)
+    return {"Authorization": f"Bearer {create_access_token(user.id, user.email, role)}"}
+
+
+@pytest.fixture
+def student_headers(db) -> dict:
+    user = make_user(db, UserRole.STUDENT)
     role = getattr(user.role, "value", user.role)
     return {"Authorization": f"Bearer {create_access_token(user.id, user.email, role)}"}
 
@@ -185,6 +194,43 @@ def test_generate_outline_unknown_course_404(client, db, auth_headers):
         headers=auth_headers,
     )
     assert resp.status_code == 404
+
+
+@pytest.mark.integration
+def test_generate_outline_forbidden_for_student(client, db, student_headers):
+    course, _ = make_course_with_lessons(db)
+    _make_ready_doc(db, course.id)
+    resp = client.post(
+        f"/api/courses/{course.id}/outline/generate", json={}, headers=student_headers
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.integration
+def test_patch_outline_forbidden_for_student(client, db, student_headers):
+    course, _ = make_course_with_lessons(db)
+    chapter, _ = _make_draft_chapter(db, course.id)
+    resp = client.patch(
+        f"/api/courses/{course.id}/outline",
+        headers=student_headers,
+        json={"chapters": [{"id": chapter.id, "delete": True, "lessons": []}]},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.integration
+def test_generate_outline_rejects_doc_ids_from_another_course(client, db, auth_headers):
+    course, _ = make_course_with_lessons(db)
+    _make_ready_doc(db, course.id)
+    other_course, _ = make_course_with_lessons(db)
+    foreign_doc = _make_ready_doc(db, other_course.id)
+
+    resp = client.post(
+        f"/api/courses/{course.id}/outline/generate",
+        json={"doc_ids": [foreign_doc.id]},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------

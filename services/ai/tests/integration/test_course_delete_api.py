@@ -13,6 +13,37 @@ def _auth(user_id: str, role: str = "student") -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+class TestUpdateCourse:
+    @pytest.mark.integration
+    def test_update_rejects_student_role(self, client, db):
+        user = make_user(db, role=UserRole.STUDENT)
+        course, _ = make_course_with_lessons(db)
+        resp = client.patch(
+            f"/api/courses/{course.id}",
+            json={"title": "Hijacked"},
+            headers=_auth(user.id, "student"),
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.integration
+    def test_update_title_only_keeps_description(self, client, db):
+        user = make_user(db, role=UserRole.INSTRUCTOR)
+        course, _ = make_course_with_lessons(db)
+        course.description = "original description"
+        db.commit()
+
+        resp = client.patch(
+            f"/api/courses/{course.id}",
+            json={"title": "New Title"},
+            headers=_auth(user.id, "instructor"),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["title"] == "New Title"
+
+        db.refresh(course)
+        assert course.description == "original description"
+
+
 class TestDeleteCourse:
     @pytest.mark.integration
     def test_delete_requires_auth(self, client, db):

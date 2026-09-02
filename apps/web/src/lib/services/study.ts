@@ -84,6 +84,12 @@ export async function sendStudyActionStream(
         continue;
       }
 
+      // Server signals a mid-stream failure with a "[ERROR] ..." frame — surface
+      // it as a thrown error instead of appending it to the answer text.
+      if (token.startsWith('[ERROR]')) {
+        throw new Error(token.slice(7).trim() || 'Errore durante lo streaming della risposta.');
+      }
+
       onToken(token);
     }
   }

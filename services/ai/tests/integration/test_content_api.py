@@ -143,11 +143,40 @@ def auth_headers(db_session) -> dict:
     session, so a user created in the shared conftest session would not be
     visible to the request under test.
     """
+    from app.db.models import UserRole
     from tests.conftest import make_user
 
-    user = make_user(db_session)
+    user = make_user(db_session, UserRole.INSTRUCTOR)
     role = getattr(user.role, "value", user.role)
     return {"Authorization": f"Bearer {create_access_token(user.id, user.email, role)}"}
+
+
+@pytest.fixture
+def student_headers(db_session) -> dict:
+    from app.db.models import UserRole
+    from tests.conftest import make_user
+
+    user = make_user(db_session, UserRole.STUDENT)
+    role = getattr(user.role, "value", user.role)
+    return {"Authorization": f"Bearer {create_access_token(user.id, user.email, role)}"}
+
+
+class TestContentEndpointsRequireReviewer:
+    def test_generate_content_forbidden_for_student(self, client, db_session, student_headers):
+        course = _seed_course(db_session)
+        ch = _seed_draft_chapter(db_session, course.id)
+        _seed_lesson(db_session, ch.id, source_refs=["p1"])
+        resp = client.post(
+            f"/api/courses/{course.id}/content/generate", json={}, headers=student_headers
+        )
+        assert resp.status_code == 403
+
+    def test_publish_forbidden_for_student(self, client, db_session, student_headers):
+        course = _seed_course(db_session)
+        ch = _seed_draft_chapter(db_session, course.id)
+        _seed_lesson(db_session, ch.id, status="published", content="good")
+        resp = client.post(f"/api/courses/{course.id}/publish", headers=student_headers)
+        assert resp.status_code == 403
 
 
 class TestGenerateContent:

@@ -27,10 +27,9 @@ def create_course(db: Session, title: str, description: Optional[str] = None) ->
     return course_repo.create_course(db, title=title, description=description)
 
 
-def update_course(
-    db: Session, course_id: str, title: str, description: Optional[str] = None
-) -> Optional[Course]:
-    return course_repo.update_course(db, course_id=course_id, title=title, description=description)
+def update_course(db: Session, course_id: str, **fields: object) -> Optional[Course]:
+    """Forward only the fields the caller actually provided (partial update)."""
+    return course_repo.update_course(db, course_id=course_id, **fields)
 
 
 def delete_course(db: Session, course_id: str) -> Optional[Dict[str, int]]:

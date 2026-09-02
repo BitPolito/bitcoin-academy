@@ -104,6 +104,7 @@ def generate_chapter_test(
 def get_chapter_test(
     chapter_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(get_current_user),
 ):
     chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
     if chapter is None:

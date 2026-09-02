@@ -108,7 +108,7 @@ class TestGenerateChapterTest:
 
 class TestGetChapterTest:
     @pytest.mark.integration
-    def test_get_does_not_require_auth(self, client, db):
+    def test_get_requires_auth(self, client, db):
         from app.db.models import Chapter
 
         user = make_user(db)
@@ -120,7 +120,11 @@ class TestGetChapterTest:
 
         client.post(f"/api/chapters/{chapter.id}/test/generate", headers=_auth(user.id))
 
-        resp = client.get(f"/api/chapters/{chapter.id}/test")
+        assert client.get(f"/api/chapters/{chapter.id}/test").status_code == 401
+
+        resp = client.get(
+            f"/api/chapters/{chapter.id}/test", headers=_auth(user.id, "student")
+        )
         assert resp.status_code == 200
         body = resp.json()
         assert body["chapter_id"] == chapter.id
@@ -134,13 +138,17 @@ class TestGetChapterTest:
 
         course, lessons = make_course_with_lessons(db, n_lessons=1)
         chapter = db.query(Chapter).filter(Chapter.id == lessons[0].chapter_id).first()
+        user = make_user(db)
 
-        resp = client.get(f"/api/chapters/{chapter.id}/test")
+        resp = client.get(f"/api/chapters/{chapter.id}/test", headers=_auth(user.id))
         assert resp.status_code == 404
 
     @pytest.mark.integration
     def test_404_for_unknown_chapter(self, client, db):
-        resp = client.get("/api/chapters/nonexistent-chapter/test")
+        user = make_user(db)
+        resp = client.get(
+            "/api/chapters/nonexistent-chapter/test", headers=_auth(user.id)
+        )
         assert resp.status_code == 404
 
 

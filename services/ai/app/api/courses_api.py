@@ -78,7 +78,9 @@ def update_course(
     body: UpdateCourseBody,
     course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    _current_user: CurrentUser = Depends(
+        CurrentUser(roles=[UserRole.ADMIN, UserRole.INSTRUCTOR])
+    ),
 ):
     """Update course title and description."""
     try:
@@ -90,7 +92,7 @@ def update_course(
         )
 
     result = course_service.update_course(
-        db, course_id=course_id, title=body.title, description=body.description
+        db, course_id=course_id, **body.model_dump(exclude_unset=True)
     )
     if result is None:
         raise NotFoundError(resource="Course", identifier=course_id)

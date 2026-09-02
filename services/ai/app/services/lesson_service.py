@@ -501,19 +501,19 @@ def publish_course(course_id: str, db: Session) -> Dict[str, int]:
             skipped_chapters += 1
             continue
 
-        publishable = [ls for ls in lessons if ls.status == "published"]
-        blocking = [ls for ls in lessons if ls.status == "needs_review"]
+        # A chapter publishes only when EVERY lesson is already "published".
+        # Anything else — "needs_review", or still "draft" with empty content
+        # because it was never processed — blocks the chapter; otherwise students
+        # would open a published chapter onto a blank lesson body.
+        blocking = [ls for ls in lessons if ls.status != "published"]
 
         if blocking:
             skipped_chapters += 1
             continue
 
-        if publishable:
-            for ls in publishable:
-                ls.status = "published"
-                published_lessons += 1
-            chapter.status = "published"
-            published_chapters += 1
+        published_lessons += len(lessons)
+        chapter.status = "published"
+        published_chapters += 1
 
     db.commit()
     return {

@@ -406,6 +406,7 @@ async def _stream_generate(
     """
     system_prompt = _SYSTEM_PROMPTS.get(action, "")
     enable_thinking = action in _THINKING_ACTIONS
+    tokens_yielded = 0
     try:
         async with _qvac_gen_client.stream(
             "POST",
@@ -427,11 +428,16 @@ async def _stream_generate(
                 try:
                     token = json.loads(payload)
                     if isinstance(token, str):
+                        tokens_yielded += 1
                         yield token
                 except (json.JSONDecodeError, ValueError):
                     pass
     except httpx.HTTPError as exc:
         logger.warning("QVAC /stream failed for action '%s': %s", action.value, exc)
+        if tokens_yielded:
+            # Partial stream: propagate so the caller streams what it has but
+            # does NOT persist a truncated answer to the shared semantic cache.
+            raise
         return
 
 
@@ -662,14 +668,26 @@ async def stream_dispatch(
 
     # Streaming actions: stream tokens, accumulate for citation parsing + cache write
     accumulated: list[str] = []
-    async for token in _stream_generate(action, question, pack.context_block()):
-        accumulated.append(token)
-        yield token
+    stream_failed = False
+    try:
+        async for token in _stream_generate(action, question, pack.context_block()):
+            accumulated.append(token)
+            yield token
+    except httpx.HTTPError:
+        stream_failed = True
 
-    if accumulated:
+    if accumulated and not stream_failed:
         full_text = "".join(accumulated)
         sources = _parse_citations(full_text, pack)
         yield _cache_and_sentinel(full_text, sources)
+    elif accumulated and stream_failed:
+        # Partial answer already sent to the client; emit citations for what we
+        # have but do not write the truncated text to the semantic cache.
+        full_text = "".join(accumulated)
+        sources = _parse_citations(full_text, pack)
+        yield _CITATIONS_SENTINEL + json.dumps(
+            [dataclasses.asdict(s) for s in sources]
+        )
     else:
         # Stream yielded nothing — fall back to buffered generate
         generated = await _generate(action, question, pack.context_block())
