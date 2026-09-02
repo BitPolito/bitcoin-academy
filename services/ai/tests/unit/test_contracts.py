@@ -215,9 +215,7 @@ def test_required_settings_are_documented_in_env_example():
 
 
 def test_readme_documents_the_rag_variables_that_exist():
-    """The README RAG table drifted from code before (SKIP_CHROMA_INDEX was
-    documented as `true` while the code defaulted to `false`). This asserts the
-    variables named in the table are ones the code actually reads."""
+    """Assert that variables named in the README are ones the code reads."""
     readme = (_REPO_ROOT / "README.md").read_text()
     documented = set(re.findall(r"^\|\s*`([A-Z][A-Z0-9_]+)`\s*\|", readme, re.MULTILINE))
     assert documented, "No configuration variables found in the README table"
@@ -230,6 +228,19 @@ def test_readme_documents_the_rag_variables_that_exist():
         assert name in sources, (
             f"README documents `{name}` but no module reads it. Either the "
             f"variable was removed and the README is stale, or it is misspelled."
+        )
+
+
+def test_unpatched_chromadb_is_not_installed():
+    """ChromaDB 0.4.17–1.5.9 has unpatched code-injection vulnerabilities."""
+    manifests = [
+        _SERVICES_AI / "pyproject.toml",
+        _SERVICES_AI / "uv.lock",
+        _REPO_ROOT / "workers" / "requirements.txt",
+    ]
+    for manifest in manifests:
+        assert "chromadb" not in manifest.read_text().lower(), (
+            f"{manifest.relative_to(_REPO_ROOT)} reintroduced vulnerable ChromaDB"
         )
 
 

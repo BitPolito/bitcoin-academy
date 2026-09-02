@@ -4,8 +4,7 @@
 Usage
 -----
     # From repo root with the AI service virtualenv active:
-    PYTHONPATH=services/ai CHROMA_DB_PATH=services/ai/chroma_db \
-        python scripts/eval_retrieval.py \
+    QVAC_SERVICE_URL=http://localhost:3001 python scripts/eval_retrieval.py \
         --queries tests/rag/test_queries.json \
         --course-id <course_id> \
         [--top-k 5] \
@@ -13,8 +12,7 @@ Usage
 
 Environment
 -----------
-    CHROMA_DB_PATH  Path to the ChromaDB persistence directory.
-    CHROMA_COLLECTION_NAME  Collection name (default: bitpolito_course).
+    QVAC_SERVICE_URL  QVAC service URL (default: http://localhost:3001).
 
 The script does NOT require OPENAI_API_KEY — it evaluates retrieval only,
 not LLM generation.
@@ -30,13 +28,8 @@ Metrics
 import argparse
 import json
 import os
-import sys
-from pathlib import Path
 
-# Allow running from repo root: PYTHONPATH=services/ai python scripts/eval_retrieval.py
-_SERVICES_AI = Path(__file__).resolve().parent.parent / "services" / "ai"
-if str(_SERVICES_AI) not in sys.path:
-    sys.path.insert(0, str(_SERVICES_AI))
+import httpx
 
 
 def _is_relevant(chunk_text: str, expected_keywords: list[str]) -> bool:
@@ -70,7 +63,7 @@ def evaluate(
     top_k: int = 5,
     min_score: float = 0.0,
 ) -> None:
-    from app.services.retrieval_service import search  # noqa: PLC0415
+    qvac_url = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001").rstrip("/")
 
     with open(queries_path) as f:
         data = json.load(f)
@@ -87,8 +80,21 @@ def evaluate(
         query_text = q["query"]
         keywords = q["expected_keywords"]
 
-        chunks = search(query_text, course_id, top_k=top_k, min_score=min_score)
-        relevant_flags = [_is_relevant(c.text, keywords) for c in chunks]
+        response = httpx.post(
+            f"{qvac_url}/retrieve",
+            json={"question": query_text, "workspace": course_id, "topK": top_k},
+            timeout=60.0,
+        )
+        response.raise_for_status()
+        chunks = [
+            chunk
+            for chunk in response.json().get("chunks", [])
+            if float(chunk.get("score", 0.0)) >= min_score
+        ]
+        relevant_flags = [
+            _is_relevant(chunk.get("content", chunk.get("text", "")), keywords)
+            for chunk in chunks
+        ]
 
         r_at_k = recall_at_k(relevant_flags, top_k)
         rr = reciprocal_rank(relevant_flags)
@@ -123,7 +129,7 @@ def main() -> None:
     parser.add_argument(
         "--course-id",
         required=True,
-        help="Course ID to search in ChromaDB",
+        help="QVAC workspace/course ID to search",
     )
     parser.add_argument(
         "--top-k",

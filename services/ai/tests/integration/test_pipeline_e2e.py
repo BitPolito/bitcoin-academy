@@ -1,11 +1,10 @@
 """End-to-end pipeline integration tests using real fixture files.
 
 These tests exercise the full chain:
-  PDF/PPTX → StructuralParser → Chunker → ChromaDB (temp dir) → QVAC ingest
+  PDF/PPTX → StructuralParser → Chunker → QVAC ingest payload
 
-The pipeline.run() function is tested with a temp ChromaDB, a temp QVAC ingest
-directory, and a real DB session (in-memory SQLite via conftest).
-fastembed and chromadb must be installed.
+The pipeline.run() function is tested with a temporary QVAC ingest directory
+and a real DB session (in-memory SQLite via conftest).
 
 _qvac_ingest is patched in _run_pipeline() to avoid network calls — the QVAC
 service doesn't need to be running for these tests. QVAC-specific assertions
@@ -48,14 +47,13 @@ def _try_import(module_name: str):
 # ---------------------------------------------------------------------------
 
 def _run_pipeline(db, file_path: Path, course_id: str, filename: str) -> tuple:
-    """Run pipeline.run() with isolated ChromaDB and QVAC dirs.
+    """Run pipeline.run() with an isolated QVAC ingest directory.
 
     _qvac_ingest is patched so no HTTP call is made to the QVAC service.
     The JSONL file is still written to a temp directory (tests can inspect it
     separately if needed). Returns (doc_id, doc_record).
     """
     _try_import("fastembed")
-    _try_import("chromadb")
 
     import app.workers.pipeline as pipeline_mod
 
@@ -74,9 +72,8 @@ def _run_pipeline(db, file_path: Path, course_id: str, filename: str) -> tuple:
     db.add(doc)
     db.commit()
 
-    with tempfile.TemporaryDirectory() as tmp_chroma:
+    with tempfile.TemporaryDirectory():
         with tempfile.TemporaryDirectory() as tmp_qvac:
-            pipeline_mod.CHROMA_DB_PATH = tmp_chroma
             pipeline_mod.QVAC_INGEST_DIR = Path(tmp_qvac)
 
             with tempfile.NamedTemporaryFile(
@@ -118,7 +115,6 @@ def _run_pipeline(db, file_path: Path, course_id: str, filename: str) -> tuple:
 def test_pipeline_pdf_status_becomes_ready(client, db):
     _skip_if_missing(PDF_PATH)
     _try_import("fastembed")
-    _try_import("chromadb")
 
     course, _ = make_course_with_lessons(db)
     doc_id, doc = _run_pipeline(db, PDF_PATH, course.id, "bitcoin_technical_document.pdf")
@@ -132,7 +128,6 @@ def test_pipeline_pdf_status_becomes_ready(client, db):
 def test_pipeline_pdf_chunk_count_positive(client, db):
     _skip_if_missing(PDF_PATH)
     _try_import("fastembed")
-    _try_import("chromadb")
 
     course, _ = make_course_with_lessons(db)
     _, doc = _run_pipeline(db, PDF_PATH, course.id, "bitcoin_technical_document.pdf")
@@ -146,7 +141,6 @@ def test_pipeline_pdf_chunk_count_positive(client, db):
 def test_pipeline_pdf_page_count_is_4(client, db):
     _skip_if_missing(PDF_PATH)
     _try_import("fastembed")
-    _try_import("chromadb")
 
     course, _ = make_course_with_lessons(db)
     _, doc = _run_pipeline(db, PDF_PATH, course.id, "bitcoin_technical_document.pdf")
@@ -159,7 +153,6 @@ def test_pipeline_pdf_page_count_is_4(client, db):
 def test_pipeline_pdf_sections_json_non_empty(client, db):
     _skip_if_missing(PDF_PATH)
     _try_import("fastembed")
-    _try_import("chromadb")
 
     course, _ = make_course_with_lessons(db)
     _, doc = _run_pipeline(db, PDF_PATH, course.id, "bitcoin_technical_document.pdf")
@@ -175,7 +168,6 @@ def test_pipeline_pdf_sections_json_non_empty(client, db):
 def test_pipeline_pdf_sample_chunks_json_present(client, db):
     _skip_if_missing(PDF_PATH)
     _try_import("fastembed")
-    _try_import("chromadb")
 
     course, _ = make_course_with_lessons(db)
     _, doc = _run_pipeline(db, PDF_PATH, course.id, "bitcoin_technical_document.pdf")
@@ -194,7 +186,6 @@ def test_pipeline_pdf_sample_chunks_json_present(client, db):
 def test_pipeline_pdf_text_preview_non_empty(client, db):
     _skip_if_missing(PDF_PATH)
     _try_import("fastembed")
-    _try_import("chromadb")
 
     course, _ = make_course_with_lessons(db)
     _, doc = _run_pipeline(db, PDF_PATH, course.id, "bitcoin_technical_document.pdf")
@@ -209,7 +200,6 @@ def test_pipeline_pdf_temp_file_cleaned_up(client, db):
     """The uploaded temp file should be deleted by the pipeline after indexing."""
     _skip_if_missing(PDF_PATH)
     _try_import("fastembed")
-    _try_import("chromadb")
 
     import app.workers.pipeline as pipeline_mod
 
@@ -229,8 +219,7 @@ def test_pipeline_pdf_temp_file_cleaned_up(client, db):
     db.add(doc)
     db.commit()
 
-    with tempfile.TemporaryDirectory() as tmp_chroma:
-        pipeline_mod.CHROMA_DB_PATH = tmp_chroma
+    with tempfile.TemporaryDirectory():
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
             f.write(PDF_PATH.read_bytes())
             tmp_path = f.name
@@ -265,7 +254,6 @@ def test_pipeline_pdf_temp_file_cleaned_up(client, db):
 def test_pipeline_pptx_status_becomes_ready(client, db):
     _skip_if_missing(PPTX_PATH)
     _try_import("fastembed")
-    _try_import("chromadb")
 
     course, _ = make_course_with_lessons(db)
     _, doc = _run_pipeline(db, PPTX_PATH, course.id, "bitcoin_creative_commons_en.pptx")
@@ -278,7 +266,6 @@ def test_pipeline_pptx_status_becomes_ready(client, db):
 def test_pipeline_pptx_chunk_count_positive(client, db):
     _skip_if_missing(PPTX_PATH)
     _try_import("fastembed")
-    _try_import("chromadb")
 
     course, _ = make_course_with_lessons(db)
     _, doc = _run_pipeline(db, PPTX_PATH, course.id, "bitcoin_creative_commons_en.pptx")
@@ -361,7 +348,6 @@ def test_pipeline_writes_qvac_jsonl_for_pdf(client, db):
     """After a successful run, a JSONL file must exist in QVAC_INGEST_DIR."""
     _skip_if_missing(PDF_PATH)
     _try_import("fastembed")
-    _try_import("chromadb")
 
     import app.workers.pipeline as pipeline_mod
     from contextlib import contextmanager
@@ -378,9 +364,8 @@ def test_pipeline_writes_qvac_jsonl_for_pdf(client, db):
     db.add(doc)
     db.commit()
 
-    with tempfile.TemporaryDirectory() as tmp_chroma:
+    with tempfile.TemporaryDirectory():
         with tempfile.TemporaryDirectory() as tmp_qvac:
-            pipeline_mod.CHROMA_DB_PATH = tmp_chroma
             pipeline_mod.QVAC_INGEST_DIR = Path(tmp_qvac)
 
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
@@ -412,7 +397,6 @@ def test_pipeline_qvac_jsonl_contains_only_paragraph_chunks(client, db):
     """JSONL written by the pipeline must contain only paragraph-type chunks."""
     _skip_if_missing(PDF_PATH)
     _try_import("fastembed")
-    _try_import("chromadb")
 
     import app.workers.pipeline as pipeline_mod
     from contextlib import contextmanager
@@ -429,9 +413,8 @@ def test_pipeline_qvac_jsonl_contains_only_paragraph_chunks(client, db):
     db.add(doc)
     db.commit()
 
-    with tempfile.TemporaryDirectory() as tmp_chroma:
+    with tempfile.TemporaryDirectory():
         with tempfile.TemporaryDirectory() as tmp_qvac:
-            pipeline_mod.CHROMA_DB_PATH = tmp_chroma
             pipeline_mod.QVAC_INGEST_DIR = Path(tmp_qvac)
 
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
@@ -468,7 +451,6 @@ def test_pipeline_qvac_ingest_called_with_course_id_as_workspace(client, db):
     """_qvac_ingest must be called with workspace equal to course_id."""
     _skip_if_missing(PDF_PATH)
     _try_import("fastembed")
-    _try_import("chromadb")
 
     import app.workers.pipeline as pipeline_mod
     from contextlib import contextmanager
@@ -485,9 +467,8 @@ def test_pipeline_qvac_ingest_called_with_course_id_as_workspace(client, db):
     db.add(doc)
     db.commit()
 
-    with tempfile.TemporaryDirectory() as tmp_chroma:
+    with tempfile.TemporaryDirectory():
         with tempfile.TemporaryDirectory() as tmp_qvac:
-            pipeline_mod.CHROMA_DB_PATH = tmp_chroma
             pipeline_mod.QVAC_INGEST_DIR = Path(tmp_qvac)
 
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
@@ -521,7 +502,6 @@ def test_pipeline_qvac_jsonl_has_required_fields(client, db):
     """Each row in the QVAC JSONL must carry the fields that ingest.js reads."""
     _skip_if_missing(PDF_PATH)
     _try_import("fastembed")
-    _try_import("chromadb")
 
     import app.workers.pipeline as pipeline_mod
     from contextlib import contextmanager
@@ -540,9 +520,8 @@ def test_pipeline_qvac_jsonl_has_required_fields(client, db):
 
     required_fields = {"id", "doc_id", "chunk_type", "text", "parent_id"}
 
-    with tempfile.TemporaryDirectory() as tmp_chroma:
+    with tempfile.TemporaryDirectory():
         with tempfile.TemporaryDirectory() as tmp_qvac:
-            pipeline_mod.CHROMA_DB_PATH = tmp_chroma
             pipeline_mod.QVAC_INGEST_DIR = Path(tmp_qvac)
 
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:

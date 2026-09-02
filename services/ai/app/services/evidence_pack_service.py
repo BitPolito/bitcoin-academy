@@ -27,7 +27,7 @@ def build_from_chunks(
 
     Pipeline: deduplicate → boost (action-specific) → rerank → token-truncate.
 
-    Shared by both the ChromaDB debug path (build()) and the QVAC production
+    Shared by both the debug path (build()) and the QVAC production
     path in study_service, so dedup/boost/rerank logic stays in one place.
     """
     total = len(candidates)
