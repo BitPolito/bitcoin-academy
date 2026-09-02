@@ -35,7 +35,7 @@ def _clean_answer(text: str) -> str:
     return text if text else "Risposta non disponibile."
 
 
-_QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "")
+_QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 # RAG_RETRIEVE_K: total candidates fetched from dense + sparse pool.
 # RAG_TOP_K: chunks handed to the LLM after reranking (context window budget).
 _TOP_K_RETRIEVE = int(os.getenv("RAG_RETRIEVE_K", "20"))
