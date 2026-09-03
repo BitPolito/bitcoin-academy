@@ -134,7 +134,7 @@ def delete_course(
 def get_course_lessons(
     course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    current_user = Depends(get_current_user),
 ):
     """Get all lessons for a specific course."""
     try:
@@ -149,7 +149,9 @@ def get_course_lessons(
     if course is None:
         raise NotFoundError(resource="Course", identifier=course_id)
 
-    return course_service.get_course_lessons(db, course_id)
+    return course_service.get_course_lessons(
+        db, course_id, published_only=current_user.role == UserRole.STUDENT
+    )
 
 
 @router.post("/courses/{course_id}/reindex", response_model=ReindexResponse)
@@ -211,7 +213,7 @@ async def reindex_course(
 def get_lesson(
     lesson_id: str = Path(..., min_length=1, max_length=36, description="Lesson UUID"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    current_user = Depends(get_current_user),
 ):
     """Get details of a specific lesson by UUID."""
     try:
@@ -224,5 +226,7 @@ def get_lesson(
 
     result = course_service.get_lesson(db, lesson_id)
     if result is None:
+        raise NotFoundError(resource="Lesson", identifier=lesson_id)
+    if current_user.role == UserRole.STUDENT and result.status != "published":
         raise NotFoundError(resource="Lesson", identifier=lesson_id)
     return result

@@ -128,6 +128,9 @@ class Course(Base):
     title: Mapped[str] = mapped_column(String)
     description: Mapped[Optional[str]] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    outline_stale: Mapped[bool] = mapped_column(Boolean, default=False)
+    outline_stale_reason: Mapped[Optional[str]] = mapped_column(Text)
+    outline_stale_at: Mapped[Optional[str]] = mapped_column(String)
 
     section: Mapped["Section"] = relationship(back_populates="courses")
     chapters: Mapped[List["Chapter"]] = relationship(back_populates="course")
@@ -151,6 +154,9 @@ class Chapter(Base):
     status: Mapped[Optional[str]] = mapped_column(String, default="published")
     is_human_modified: Mapped[bool] = mapped_column(Boolean, default=False)
     human_modified_at: Mapped[Optional[str]] = mapped_column(String)
+    is_stale: Mapped[bool] = mapped_column(Boolean, default=False)
+    stale_reason: Mapped[Optional[str]] = mapped_column(Text)
+    stale_at: Mapped[Optional[str]] = mapped_column(String)
 
     course: Mapped["Course"] = relationship(back_populates="chapters")
     lessons: Mapped[List["Lesson"]] = relationship(back_populates="chapter")
@@ -177,6 +183,10 @@ class Lesson(Base):
     content_hash: Mapped[Optional[str]] = mapped_column(String)
     is_human_modified: Mapped[bool] = mapped_column(Boolean, default=False)
     human_modified_at: Mapped[Optional[str]] = mapped_column(String)
+    is_stale: Mapped[bool] = mapped_column(Boolean, default=False)
+    stale_reason: Mapped[Optional[str]] = mapped_column(Text)
+    stale_at: Mapped[Optional[str]] = mapped_column(String)
+    source_snapshot_json: Mapped[Optional[str]] = mapped_column(Text)
 
     chapter: Mapped["Chapter"] = relationship(back_populates="lessons")
     quizzes: Mapped[List["Quiz"]] = relationship(back_populates="lesson")

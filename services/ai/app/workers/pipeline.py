@@ -1108,6 +1108,8 @@ def run(
             doc.sections_json = json.dumps(sections)
             doc.section_tree_json = json.dumps(build_section_tree(section_events))
             doc.sample_chunks_json = json.dumps(sample)
+            from app.services.outline_staleness_service import mark_overlapping_new_source
+            mark_overlapping_new_source(db, document_id)
             db.commit()
 
             logger.info(

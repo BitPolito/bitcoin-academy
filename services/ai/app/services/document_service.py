@@ -58,7 +58,11 @@ def create_document(
         processing_stage=DocumentProcessingStage.QUEUED,
         document_type=document_type,
     )
-    return document_repo.create(db, doc)
+    created = document_repo.create(db, doc)
+    from app.services.outline_staleness_service import mark_new_document
+    mark_new_document(db, course_id, filename)
+    db.commit()
+    return created
 
 
 def reset_status(db: Session, document_id: str) -> Optional[CourseDocument]:
@@ -66,6 +70,8 @@ def reset_status(db: Session, document_id: str) -> Optional[CourseDocument]:
     doc = document_repo.get_by_id(db, document_id)
     if doc is None:
         return None
+    from app.services.outline_staleness_service import mark_document_changed
+    mark_document_changed(db, document_id, f'Source "{doc.filename}" is being reprocessed.')
     doc.status = DocumentStatus.PROCESSING
     doc.processing_stage = DocumentProcessingStage.QUEUED
     doc.error_message = None
@@ -108,6 +114,9 @@ def delete_document(db: Session, document_id: str, commit: bool = True) -> bool:
     doc = document_repo.get_by_id(db, document_id)
     if doc is None:
         return False
+
+    from app.services.outline_staleness_service import mark_document_changed
+    mark_document_changed(db, document_id, f'Source "{doc.filename}" was deleted.')
 
     db.query(ChunkParent).filter(ChunkParent.doc_id == document_id).delete()
 

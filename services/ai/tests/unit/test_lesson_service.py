@@ -375,10 +375,22 @@ def test_publish_course_skips_chapters_with_needs_review():
     result = publish_course(course.id, db)
     assert result["published_chapters"] == 0
     assert result["skipped_chapters"] == 1
-
     db.refresh(ch)
     assert ch.status == "draft"
 
+
+def test_publish_course_skips_stale_lessons():
+    db, course = _make_db()
+    chapter = _add_chapter(db, course.id)
+    lesson = _add_lesson(db, chapter.id, status="published", content="Reviewed")
+    lesson.is_stale = True
+    db.commit()
+
+    result = publish_course(course.id, db)
+
+    assert result["published_chapters"] == 0
+    assert result["skipped_chapters"] == 1
+    assert chapter.status == "draft"
 
 def test_publish_course_skips_already_published():
     db, course = _make_db()

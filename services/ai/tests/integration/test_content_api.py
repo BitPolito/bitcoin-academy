@@ -27,6 +27,7 @@ from app.db.models import (
     Quiz,
     QuizScope,
     Section,
+    UserRole,
 )
 from app.core.config import create_access_token
 from app.db.session import get_db
@@ -145,7 +146,7 @@ def auth_headers(db_session) -> dict:
     """
     from tests.conftest import make_user
 
-    user = make_user(db_session)
+    user = make_user(db_session, role=UserRole.INSTRUCTOR)
     role = getattr(user.role, "value", user.role)
     return {"Authorization": f"Bearer {create_access_token(user.id, user.email, role)}"}
 

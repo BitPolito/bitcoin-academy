@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     Chapter,
     ChunkParent,
+    Course,
     CourseDocument,
     DocumentStatus,
     GenerationRun,
@@ -32,6 +33,7 @@ from app.services.qvac_structured import (
     StructuredGenerationError,
     generate_json,
 )
+from app.services.outline_staleness_service import source_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -387,8 +389,15 @@ def _persist_outline(
                 order_index=ls_idx,
                 status="draft",
                 source_refs_json=json.dumps(source_refs) if source_refs else None,
+                source_snapshot_json=json.dumps(source_snapshot(db, source_refs)) if source_refs else None,
             )
             db.add(lesson)
+
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if course is not None:
+        course.outline_stale = False
+        course.outline_stale_reason = None
+        course.outline_stale_at = None
 
     db.commit()
 

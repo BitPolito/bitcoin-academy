@@ -95,7 +95,7 @@ def _make_draft_chapter(db, course_id, title="Draft Chapter", order_index=0):
 @pytest.fixture
 def auth_headers(db) -> dict:
     """These endpoints require authentication."""
-    user = make_user(db)
+    user = make_user(db, role=UserRole.INSTRUCTOR)
     role = getattr(user.role, "value", user.role)
     return {"Authorization": f"Bearer {create_access_token(user.id, user.email, role)}"}
 
@@ -103,6 +103,13 @@ def auth_headers(db) -> dict:
 @pytest.fixture
 def reviewer_headers(db) -> dict:
     user = make_user(db, role=UserRole.INSTRUCTOR)
+    role = getattr(user.role, "value", user.role)
+    return {"Authorization": f"Bearer {create_access_token(user.id, user.email, role)}"}
+
+
+@pytest.fixture
+def student_headers(db) -> dict:
+    user = make_user(db)
     role = getattr(user.role, "value", user.role)
     return {"Authorization": f"Bearer {create_access_token(user.id, user.email, role)}"}
 
@@ -193,6 +200,29 @@ def test_generate_outline_unknown_course_404(client, db, auth_headers):
         headers=auth_headers,
     )
     assert resp.status_code == 404
+
+
+@pytest.mark.integration
+def test_generate_outline_requires_confirmation_before_replacing_human_edits(
+    client, db, auth_headers
+):
+    course, _ = make_course_with_lessons(db)
+    document = _make_ready_doc(db, course.id)
+    chapter, _ = _make_draft_chapter(db, course.id)
+    chapter.is_human_modified = True
+    db.commit()
+
+    rejected = client.post(
+        f"/api/courses/{course.id}/outline/generate", headers=auth_headers, json={}
+    )
+    assert rejected.status_code == 422
+
+    with patch("app.api.outline_api._run_outline_bg", new_callable=AsyncMock):
+        accepted = client.post(
+            f"/api/courses/{course.id}/outline/generate", headers=auth_headers,
+            json={"doc_ids": [document.id], "confirm_human_overwrite": True},
+        )
+    assert accepted.status_code == 202
 
 
 # ---------------------------------------------------------------------------
@@ -349,11 +379,11 @@ def test_get_generation_run_running_has_stage(client, db, auth_headers):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_outline_actions_require_reviewer(client, db, auth_headers):
+def test_outline_actions_require_reviewer(client, db, student_headers):
     course, _ = make_course_with_lessons(db)
     resp = client.post(
         f"/api/courses/{course.id}/outline/actions",
-        headers=auth_headers,
+        headers=student_headers,
         json={"action": "create_chapter", "title": "Manual"},
     )
     assert resp.status_code == 403

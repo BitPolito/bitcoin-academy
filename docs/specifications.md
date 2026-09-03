@@ -344,6 +344,12 @@ operations require explicit UI confirmation, and deleting a non-empty chapter re
 caller to either confirm cascading deletion or identify a destination chapter. Chapters and
 lessons record whether and when a human modified them, and the review UI displays that provenance.
 
+Document changes invalidate the outline without deleting it. Lessons retain source snapshots with
+document IDs and content hashes, so deletion and parser-driven chunk changes remain detectable.
+Affected lessons and chapters are marked stale, reviewers can accept them or regenerate them, and
+human-edited content requires explicit overwrite confirmation. Stale lessons block publication,
+and student-facing lesson lists expose published content only.
+
 ---
 
 ## Summary

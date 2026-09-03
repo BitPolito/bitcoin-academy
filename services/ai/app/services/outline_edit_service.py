@@ -188,4 +188,24 @@ def apply_action(db: Session, course_id: str, body: OutlineActionBody) -> None:
         db.query(Chapter).filter(Chapter.id == chapter.id).delete(synchronize_session=False)
         db.flush()
         _normalize_chapters(db, course_id)
+    elif action == "accept_stale":
+        from app.services.outline_staleness_service import accept_item
+        if body.lesson_id:
+            accept_item(_lesson(db, course_id, body.lesson_id))
+        elif body.chapter_id:
+            chapter = _chapter(db, course_id, body.chapter_id)
+            accept_item(chapter)
+            for lesson in chapter.lessons:
+                accept_item(lesson)
+        else:
+            raise ValidationError_("chapter_id or lesson_id is required.")
+        db.flush()
+        if not db.query(Lesson).join(Chapter).filter(
+            Chapter.course_id == course_id, Lesson.is_stale == True
+        ).first():
+            course = _chapters(db, course_id)[0].course if _chapters(db, course_id) else None
+            if course:
+                course.outline_stale = False
+                course.outline_stale_reason = None
+                course.outline_stale_at = None
     db.commit()

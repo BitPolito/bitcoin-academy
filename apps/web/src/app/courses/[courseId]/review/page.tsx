@@ -170,8 +170,14 @@ export default function CourseReviewPage() {
   }
 
   async function handleGenerateOutline() {
+    const hasHumanEdits = outline?.chapters.some(
+      (chapter) =>
+        chapter.is_human_modified || chapter.lessons.some((item) => item.is_human_modified)
+    );
+    if (hasHumanEdits && !window.confirm('Regenerate the full outline and replace manual edits?'))
+      return;
     try {
-      const { run_id } = await generateOutline(courseId, accessToken);
+      const { run_id } = await generateOutline(courseId, accessToken, !!hasHumanEdits);
       outlinePoll.start(run_id);
       showToast('Outline generation started…', 'ok');
     } catch {
@@ -191,8 +197,18 @@ export default function CourseReviewPage() {
 
   async function handleRegenerateLesson() {
     if (!selectedLessonId) return;
+    const selected = outline?.chapters
+      .flatMap((chapter) => chapter.lessons)
+      .find((item) => item.id === selectedLessonId);
+    if (selected?.is_human_modified && !window.confirm('Replace the manual edits to this lesson?'))
+      return;
     try {
-      const { run_id } = await generateContent(courseId, [selectedLessonId], accessToken);
+      const { run_id } = await generateContent(
+        courseId,
+        [selectedLessonId],
+        accessToken,
+        !!selected?.is_human_modified
+      );
       contentPoll.start(run_id);
       showToast('Regenerating lesson…', 'ok');
     } catch {
@@ -339,6 +355,20 @@ export default function CourseReviewPage() {
           Content generation failed: {contentPoll.run.error_message}
         </div>
       )}
+      {outline?.is_stale && (
+        <div
+          className="mb-4 b-thin rounded-lg px-4 py-3 text-sm flex-shrink-0"
+          style={{ borderColor: '#a55a00', color: '#a55a00' }}
+        >
+          <strong>Outline needs review.</strong> {outline.stale_reason}
+        </div>
+      )}
+      {outline?.generation_run && (
+        <div className="mb-3 font-mono text-[10px] opacity-60 flex-shrink-0">
+          Last generation: {outline.generation_run.created_at} · prompt{' '}
+          {outline.generation_run.prompt_version || 'unknown'} · {outline.generation_run.status}
+        </div>
+      )}
 
       {/* Split view */}
       <div className="flex-1 min-h-0 b-hard rounded-lg bg-white dark:bg-blue-dark/30 overflow-hidden">
@@ -461,6 +491,7 @@ function OutlineTree({
           <div className="flex items-center gap-2 px-3 py-2 font-mono text-[11px] tracking-[0.08em] uppercase opacity-80">
             <StatusChip status={chapter.status} />
             {chapter.is_human_modified && <span title="Manually edited">✎</span>}
+            {chapter.is_stale && <span title={chapter.stale_reason}>⚠</span>}
             <span className="truncate flex-1">{chapter.title}</span>
             <button
               disabled={editing}
@@ -572,12 +603,22 @@ function OutlineTree({
                   style={{ background: STATUS_DOT[lsn.status || 'draft'] || '#7a7f9a' }}
                 />
                 {lsn.is_human_modified && <span title="Manually edited">✎</span>}
+                {lsn.is_stale && <span title={lsn.stale_reason}>⚠</span>}
                 <button
                   className="truncate flex-1 text-left"
                   onClick={() => onSelectLesson(lsn.id)}
                 >
                   {lsn.title}
                 </button>
+                {lsn.is_stale && (
+                  <button
+                    disabled={editing}
+                    title="Accept current lesson without regeneration"
+                    onClick={() => apply({ action: 'accept_stale', lesson_id: lsn.id })}
+                  >
+                    Accept
+                  </button>
+                )}
                 <button
                   disabled={editing}
                   title="Rename lesson"
@@ -688,6 +729,21 @@ function OutlineTree({
               + Add lesson
             </button>
           </div>
+          {chapter.lessons.some((item) => item.sources.length > 0) && (
+            <div className="px-6 pb-2 font-mono text-[9px] opacity-55">
+              {chapter.lessons.flatMap((item) =>
+                item.sources.map((source) => (
+                  <a
+                    key={`${item.id}-${source.chunk_id}`}
+                    className="mr-2 underline"
+                    href={`/courses/${courseId}/documents/${source.document_id}/preview?chunk=${source.chunk_id}`}
+                  >
+                    {item.title}: {source.chunk_id.slice(0, 8)}
+                  </a>
+                ))
+              )}
+            </div>
+          )}
         </div>
       ))}
     </div>

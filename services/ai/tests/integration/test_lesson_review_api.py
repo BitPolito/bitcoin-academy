@@ -88,6 +88,30 @@ def _seed_lesson(db, chapter_id, source_refs=None, status="draft", content=""):
     return ls
 
 
+class TestStudentLessonVisibility:
+    def test_course_list_contains_only_published_lessons(self, client, db_session):
+        course = _seed_course(db_session)
+        chapter = _seed_chapter(db_session, course.id)
+        published = _seed_lesson(db_session, chapter.id, status="published", content="Ready")
+        _seed_lesson(db_session, chapter.id, status="draft", content="Not ready")
+
+        response = client.get(
+            f"/api/courses/{course.id}/lessons", headers=_auth("student")
+        )
+
+        assert response.status_code == 200
+        assert [lesson["id"] for lesson in response.json()] == [published.id]
+
+    def test_draft_lesson_is_not_accessible_directly(self, client, db_session):
+        course = _seed_course(db_session)
+        chapter = _seed_chapter(db_session, course.id)
+        draft = _seed_lesson(db_session, chapter.id, status="draft", content="Not ready")
+
+        response = client.get(f"/api/lessons/{draft.id}", headers=_auth("student"))
+
+        assert response.status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # PATCH /lessons/{id}
 # ---------------------------------------------------------------------------

@@ -24,8 +24,8 @@ def get_course(db: Session, course_id: str) -> Optional[Course]:
     return course_repo.get_course_by_id(db, course_id)
 
 
-def get_course_lessons(db: Session, course_id: str) -> List[Lesson]:
-    return course_repo.get_lessons_by_course_id(db, course_id)
+def get_course_lessons(db: Session, course_id: str, published_only: bool = False) -> List[Lesson]:
+    return course_repo.get_lessons_by_course_id(db, course_id, published_only=published_only)
 
 
 def get_lesson(db: Session, lesson_id: str) -> Optional[Lesson]:

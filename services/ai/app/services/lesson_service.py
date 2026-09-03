@@ -376,6 +376,11 @@ async def process_lesson(lesson_id: str, db: Session) -> str:
     lesson.content = full_content
     lesson.content_hash = current_hash
     lesson.status = final_status
+    from app.services.outline_staleness_service import source_snapshot
+    lesson.source_snapshot_json = json.dumps(source_snapshot(db, used_ids))
+    lesson.is_stale = False
+    lesson.stale_reason = None
+    lesson.stale_at = None
     db.commit()
 
     # ---- Quiz ----
@@ -502,7 +507,7 @@ def publish_course(course_id: str, db: Session) -> Dict[str, int]:
             continue
 
         publishable = [ls for ls in lessons if ls.status == "published"]
-        blocking = [ls for ls in lessons if ls.status == "needs_review"]
+        blocking = [ls for ls in lessons if ls.status == "needs_review" or ls.is_stale]
 
         if blocking:
             skipped_chapters += 1

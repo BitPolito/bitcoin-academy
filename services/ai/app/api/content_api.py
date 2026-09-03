@@ -92,6 +92,7 @@ class GenerateContentBody(BaseModel):
             "bypassing the content_hash cache. Defaults to all draft lessons."
         ),
     )
+    confirm_human_overwrite: bool = False
 
 
 class LessonPatchBody(BaseModel):
@@ -171,7 +172,7 @@ async def generate_content(
     body: GenerateContentBody,
     course_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    _current_user: CurrentUser = Depends(_require_reviewer),
 ):
     course = course_service.get_course(db, course_id)
     if course is None:
@@ -190,6 +191,12 @@ async def generate_content(
         if target_count == 0:
             raise ValidationError_("None of the given lesson_ids belong to this course.")
         draft_count = target_count
+        if not body.confirm_human_overwrite and db.query(Lesson).filter(
+            Lesson.id.in_(body.lesson_ids), Lesson.is_human_modified == True
+        ).first():
+            raise ValidationError_(
+                "Regeneration would replace a human-edited lesson; explicit confirmation is required."
+            )
     else:
         draft_count = (
             db.query(Lesson)
@@ -237,7 +244,7 @@ async def generate_content(
 def publish_course(
     course_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    _current_user: CurrentUser = Depends(_require_reviewer),
 ):
     course = course_service.get_course(db, course_id)
     if course is None:
@@ -259,7 +266,7 @@ def publish_course(
 def get_lesson_content(
     lesson_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    _current_user: CurrentUser = Depends(_require_reviewer),
 ):
     lesson = db.query(Lesson).filter(Lesson.id == lesson_id).first()
     if lesson is None:
