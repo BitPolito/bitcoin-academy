@@ -13,6 +13,7 @@ import type {
   DocumentListRow,
   DocumentDetailView,
   DocumentPreviewView,
+  CursorPage,
 } from './types';
 import { toDocumentListRow, toDocumentDetailView, toDocumentPreviewView } from './adapters';
 
@@ -20,9 +21,13 @@ import { toDocumentListRow, toDocumentDetailView, toDocumentPreviewView } from '
 
 export async function fetchDocumentsList(
   courseId: string,
-  accessToken?: string
-): Promise<ApiDocumentListItem[]> {
-  return apiFetch<ApiDocumentListItem[]>(`/courses/${courseId}/documents`, {
+  accessToken?: string,
+  cursor?: string,
+  limit = 20
+): Promise<CursorPage<ApiDocumentListItem>> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  return apiFetch<CursorPage<ApiDocumentListItem>>(`/courses/${courseId}/documents?${params}`, {
     accessToken,
   });
 }
@@ -152,8 +157,24 @@ export async function getDocumentListRows(
   courseId: string,
   accessToken?: string
 ): Promise<DocumentListRow[]> {
-  const items = await fetchDocumentsList(courseId, accessToken);
-  return items.map(toDocumentListRow);
+  const rows: DocumentListRow[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await getDocumentListPage(courseId, accessToken, cursor, 100);
+    rows.push(...page.items);
+    cursor = page.next_cursor ?? undefined;
+  } while (cursor);
+  return rows;
+}
+
+export async function getDocumentListPage(
+  courseId: string,
+  accessToken?: string,
+  cursor?: string,
+  limit = 20
+): Promise<CursorPage<DocumentListRow>> {
+  const page = await fetchDocumentsList(courseId, accessToken, cursor, limit);
+  return { ...page, items: page.items.map(toDocumentListRow) };
 }
 
 export async function getDocumentDetailView(

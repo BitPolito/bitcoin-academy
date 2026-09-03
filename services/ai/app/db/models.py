@@ -6,6 +6,7 @@ from typing import List, Optional
 from sqlalchemy import (
     Boolean,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -118,6 +119,7 @@ class Section(Base):
 
 class Course(Base):
     __tablename__ = "course"
+    __table_args__ = (Index("ix_course_active_id", "is_active", "id"),)
 
     id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid.uuid4())
@@ -355,6 +357,9 @@ class UserCourseProgress(Base):
 # 5. Course Documents (uploaded materials for processing pipeline)
 class CourseDocument(Base):
     __tablename__ = "course_document"
+    __table_args__ = (
+        Index("ix_course_document_course_created_id", "course_id", "created_at", "id"),
+    )
 
     id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid.uuid4())
