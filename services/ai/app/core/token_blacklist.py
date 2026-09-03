@@ -3,7 +3,7 @@ import json
 import os
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Dict, Optional
+from typing import Dict, Optional, cast
 
 import redis as _redis_module
 
@@ -149,7 +149,9 @@ class TokenBlacklist:
             if created:
                 self.add(token_id, expires_at)
                 return "rotated", replacement
-            raw = self._redis.get(key)
+            # decode_responses=True, so redis-py returns str | None here; the
+            # cast narrows the sync/async union in the type stubs.
+            raw = cast(Optional[str], self._redis.get(key))
             existing = json.loads(raw) if raw else None
         else:
             with self._lock:
