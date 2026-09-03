@@ -14,6 +14,33 @@ import pytest
 from app.core.token_blacklist import TokenBlacklist
 
 
+class FakeRedis:
+    def __init__(self):
+        self.values: dict[str, str] = {}
+
+    def set(self, key, value, ex=None, nx=False):
+        if nx and key in self.values:
+            return False
+        self.values[key] = value
+        return True
+
+    def setex(self, key, ttl, value):
+        self.values[key] = value
+
+    def get(self, key):
+        return self.values.get(key)
+
+    def exists(self, key):
+        return key in self.values
+
+    def scan_iter(self, pattern):
+        prefix = pattern.removesuffix("*")
+        return (key for key in list(self.values) if key.startswith(prefix))
+
+    def delete(self, key):
+        return int(self.values.pop(key, None) is not None)
+
+
 @pytest.fixture
 def blacklist(monkeypatch) -> TokenBlacklist:
     """A blacklist with no Redis configured, so the in-memory path is used."""
@@ -95,3 +122,29 @@ def test_falls_back_to_memory_when_redis_is_unreachable(monkeypatch):
 
     bl.add("token-1", _future())
     assert bl.is_blacklisted("token-1") is True
+
+
+def test_rotation_state_survives_store_restart(monkeypatch):
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    redis = FakeRedis()
+    first_process = TokenBlacklist()
+    first_process._redis = redis
+    replacement = {"access_token": "a", "refresh_token": "r"}
+
+    status, _ = first_process.consume_refresh_token(
+        "token-1", "family-1", _future(), replacement, grace_seconds=10
+    )
+
+    restarted_process = TokenBlacklist()
+    restarted_process._redis = redis
+    replay_status, replay = restarted_process.consume_refresh_token(
+        "token-1", "family-1", _future(), {"different": True}, grace_seconds=10
+    )
+    restarted_process.revoke_family("family-1", _future())
+    third_process = TokenBlacklist()
+    third_process._redis = redis
+
+    assert status == "rotated"
+    assert replay_status == "grace"
+    assert replay == replacement
+    assert third_process.is_family_revoked("family-1")

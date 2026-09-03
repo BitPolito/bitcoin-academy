@@ -1,4 +1,6 @@
 """Authentication service - business logic for user authentication."""
+import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
 from fastapi import HTTPException, status
@@ -12,7 +14,12 @@ from app.core.config import (
     validate_refresh_token,
     verify_password,
 )
-from app.core.token_blacklist import is_token_blacklisted
+from app.core.token_blacklist import (
+    consume_refresh_token,
+    is_refresh_token_consumed,
+    is_token_blacklisted,
+    is_token_family_revoked,
+)
 from app.db.models import User, UserRole
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth_schemas import (
@@ -157,7 +164,14 @@ class AuthService:
         # The jti fallback mirrors the logout handler so tokens issued before the
         # jti field existed are still matched.
         token_id = payload.jti or refresh_token[:32]
-        if is_token_blacklisted(token_id):
+        family_id = payload.family_id or token_id
+        if is_token_family_revoked(family_id):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token family has been revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if is_token_blacklisted(token_id) and not is_refresh_token_consumed(token_id):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Refresh token has been revoked",
@@ -174,8 +188,25 @@ class AuthService:
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # Generate new tokens
-        return self._create_tokens(user)
+        replacement = self._create_tokens(user, family_id=family_id)
+        family_expires_at = max(
+            payload.exp,
+            datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        )
+        rotation_status, stored = consume_refresh_token(
+            token_id=token_id,
+            family_id=family_id,
+            expires_at=family_expires_at,
+            replacement=replacement.model_dump(),
+            grace_seconds=settings.REFRESH_TOKEN_GRACE_SECONDS,
+        )
+        if rotation_status == "reused" or stored is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token reuse detected; token family revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return TokenResponse.model_validate(stored)
 
     def get_user_by_id(self, user_id: str) -> Optional[User]:
         """
@@ -189,7 +220,7 @@ class AuthService:
         """
         return self.user_repo.get_by_id(user_id)
 
-    def _create_tokens(self, user: User) -> TokenResponse:
+    def _create_tokens(self, user: User, family_id: str | None = None) -> TokenResponse:
         """
         Create access and refresh tokens for a user.
 
@@ -202,16 +233,19 @@ class AuthService:
         role = user.role.value if isinstance(
             user.role, UserRole) else user.role
 
+        effective_family_id = family_id or str(uuid.uuid4())
         access_token = create_access_token(
             user_id=user.id,
             email=user.email,  # type: ignore[arg-type]
             role=role,
+            family_id=effective_family_id,
         )
 
         refresh_token = create_refresh_token(
             user_id=user.id,
             email=user.email,  # type: ignore[arg-type]
             role=role,
+            family_id=effective_family_id,
         )
 
         return TokenResponse(
