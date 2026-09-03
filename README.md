@@ -150,7 +150,7 @@ Set `ENVIRONMENT=development` to enable Swagger UI and relaxed CORS.
 | `RAG_MAX_EVIDENCE` | `6` | Max evidence chunks returned by the study endpoint |
 | `RAG_HYDE` | `true` | Hypothetical Document Embedding query expansion |
 | `RAG_QUERY_REWRITE` | `false` | Rewrite the raw question into a dense retrieval query |
-| `RAG_COMPRESS_CONTEXT` | `true` | Trim each passage to relevant sentences before the LLM |
+| `RAG_COMPRESS_CONTEXT` | `false` | Trim each passage to relevant sentences before the LLM |
 | `RAG_CONTEXTUAL_CHUNKS` | `false` | Prepend an AI-generated context prefix at ingest time |
 | `RAG_SEMANTIC_CACHE` | `true` | Enable semantic cache (requires Redis) |
 | `RAG_CACHE_THRESHOLD` | `0.92` | Cosine similarity threshold for a cache hit |
