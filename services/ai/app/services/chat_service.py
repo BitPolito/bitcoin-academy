@@ -46,85 +46,6 @@ _MAX_CONTEXT_TOKENS = int(os.getenv("RAG_MAX_CONTEXT_TOKENS", "6000"))
 _client = httpx.AsyncClient(base_url=_QVAC_SERVICE_URL, timeout=60.0)
 
 # ---------------------------------------------------------------------------
-# ChromaDB fallback (lazy singleton — initialized on first use)
-# ---------------------------------------------------------------------------
-
-_chroma_db: dict = {}  # keys: "collection", "model"
-
-
-def _chroma_retrieve(query: str, course_id: str, top_k: int) -> list[EvidenceChunk]:
-    """Dense retrieval from ChromaDB using all-MiniLM-L6-v2 when QVAC is unavailable."""
-    global _chroma_db
-    try:
-        import chromadb  # noqa: PLC0415
-        from chromadb.config import Settings as ChromaSettings  # noqa: PLC0415
-        from fastembed import TextEmbedding  # noqa: PLC0415
-
-        if not _chroma_db:
-            chroma_path = os.getenv("CHROMA_DB_PATH", "")
-            if not chroma_path:
-                logger.warning("ChromaDB fallback skipped: CHROMA_DB_PATH not set")
-                return []
-            client = chromadb.PersistentClient(
-                path=chroma_path,
-                settings=ChromaSettings(anonymized_telemetry=False),
-            )
-            cname = os.getenv("CHROMA_COLLECTION_NAME", "bitpolito_course")
-            try:
-                _chroma_db["collection"] = client.get_collection(cname)
-            except Exception:
-                logger.warning("ChromaDB collection '%s' not found — fallback unavailable", cname)
-                return []
-            _chroma_db["model"] = TextEmbedding("sentence-transformers/all-MiniLM-L6-v2")
-
-        collection = _chroma_db["collection"]
-        model = _chroma_db["model"]
-
-        n_results = min(top_k, collection.count())
-        if n_results == 0:
-            return []
-
-        embedding = list(model.embed([query]))[0].tolist()
-        results = collection.query(
-            query_embeddings=[embedding],
-            n_results=n_results,
-            where={"course_id": course_id},
-            include=["documents", "metadatas", "distances"],
-        )
-
-        chunks: list[EvidenceChunk] = []
-        for cid, doc, meta, dist in zip(
-            results["ids"][0],
-            results["documents"][0],
-            results["metadatas"][0],
-            results["distances"][0],
-        ):
-            score = max(0.0, 1.0 - float(dist))
-            chunks.append(EvidenceChunk(
-                chunk_id=cid,
-                text=doc,
-                score=round(score, 6),
-                anchor=CitationAnchor(
-                    doc_id=meta.get("doc_id", ""),
-                    doc_name=meta.get("label", meta.get("filename", "")),
-                    section=meta.get("section") or None,
-                    page=int(meta["page"]) if meta.get("page") else None,
-                    slide=int(meta["slide"]) if meta.get("slide") else None,
-                    chunk_id=cid,
-                    chunk_type=meta.get("chunk_type", "paragraph"),
-                ),
-            ))
-
-        logger.info("ChromaDB fallback: %d chunks for course '%s'", len(chunks), course_id)
-        return chunks
-
-    except Exception as exc:
-        logger.warning("ChromaDB fallback retrieval failed: %s", exc)
-        _chroma_db = {}  # reset singleton so next call re-initialises
-        return []
-
-
-# ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
 
@@ -175,29 +96,23 @@ async def _retrieve_and_rank(
 ) -> tuple[list[dict], list[Citation]]:
     """Dense + sparse retrieval, normalized fusion, rerank, MMR, parent expansion.
 
-    Primary dense source: QVAC (GTE-Large embeddings).
-    Fallback dense source: ChromaDB (all-MiniLM-L6-v2) when QVAC /retrieve is unavailable.
-    Raises httpx.HTTPError only when BOTH sources fail.
+    Dense source: QVAC (GTE-Large embeddings).
+    Raises httpx.HTTPError when QVAC retrieval is unavailable.
     """
     from app.services import hybrid_search, reranker, parent_expansion  # noqa: PLC0415
     from app.rag.compressor import compress_passages  # noqa: PLC0415
 
-    # ── Dense retrieval (QVAC primary → ChromaDB fallback) ───────────────────
-    dense_chunks: list[EvidenceChunk] = []
-    try:
-        resp = await _client.post(
-            "/retrieve",
-            json={"question": retrieval_query, "workspace": course_id, "topK": _TOP_K_RETRIEVE},
-        )
-        resp.raise_for_status()
-        dense_chunks = [_qvac_dict_to_chunk(d) for d in resp.json().get("chunks", []) if d.get("chunk_id")]
-    except httpx.HTTPError as exc:
-        logger.info("QVAC /retrieve unavailable (%s) — trying ChromaDB fallback", exc)
-        dense_chunks = await asyncio.get_event_loop().run_in_executor(
-            None, _chroma_retrieve, retrieval_query, course_id, _TOP_K_RETRIEVE
-        )
-        if not dense_chunks:
-            raise  # re-raise so caller shows "service unavailable" message
+    # ── Dense retrieval (QVAC) ───────────────────────────────────────────────
+    resp = await _client.post(
+        "/retrieve",
+        json={"question": retrieval_query, "workspace": course_id, "topK": _TOP_K_RETRIEVE},
+    )
+    resp.raise_for_status()
+    dense_chunks = [
+        _qvac_dict_to_chunk(d)
+        for d in resp.json().get("chunks", [])
+        if d.get("chunk_id")
+    ]
 
     # ── Sparse retrieval (BM25) + normalized hybrid fusion ───────────────────
     bm25_hits = hybrid_search.bm25_search(question, course_id, top_k=_TOP_K_RETRIEVE)

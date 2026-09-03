@@ -19,7 +19,7 @@ _SERVICES_AI = _HERE.parents[2]
 _QVAC_INGEST_DIR = Path(os.getenv("QVAC_INGEST_DIR", str(_SERVICES_AI / "qvac_ingest")))
 
 _RRF_K = 60  # kept for rrf_fuse (legacy)
-_DENSE_WEIGHT = 0.6   # weight for dense (QVAC/ChromaDB) score in normalized fusion
+_DENSE_WEIGHT = 0.6   # weight for dense QVAC score in normalized fusion
 _SPARSE_WEIGHT = 0.4  # weight for BM25 score in normalized fusion
 _SAFE_COURSE_ID = re.compile(r'^[A-Za-z0-9_-]+$')
 

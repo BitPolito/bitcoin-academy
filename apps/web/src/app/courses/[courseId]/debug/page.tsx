@@ -110,24 +110,20 @@ export default function DebugPage() {
           {health && (
             <div className="space-y-3 text-sm">
               <div className="flex items-center gap-2">
-                <span
-                  className={`h-2 w-2 rounded-full ${health.chroma_status === 'ok' ? 'bg-green-500' : 'bg-red-500'}`}
-                />
-                <span className="font-medium">ChromaDB:</span>
-                <span className="text-gray-600">
-                  {health.chroma_status} · {health.chroma_db_path}
-                </span>
+                <span className="h-2 w-2 rounded-full bg-green-500" />
+                <span className="font-medium">Dense index:</span>
+                <span className="text-gray-600">QVAC</span>
               </div>
               <div>
-                <span className="font-medium">Collections:</span>
+                <span className="font-medium">BM25 indexes:</span>
                 <div className="mt-1 flex flex-wrap gap-2">
-                  {Object.entries(health.collection_sizes).map(([name, count]) => (
+                  {health.bm25_indexes.map((name) => (
                     <span key={name} className="px-2 py-0.5 bg-gray-100 rounded text-xs">
-                      {name}: {count} chunks
+                      {name}
                     </span>
                   ))}
-                  {Object.keys(health.collection_sizes).length === 0 && (
-                    <span className="text-gray-400 text-xs">No collections</span>
+                  {health.bm25_indexes.length === 0 && (
+                    <span className="text-gray-400 text-xs">No indexes</span>
                   )}
                 </div>
               </div>

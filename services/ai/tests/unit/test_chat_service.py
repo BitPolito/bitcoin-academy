@@ -176,7 +176,7 @@ async def test_answer_dense_only_when_no_bm25():
 
 @pytest.mark.asyncio
 @pytest.mark.unit
-async def test_answer_chroma_fallback_on_retrieve_error():
+async def test_answer_degrades_gracefully_on_retrieve_error():
     import httpx
 
     with patch("app.services.chat_service._client") as mock_client, \
@@ -193,7 +193,7 @@ async def test_answer_chroma_fallback_on_retrieve_error():
 
 @pytest.mark.asyncio
 @pytest.mark.unit
-async def test_answer_chroma_fallback_on_zero_chunks():
+async def test_answer_handles_zero_retrieved_chunks():
     retrieve_resp = _mock_httpx_response({"chunks": []})
     generate_resp = _mock_httpx_response({"answer": "No relevant content found."})
 
