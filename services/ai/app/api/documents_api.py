@@ -2,7 +2,18 @@
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Path as PathParam, Request, UploadFile, File
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Path as PathParam,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -19,7 +30,9 @@ from app.schemas.document_schemas import (
     DocumentStructure,
 )
 from app.core.errors import NotFoundError
+from app.core.errors import ValidationError_
 from app.core.rate_limit import limiter
+from app.schemas.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, CursorPage, decode_cursor
 
 router = APIRouter(prefix="/api", tags=["Documents"])
 
@@ -33,14 +46,25 @@ _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 
 @router.get(
     "/courses/{course_id}/documents",
-    response_model=List[DocumentListItem],
+    response_model=CursorPage[DocumentListItem],
 )
 def list_documents(
     course_id: str = PathParam(..., description="Course ID"),
+    cursor: str | None = Query(default=None, max_length=512, description="Opaque page cursor"),
+    limit: int = Query(
+        default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="Maximum page size"
+    ),
     db: Session = Depends(get_db),
     _current_user: CurrentUser = Depends(get_current_user),
 ):
-    return document_service.list_documents(db, course_id)
+    try:
+        after = decode_cursor(cursor, 2) if cursor else None
+    except ValueError as exc:
+        raise ValidationError_(message=str(exc), details={"cursor": cursor}) from exc
+    items, next_cursor = document_service.list_documents_page(
+        db, course_id, after=after, limit=limit
+    )
+    return CursorPage(items=items, next_cursor=next_cursor, has_more=next_cursor is not None)
 
 
 @router.post(

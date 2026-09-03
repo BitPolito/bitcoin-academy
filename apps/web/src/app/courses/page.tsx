@@ -3,7 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { getCourses, createCourse, MVP_COURSES_LIMIT, type Course } from '@/lib/services/courses';
+import {
+  getCoursesPage,
+  createCourse,
+  COURSES_PAGE_SIZE,
+  type Course,
+} from '@/lib/services/courses';
 import { getDocumentListRows } from '@/lib/api/documents';
 import { CourseCard } from '@/components/courses/CourseCard';
 import { CreateCourseModal } from '@/components/courses/CreateCourseModal';
@@ -17,6 +22,32 @@ interface DocStats {
   error: number;
 }
 
+async function loadDocumentStats(data: Course[], token?: string) {
+  const docsResults = await Promise.allSettled(
+    data.map((course) => getDocumentListRows(String(course.id), token))
+  );
+  const statsMap: Record<string | number, DocStats> = {};
+  let docs = 0;
+  let indexed = 0;
+  let processing = 0;
+  docsResults.forEach((result, index) => {
+    if (result.status !== 'fulfilled') return;
+    const rows = result.value;
+    const stats: DocStats = {
+      total: rows.length,
+      ready: rows.filter((row) => row.status === 'ready').length,
+      processing: rows.filter((row) => row.status === 'processing' || row.status === 'uploading')
+        .length,
+      error: rows.filter((row) => row.status === 'error').length,
+    };
+    statsMap[data[index].id] = stats;
+    docs += stats.total;
+    indexed += stats.ready;
+    processing += stats.processing;
+  });
+  return { statsMap, totals: { docs, indexed, processing } };
+}
+
 export default function CoursesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -27,6 +58,8 @@ export default function CoursesPage() {
   const [error, setError] = useState<string | null>(null);
   const [_filter] = useState<Filter>('all');
   const [showCreate, setShowCreate] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -50,35 +83,12 @@ export default function CoursesPage() {
 
     async function fetchAll() {
       try {
-        const data = await getCourses(0, MVP_COURSES_LIMIT, token);
-        setCourses(data);
-
-        const docsResults = await Promise.allSettled(
-          data.map((c) => getDocumentListRows(String(c.id), token))
-        );
-
-        const statsMap: Record<string | number, DocStats> = {};
-        let totalDocs = 0,
-          totalIndexed = 0,
-          totalProcessing = 0;
-        docsResults.forEach((r, i) => {
-          if (r.status === 'fulfilled') {
-            const docs = r.value;
-            const stats: DocStats = {
-              total: docs.length,
-              ready: docs.filter((d) => d.status === 'ready').length,
-              processing: docs.filter((d) => d.status === 'processing' || d.status === 'uploading')
-                .length,
-              error: docs.filter((d) => d.status === 'error').length,
-            };
-            statsMap[data[i].id] = stats;
-            totalDocs += stats.total;
-            totalIndexed += stats.ready;
-            totalProcessing += stats.processing;
-          }
-        });
+        const page = await getCoursesPage(undefined, COURSES_PAGE_SIZE, token);
+        setCourses(page.items);
+        setNextCursor(page.next_cursor);
+        const { statsMap, totals } = await loadDocumentStats(page.items, token);
         setDocStats(statsMap);
-        setGlobalStats({ docs: totalDocs, indexed: totalIndexed, processing: totalProcessing });
+        setGlobalStats(totals);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load courses');
       } finally {
@@ -87,6 +97,28 @@ export default function CoursesPage() {
     }
     fetchAll();
   }, [status, session, router]);
+
+  async function loadMoreCourses() {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const token = session?.user?.accessToken;
+      const page = await getCoursesPage(nextCursor, COURSES_PAGE_SIZE, token);
+      const { statsMap, totals } = await loadDocumentStats(page.items, token);
+      setCourses((current) => [...current, ...page.items]);
+      setDocStats((current) => ({ ...current, ...statsMap }));
+      setGlobalStats((current) => ({
+        docs: current.docs + totals.docs,
+        indexed: current.indexed + totals.indexed,
+        processing: current.processing + totals.processing,
+      }));
+      setNextCursor(page.next_cursor);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load more courses');
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   async function handleCreate(title: string, description?: string) {
     const created = await createCourse(title, description);
@@ -175,7 +207,7 @@ export default function CoursesPage() {
         <button className="font-mono text-[11px] tracking-[0.18em] uppercase px-3 h-8 rounded-md bg-blue-dark text-white dark:bg-white dark:text-blue-dark">
           All <span className="opacity-60 ml-1">{courses.length}</span>
         </button>
-        <div className="ml-auto font-mono text-[11px] opacity-60">sorted · last updated</div>
+        <div className="ml-auto font-mono text-[11px] opacity-60">sorted · stable order</div>
       </div>
 
       {error ? (
@@ -196,8 +228,8 @@ export default function CoursesPage() {
           <div className="mx-auto w-10 h-10 b-thin rounded-md mb-4 stripes" />
           <div className="font-medium text-lg mb-1">Crea il tuo primo corso</div>
           <div className="opacity-70 text-sm mt-1 mb-6 max-w-xs mx-auto leading-relaxed">
-            Ogni corso è un workspace isolato. Carica slide, appunti e dispense — Academy
-            indicizza tutto e mantiene ogni risposta ancorata alla fonte.
+            Ogni corso è un workspace isolato. Carica slide, appunti e dispense — Academy indicizza
+            tutto e mantiene ogni risposta ancorata alla fonte.
           </div>
           <div className="flex items-center justify-center gap-3">
             <button className="btn-primary" onClick={() => setShowCreate(true)}>
@@ -220,6 +252,13 @@ export default function CoursesPage() {
             <div className="font-medium">Create new course</div>
             <div className="font-mono text-[11px] opacity-70 mt-1">⌘N</div>
           </button>
+          {nextCursor && (
+            <div className="md:col-span-2 xl:col-span-3 flex justify-center pt-2">
+              <button className="btn-ghost" onClick={loadMoreCourses} disabled={loadingMore}>
+                {loadingMore ? 'Loading…' : 'Load more courses'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

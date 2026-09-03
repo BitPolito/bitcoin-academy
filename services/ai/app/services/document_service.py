@@ -9,12 +9,31 @@ from sqlalchemy.orm import Session
 
 from app.db.models import ChunkParent, CourseDocument, DocumentProcessingStage, DocumentStatus
 from app.repositories import document_repo
+from app.schemas.pagination import encode_cursor
 
 logger = logging.getLogger(__name__)
 
 
 def list_documents(db: Session, course_id: str) -> List[CourseDocument]:
     return document_repo.list_by_course(db, course_id)
+
+
+def list_documents_page(
+    db: Session,
+    course_id: str,
+    *,
+    after: tuple[str, str] | None,
+    limit: int,
+) -> tuple[List[CourseDocument], str | None]:
+    documents, has_more = document_repo.list_page_by_course(
+        db, course_id, after=after, limit=limit
+    )
+    next_cursor = (
+        encode_cursor(documents[-1].created_at, documents[-1].id)
+        if has_more and documents
+        else None
+    )
+    return documents, next_cursor
 
 
 def get_document(db: Session, document_id: str) -> Optional[CourseDocument]:

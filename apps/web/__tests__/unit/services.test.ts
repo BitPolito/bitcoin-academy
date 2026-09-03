@@ -14,14 +14,11 @@ import {
   getCourse,
   getCourseLessons,
   getCourses,
+  getCoursesPage,
   getLesson,
   updateCourse,
 } from '@/lib/services/courses';
-import {
-  getCourseProgress,
-  getUserBadges,
-  markLessonComplete,
-} from '@/lib/services/progress';
+import { getCourseProgress, getUserBadges, markLessonComplete } from '@/lib/services/progress';
 import {
   deleteDocument,
   getDocumentStatus,
@@ -54,34 +51,40 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('courses service', () => {
-  it('requests the course list with pagination parameters', async () => {
-    mockFetch.mockResolvedValue(jsonResponse([]));
+  it('requests a course page with cursor parameters', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ items: [], next_cursor: null, has_more: false }));
 
-    await getCourses(10, 25);
+    await getCoursesPage('next-page', 25);
 
-    expect(lastCall().url).toContain('/courses?skip=10&limit=25');
+    expect(lastCall().url).toContain('/courses?limit=25&cursor=next-page');
   });
 
   it('defaults to the first page when no parameters are given', async () => {
-    mockFetch.mockResolvedValue(jsonResponse([]));
+    mockFetch.mockResolvedValue(jsonResponse({ items: [], next_cursor: null, has_more: false }));
 
-    await getCourses();
+    await getCoursesPage();
 
-    expect(lastCall().url).toContain('skip=0');
-    expect(lastCall().url).toContain('limit=100');
+    expect(lastCall().url).toContain('limit=20');
+    expect(lastCall().url).not.toContain('cursor=');
   });
 
-  it('returns the course list unchanged', async () => {
+  it('collects all course pages', async () => {
     const courses = [{ id: 1, title: 'Bitcoin' }];
-    mockFetch.mockResolvedValue(jsonResponse(courses));
+    mockFetch
+      .mockResolvedValueOnce(
+        jsonResponse({ items: courses, next_cursor: 'second', has_more: true })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ items: [{ id: 2, title: 'Mining' }], next_cursor: null, has_more: false })
+      );
 
-    await expect(getCourses()).resolves.toEqual(courses);
+    await expect(getCourses()).resolves.toEqual([...courses, { id: 2, title: 'Mining' }]);
   });
 
   it('forwards the access token when listing courses', async () => {
-    mockFetch.mockResolvedValue(jsonResponse([]));
+    mockFetch.mockResolvedValue(jsonResponse({ items: [], next_cursor: null, has_more: false }));
 
-    await getCourses(0, 100, 'token-1');
+    await getCourses('token-1');
 
     expect(lastCall().init.headers.Authorization).toBe('Bearer token-1');
   });
@@ -254,7 +257,7 @@ describe('progress service', () => {
 
 describe('documents service', () => {
   it('lists the documents of a course', async () => {
-    mockFetch.mockResolvedValue(jsonResponse([]));
+    mockFetch.mockResolvedValue(jsonResponse({ items: [], next_cursor: null, has_more: false }));
 
     await getDocuments('course-1');
 

@@ -6,7 +6,7 @@ import { useSession } from 'next-auth/react';
 import { getCourse, updateCourse, deleteCourse, type Course } from '@/lib/services/courses';
 import { DocumentUpload } from '@/components/documents/DocumentUpload';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
-import { getDocumentListRows, deleteDocument, reindexCourse } from '@/lib/api/documents';
+import { getDocumentListPage, deleteDocument, reindexCourse } from '@/lib/api/documents';
 import type { DocumentListRow } from '@/lib/api/types';
 import { DocumentProcessingPanel } from '@/components/documents/DocumentProcessingPanel';
 import { useToast } from '@/components/ui/Toast';
@@ -51,7 +51,15 @@ function useElapsedMinutes(startIso: string | null): number {
   return elapsed;
 }
 
-function Lifecycle({ status, processingStage, updatedAt }: { status: string; processingStage?: string; updatedAt?: string }) {
+function Lifecycle({
+  status,
+  processingStage,
+  updatedAt,
+}: {
+  status: string;
+  processingStage?: string;
+  updatedAt?: string;
+}) {
   const isActive = status === 'processing' || status === 'uploading';
   const elapsedMin = useElapsedMinutes(isActive ? (updatedAt ?? null) : null);
   const failed = status === 'error';
@@ -135,7 +143,11 @@ function Lifecycle({ status, processingStage, updatedAt }: { status: string; pro
             </div>
           </div>
           <div className="mt-1.5 flex items-center gap-2 font-mono text-[10px] opacity-60">
-            <span>{processingStage ? processingStage.charAt(0).toUpperCase() + processingStage.slice(1) + '…' : 'Processing…'}</span>
+            <span>
+              {processingStage
+                ? processingStage.charAt(0).toUpperCase() + processingStage.slice(1) + '…'
+                : 'Processing…'}
+            </span>
             {elapsedMin > 0 && <span className="opacity-70">· {elapsedMin} min elapsed</span>}
           </div>
         </div>
@@ -168,6 +180,8 @@ export default function CourseWorkspacePage() {
   const [docs, setDocs] = useState<DocumentListRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [docsLoading, setDocsLoading] = useState(true);
+  const [docsNextCursor, setDocsNextCursor] = useState<string | null>(null);
+  const [docsLoadingMore, setDocsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<DocFilter>('all');
@@ -186,7 +200,12 @@ export default function CourseWorkspacePage() {
   }
 
   async function handleDelete() {
-    if (!confirm(`Eliminare il corso "${course?.title}" e tutti i suoi documenti? L'operazione non è reversibile.`)) return;
+    if (
+      !confirm(
+        `Eliminare il corso "${course?.title}" e tutti i suoi documenti? L'operazione non è reversibile.`
+      )
+    )
+      return;
     setDeleting(true);
     try {
       await deleteCourse(courseId, accessToken);
@@ -206,7 +225,7 @@ export default function CourseWorkspacePage() {
         skipped > 0
           ? `Queued ${enqueued} documents (${skipped} skipped — file missing).`
           : `Queued ${enqueued} documents for re-ingestion.`,
-        'ok',
+        'ok'
       );
       refreshDocuments();
     } catch {
@@ -234,9 +253,12 @@ export default function CourseWorkspacePage() {
     async function loadDocs() {
       try {
         setDocsLoading(true);
-        const rows = await getDocumentListRows(courseId, accessToken);
-        setDocs(rows);
-        if (rows.length > 0 && !selectedId) setSelectedId(rows[0].id);
+        const page = await getDocumentListPage(courseId, accessToken);
+        setDocs(page.items);
+        setDocsNextCursor(page.next_cursor);
+        if (page.items.length > 0) {
+          setSelectedId((current) => current ?? page.items[0].id);
+        }
       } catch {
         setDocs([]);
       } finally {
@@ -245,6 +267,20 @@ export default function CourseWorkspacePage() {
     }
     if (courseId) loadDocs();
   }, [courseId, accessToken, refreshKey]);
+
+  async function loadMoreDocuments() {
+    if (!docsNextCursor || docsLoadingMore) return;
+    setDocsLoadingMore(true);
+    try {
+      const page = await getDocumentListPage(courseId, accessToken, docsNextCursor);
+      setDocs((current) => [...current, ...page.items]);
+      setDocsNextCursor(page.next_cursor);
+    } catch {
+      showToast('Could not load more documents. Try again.', 'err');
+    } finally {
+      setDocsLoadingMore(false);
+    }
+  }
 
   // Auto-poll every 5s while documents are processing; stop after 15 min.
   useEffect(() => {
@@ -325,10 +361,16 @@ export default function CourseWorkspacePage() {
           className="mb-4 b-thin rounded-lg px-4 py-3 font-mono text-[11px] flex items-center gap-3"
           style={{ borderColor: '#a55a00', color: '#a55a00' }}
         >
-          <span>L&apos;elaborazione sta richiedendo più tempo del previsto — controlla i log o riprova il documento.</span>
+          <span>
+            L&apos;elaborazione sta richiedendo più tempo del previsto — controlla i log o riprova
+            il documento.
+          </span>
           <button
             className="ml-auto underline opacity-80 hover:opacity-100"
-            onClick={() => { setPollTimedOut(false); refreshDocuments(); }}
+            onClick={() => {
+              setPollTimedOut(false);
+              refreshDocuments();
+            }}
           >
             Riprendi polling
           </button>
@@ -468,8 +510,8 @@ export default function CourseWorkspacePage() {
                   <div className="mx-auto w-10 h-10 b-thin rounded-md mb-4 stripes" />
                   <p className="font-medium mb-1">Nessun documento ancora</p>
                   <p className="font-mono text-[11px] opacity-60 leading-relaxed mb-4 max-w-xs mx-auto">
-                    Trascina un file PDF, PPTX, MD o TXT nell&apos;area sopra — o clicca per selezionarlo.
-                    Academy lo indicizza e lo rende interrogabile dall&apos;AI tutor.
+                    Trascina un file PDF, PPTX, MD o TXT nell&apos;area sopra — o clicca per
+                    selezionarlo. Academy lo indicizza e lo rende interrogabile dall&apos;AI tutor.
                   </p>
                 </div>
               ) : (
@@ -478,17 +520,30 @@ export default function CourseWorkspacePage() {
                 </div>
               )
             ) : (
-              filtered.map((doc) => (
-                <DocRow
-                  key={doc.id}
-                  doc={doc}
-                  selected={doc.id === selectedId}
-                  onSelect={() => setSelectedId(doc.id)}
-                  onOpen={() => router.push(`/courses/${courseId}/documents/${doc.id}/preview`)}
-                  onDeleted={refreshDocuments}
-                  accessToken={accessToken}
-                />
-              ))
+              <>
+                {filtered.map((doc) => (
+                  <DocRow
+                    key={doc.id}
+                    doc={doc}
+                    selected={doc.id === selectedId}
+                    onSelect={() => setSelectedId(doc.id)}
+                    onOpen={() => router.push(`/courses/${courseId}/documents/${doc.id}/preview`)}
+                    onDeleted={refreshDocuments}
+                    accessToken={accessToken}
+                  />
+                ))}
+                {docsNextCursor && filter === 'all' && (
+                  <div className="p-4 flex justify-center b-thin-t">
+                    <button
+                      className="btn-ghost"
+                      onClick={loadMoreDocuments}
+                      disabled={docsLoadingMore}
+                    >
+                      {docsLoadingMore ? 'Loading…' : 'Load more documents'}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -581,11 +636,7 @@ export default function CourseWorkspacePage() {
       </div>
 
       {showEdit && course && (
-        <EditCourseModal
-          course={course}
-          onClose={() => setShowEdit(false)}
-          onSave={handleEdit}
-        />
+        <EditCourseModal course={course} onClose={() => setShowEdit(false)} onSave={handleEdit} />
       )}
     </main>
   );
@@ -651,7 +702,9 @@ function DocRow({
         </div>
       </div>
 
-      <div className="hidden sm:block font-mono text-[11px] opacity-80 tnum">{formatSize(doc.size)}</div>
+      <div className="hidden sm:block font-mono text-[11px] opacity-80 tnum">
+        {formatSize(doc.size)}
+      </div>
 
       <div className="hidden sm:block">
         <span className="chip" style={{ color: dot, borderColor: dot, border: '1px solid' }}>
@@ -682,12 +735,29 @@ function DocRow({
         >
           {deleting ? (
             <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
             </svg>
           ) : (
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+            <svg
+              className="h-3.5 w-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.5}
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
+              />
             </svg>
           )}
         </button>

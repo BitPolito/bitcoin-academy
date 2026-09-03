@@ -31,6 +31,16 @@ def get_all_courses(db: Session, skip: int = 0, limit: int = 100) -> List[Course
     return db.query(Course).filter(Course.is_active == True).offset(skip).limit(limit).all()
 
 
+def get_courses_page(
+    db: Session, *, after_id: str | None, limit: int
+) -> tuple[List[Course], bool]:
+    query = db.query(Course).filter(Course.is_active == True)
+    if after_id is not None:
+        query = query.filter(Course.id > after_id)
+    rows = query.order_by(Course.id.asc()).limit(limit + 1).all()
+    return rows[:limit], len(rows) > limit
+
+
 def get_course_by_id(db: Session, course_id: str) -> Optional[Course]:
     return db.query(Course).filter(Course.id == course_id, Course.is_active == True).first()
 

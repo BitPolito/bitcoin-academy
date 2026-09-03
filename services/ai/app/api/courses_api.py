@@ -11,6 +11,7 @@ from app.db.models import UserRole
 from app.middleware.auth import CurrentUser, get_current_user
 from app.services import course_service
 from app.schemas.course_schemas import CourseSchema, LessonSchema
+from app.schemas.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, CursorPage, decode_cursor
 from app.core.errors import NotFoundError, ValidationError_
 
 router = APIRouter(prefix="/api", tags=["Courses"])
@@ -41,15 +42,24 @@ def create_course(
     return course_service.create_course(db, title=body.title, description=body.description)
 
 
-@router.get("/courses", response_model=List[CourseSchema])
+@router.get("/courses", response_model=CursorPage[CourseSchema])
 def get_courses(
-    skip: int = Query(default=0, ge=0, le=1000, description="Number of courses to skip"),
-    limit: int = Query(default=100, ge=1, le=100, description="Maximum number of courses to return"),
+    cursor: str | None = Query(default=None, max_length=512, description="Opaque page cursor"),
+    limit: int = Query(
+        default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="Maximum page size"
+    ),
     db: Session = Depends(get_db),
     _current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Get a list of all available courses."""
-    return course_service.list_courses(db, skip=skip, limit=limit)
+    """Get one stable, cursor-paginated page of courses."""
+    try:
+        after_id = decode_cursor(cursor, 1)[0] if cursor else None
+    except ValueError as exc:
+        raise ValidationError_(message=str(exc), details={"cursor": cursor}) from exc
+    items, next_cursor = course_service.list_courses_page(
+        db, after_id=after_id, limit=limit
+    )
+    return CursorPage(items=items, next_cursor=next_cursor, has_more=next_cursor is not None)
 
 
 @router.get("/courses/{course_id}", response_model=CourseSchema)
