@@ -147,6 +147,8 @@ class Chapter(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[Optional[str]] = mapped_column(String, default="published")
+    is_human_modified: Mapped[bool] = mapped_column(Boolean, default=False)
+    human_modified_at: Mapped[Optional[str]] = mapped_column(String)
 
     course: Mapped["Course"] = relationship(back_populates="chapters")
     lessons: Mapped[List["Lesson"]] = relationship(back_populates="chapter")
@@ -171,6 +173,8 @@ class Lesson(Base):
     status: Mapped[Optional[str]] = mapped_column(String, default="published")
     source_refs_json: Mapped[Optional[str]] = mapped_column(Text)
     content_hash: Mapped[Optional[str]] = mapped_column(String)
+    is_human_modified: Mapped[bool] = mapped_column(Boolean, default=False)
+    human_modified_at: Mapped[Optional[str]] = mapped_column(String)
 
     chapter: Mapped["Chapter"] = relationship(back_populates="lessons")
     quizzes: Mapped[List["Quiz"]] = relationship(back_populates="lesson")

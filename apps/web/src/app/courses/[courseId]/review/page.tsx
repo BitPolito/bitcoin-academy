@@ -10,6 +10,7 @@ import { getCourse, type Course } from '@/lib/services/courses';
 import { generateChapterTest } from '@/lib/services/chapterTests';
 import {
   approveLesson,
+  editOutline,
   generateContent,
   generateOutline,
   getGenerationRun,
@@ -43,7 +44,10 @@ function StatusChip({ status }: { status?: string }) {
   const dot = STATUS_DOT[s] || '#7a7f9a';
   return (
     <span className="chip" style={{ color: dot, borderColor: dot, border: '1px solid' }}>
-      <span className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: dot }} />
+      <span
+        className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
+        style={{ background: dot }}
+      />
       {STATUS_LABEL[s] || s}
     </span>
   );
@@ -55,7 +59,9 @@ function StatusChip({ status }: { status?: string }) {
 
 function usePollRun(accessToken: string | undefined, onDone: () => void) {
   const [runId, setRunId] = useState<string | null>(null);
-  const [run, setRun] = useState<{ status: string; stage?: string; error_message?: string } | null>(null);
+  const [run, setRun] = useState<{ status: string; stage?: string; error_message?: string } | null>(
+    null
+  );
   const startRef = useRef<number | null>(null);
 
   const start = useCallback((id: string) => {
@@ -228,7 +234,7 @@ export default function CourseReviewPage() {
       const result = await publishCourse(courseId, accessToken);
       showToast(
         `Published ${result.published_chapters} chapter(s), ${result.published_lessons} lesson(s). ${result.skipped_chapters} pending review.`,
-        result.skipped_chapters > 0 ? 'warn' : 'ok',
+        result.skipped_chapters > 0 ? 'warn' : 'ok'
       );
       refreshOutline();
     } catch {
@@ -252,7 +258,10 @@ export default function CourseReviewPage() {
   if (!course) {
     return (
       <main className="max-w-8xl mx-auto px-6 py-6">
-        <div className="b-hard rounded-lg p-6 text-center" style={{ borderColor: '#b3261e', color: '#b3261e' }}>
+        <div
+          className="b-hard rounded-lg p-6 text-center"
+          style={{ borderColor: '#b3261e', color: '#b3261e' }}
+        >
           <p className="text-sm">Course not found</p>
         </div>
       </main>
@@ -275,7 +284,9 @@ export default function CourseReviewPage() {
             <span className="opacity-40">/</span>
             <span className="font-semibold opacity-100">Review</span>
           </div>
-          <h1 className="text-xl font-medium leading-tight truncate">{course.title} — Course Review</h1>
+          <h1 className="text-xl font-medium leading-tight truncate">
+            {course.title} — Course Review
+          </h1>
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -295,7 +306,9 @@ export default function CourseReviewPage() {
             onClick={handleGenerateContent}
             disabled={!hasChapters || !!isContentRunning}
           >
-            {isContentRunning ? `Generating content… (${contentPoll.run?.stage || 'init'})` : 'Generate content'}
+            {isContentRunning
+              ? `Generating content… (${contentPoll.run?.stage || 'init'})`
+              : 'Generate content'}
           </button>
           <button
             className="btn-primary"
@@ -311,12 +324,18 @@ export default function CourseReviewPage() {
       </div>
 
       {outlinePoll.run?.status === 'error' && (
-        <div className="mb-4 b-thin rounded-lg px-4 py-3 font-mono text-[11px] flex-shrink-0" style={{ borderColor: '#b3261e', color: '#b3261e' }}>
+        <div
+          className="mb-4 b-thin rounded-lg px-4 py-3 font-mono text-[11px] flex-shrink-0"
+          style={{ borderColor: '#b3261e', color: '#b3261e' }}
+        >
           Outline generation failed: {outlinePoll.run.error_message}
         </div>
       )}
       {contentPoll.run?.status === 'error' && (
-        <div className="mb-4 b-thin rounded-lg px-4 py-3 font-mono text-[11px] flex-shrink-0" style={{ borderColor: '#b3261e', color: '#b3261e' }}>
+        <div
+          className="mb-4 b-thin rounded-lg px-4 py-3 font-mono text-[11px] flex-shrink-0"
+          style={{ borderColor: '#b3261e', color: '#b3261e' }}
+        >
           Content generation failed: {contentPoll.run.error_message}
         </div>
       )}
@@ -334,6 +353,7 @@ export default function CourseReviewPage() {
                 accessToken={accessToken}
                 showToast={showToast}
                 courseId={courseId}
+                onOutlineChange={setOutline}
               />
             }
             right={
@@ -367,6 +387,7 @@ function OutlineTree({
   accessToken,
   showToast,
   courseId,
+  onOutlineChange,
 }: {
   outline: OutlineResponse | null;
   selectedLessonId: string | null;
@@ -374,9 +395,29 @@ function OutlineTree({
   accessToken?: string;
   showToast: (message: string, type?: 'ok' | 'err' | 'warn') => void;
   courseId: string;
+  onOutlineChange: (outline: OutlineResponse) => void;
 }) {
   const router = useRouter();
   const [generatingTestFor, setGeneratingTestFor] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+
+  async function apply(action: Parameters<typeof editOutline>[1]) {
+    setEditing(true);
+    try {
+      onOutlineChange(await editOutline(courseId, action, accessToken));
+      showToast('Outline saved.', 'ok');
+    } catch {
+      showToast('Could not update outline.', 'err');
+    } finally {
+      setEditing(false);
+    }
+  }
+
+  function moveId(ids: string[], index: number, delta: number) {
+    const next = [...ids];
+    [next[index], next[index + delta]] = [next[index + delta], next[index]];
+    return next;
+  }
 
   async function handleGenerateTest(chapterId: string) {
     setGeneratingTestFor(chapterId);
@@ -396,7 +437,8 @@ function OutlineTree({
         <div className="mx-auto w-10 h-10 b-thin rounded-md mb-4 stripes" />
         <p className="font-medium mb-1">No outline yet</p>
         <p className="font-mono text-[11px] opacity-60 leading-relaxed max-w-xs mx-auto">
-          Click &quot;Generate outline&quot; to draft chapters and lessons from the indexed documents.
+          Click &quot;Generate outline&quot; to draft chapters and lessons from the indexed
+          documents.
         </p>
       </div>
     );
@@ -404,11 +446,97 @@ function OutlineTree({
 
   return (
     <div className="p-2">
-      {outline.chapters.map((chapter: ChapterDraft) => (
+      <button
+        className="btn-ghost w-full mb-2"
+        disabled={editing}
+        onClick={() => {
+          const title = window.prompt('Chapter title');
+          if (title?.trim()) apply({ action: 'create_chapter', title: title.trim() });
+        }}
+      >
+        + Add chapter
+      </button>
+      {outline.chapters.map((chapter: ChapterDraft, chapterIndex: number) => (
         <div key={chapter.id} className="mb-1">
           <div className="flex items-center gap-2 px-3 py-2 font-mono text-[11px] tracking-[0.08em] uppercase opacity-80">
             <StatusChip status={chapter.status} />
+            {chapter.is_human_modified && <span title="Manually edited">✎</span>}
             <span className="truncate flex-1">{chapter.title}</span>
+            <button
+              disabled={editing}
+              title="Rename chapter"
+              onClick={() => {
+                const title = window.prompt('Chapter title', chapter.title);
+                if (title?.trim())
+                  apply({ action: 'rename_chapter', chapter_id: chapter.id, title: title.trim() });
+              }}
+            >
+              ✎
+            </button>
+            <button
+              disabled={editing || chapterIndex === 0}
+              title="Move chapter up"
+              onClick={() =>
+                apply({
+                  action: 'reorder_chapters',
+                  ordered_ids: moveId(
+                    outline.chapters.map((c) => c.id),
+                    chapterIndex,
+                    -1
+                  ),
+                })
+              }
+            >
+              ↑
+            </button>
+            <button
+              disabled={editing || chapterIndex === outline.chapters.length - 1}
+              title="Move chapter down"
+              onClick={() =>
+                apply({
+                  action: 'reorder_chapters',
+                  ordered_ids: moveId(
+                    outline.chapters.map((c) => c.id),
+                    chapterIndex,
+                    1
+                  ),
+                })
+              }
+            >
+              ↓
+            </button>
+            <button
+              disabled={editing || chapterIndex === 0}
+              title="Merge into previous chapter"
+              onClick={() => {
+                if (window.confirm(`Merge “${chapter.title}” into the previous chapter?`))
+                  apply({
+                    action: 'merge_chapters',
+                    chapter_id: chapter.id,
+                    target_chapter_id: outline.chapters[chapterIndex - 1].id,
+                  });
+              }}
+            >
+              Merge
+            </button>
+            <button
+              disabled={editing}
+              title="Delete chapter"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Delete “${chapter.title}” and all its lessons and generated content? This cannot be undone.`
+                  )
+                )
+                  apply({
+                    action: 'delete_chapter',
+                    chapter_id: chapter.id,
+                    delete_lessons: true,
+                  });
+              }}
+            >
+              ×
+            </button>
             {chapter.status === 'published' && (
               <>
                 <button
@@ -430,11 +558,10 @@ function OutlineTree({
             )}
           </div>
           <div className="pl-3">
-            {chapter.lessons.map((lsn: LessonDraft) => (
-              <button
+            {chapter.lessons.map((lsn: LessonDraft, lessonIndex: number) => (
+              <div
                 key={lsn.id}
-                onClick={() => onSelectLesson(lsn.id)}
-                className={`w-full text-left flex items-center gap-2 px-3 py-2 rounded-md text-[13px] transition-colors ${
+                className={`w-full text-left flex items-center gap-1 px-3 py-2 rounded-md text-[13px] transition-colors ${
                   selectedLessonId === lsn.id
                     ? 'bg-blue-dark text-white dark:bg-white dark:text-blue-dark'
                     : 'hover:bg-blue-dark/5 dark:hover:bg-white/5'
@@ -444,9 +571,122 @@ function OutlineTree({
                   className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
                   style={{ background: STATUS_DOT[lsn.status || 'draft'] || '#7a7f9a' }}
                 />
-                <span className="truncate">{lsn.title}</span>
-              </button>
+                {lsn.is_human_modified && <span title="Manually edited">✎</span>}
+                <button
+                  className="truncate flex-1 text-left"
+                  onClick={() => onSelectLesson(lsn.id)}
+                >
+                  {lsn.title}
+                </button>
+                <button
+                  disabled={editing}
+                  title="Rename lesson"
+                  onClick={() => {
+                    const title = window.prompt('Lesson title', lsn.title);
+                    if (title?.trim())
+                      apply({ action: 'rename_lesson', lesson_id: lsn.id, title: title.trim() });
+                  }}
+                >
+                  ✎
+                </button>
+                <button
+                  disabled={editing || lessonIndex === 0}
+                  title="Move lesson up"
+                  onClick={() =>
+                    apply({
+                      action: 'reorder_lessons',
+                      chapter_id: chapter.id,
+                      ordered_ids: moveId(
+                        chapter.lessons.map((l) => l.id),
+                        lessonIndex,
+                        -1
+                      ),
+                    })
+                  }
+                >
+                  ↑
+                </button>
+                <button
+                  disabled={editing || lessonIndex === chapter.lessons.length - 1}
+                  title="Move lesson down"
+                  onClick={() =>
+                    apply({
+                      action: 'reorder_lessons',
+                      chapter_id: chapter.id,
+                      ordered_ids: moveId(
+                        chapter.lessons.map((l) => l.id),
+                        lessonIndex,
+                        1
+                      ),
+                    })
+                  }
+                >
+                  ↓
+                </button>
+                <button
+                  disabled={editing || outline.chapters.length < 2}
+                  title="Move lesson to another chapter"
+                  onClick={() => {
+                    const target = window.prompt(
+                      'Target chapter title',
+                      outline.chapters.find((c) => c.id !== chapter.id)?.title
+                    );
+                    const targetChapter = outline.chapters.find(
+                      (c) => c.id !== chapter.id && c.title === target
+                    );
+                    if (targetChapter)
+                      apply({
+                        action: 'move_lesson',
+                        lesson_id: lsn.id,
+                        target_chapter_id: targetChapter.id,
+                      });
+                  }}
+                >
+                  Move
+                </button>
+                <button
+                  disabled={editing || lessonIndex === 0}
+                  title="Split chapter before this lesson"
+                  onClick={() => {
+                    const title = window.prompt('New chapter title', `${chapter.title} (split)`);
+                    if (title?.trim())
+                      apply({
+                        action: 'split_chapter',
+                        chapter_id: chapter.id,
+                        title: title.trim(),
+                        lesson_ids: chapter.lessons.slice(lessonIndex).map((l) => l.id),
+                      });
+                  }}
+                >
+                  Split
+                </button>
+                <button
+                  disabled={editing}
+                  title="Delete lesson"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Delete “${lsn.title}”, including its content and quiz? This cannot be undone.`
+                      )
+                    )
+                      apply({ action: 'delete_lesson', lesson_id: lsn.id });
+                  }}
+                >
+                  ×
+                </button>
+              </div>
             ))}
+            <button
+              className="w-full text-left px-3 py-2 font-mono text-[10px] opacity-60 hover:opacity-100"
+              disabled={editing}
+              onClick={() => {
+                const title = window.prompt('Lesson title');
+                if (title?.trim())
+                  apply({ action: 'create_lesson', chapter_id: chapter.id, title: title.trim() });
+              }}
+            >
+              + Add lesson
+            </button>
           </div>
         </div>
       ))}
@@ -529,7 +769,9 @@ function LessonPanel({
 
       <div className="p-5 flex-1 min-h-0 flex flex-col">
         <div className="flex items-end justify-between b-thin-b pb-1.5 mb-3 flex-shrink-0">
-          <span className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70">Content</span>
+          <span className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70">
+            Content
+          </span>
           {lesson.source_refs.length > 0 && (
             <span className="font-mono text-[10px] opacity-50">
               {lesson.source_refs.length} source{lesson.source_refs.length !== 1 ? 's' : ''}
@@ -565,7 +807,8 @@ function LessonPanel({
         </button>
         {lesson.quiz && (
           <span className="ml-auto font-mono text-[10px] opacity-60">
-            Quiz: {lesson.quiz.questions.length} question{lesson.quiz.questions.length !== 1 ? 's' : ''}
+            Quiz: {lesson.quiz.questions.length} question
+            {lesson.quiz.questions.length !== 1 ? 's' : ''}
           </span>
         )}
       </div>

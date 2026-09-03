@@ -11,6 +11,8 @@ export interface LessonDraft {
   status?: string;
   order_index: number;
   source_refs: string[];
+  is_human_modified: boolean;
+  human_modified_at?: string;
 }
 
 export interface ChapterDraft {
@@ -20,6 +22,8 @@ export interface ChapterDraft {
   status?: string;
   order_index: number;
   lessons: LessonDraft[];
+  is_human_modified: boolean;
+  human_modified_at?: string;
 }
 
 export interface OutlineResponse {
@@ -96,6 +100,41 @@ export async function generateOutline(
   });
 }
 
+export type OutlineAction = {
+  action:
+    | 'create_chapter'
+    | 'create_lesson'
+    | 'rename_chapter'
+    | 'rename_lesson'
+    | 'reorder_chapters'
+    | 'reorder_lessons'
+    | 'move_lesson'
+    | 'merge_chapters'
+    | 'split_chapter'
+    | 'delete_chapter'
+    | 'delete_lesson';
+  chapter_id?: string;
+  lesson_id?: string;
+  target_chapter_id?: string;
+  title?: string;
+  description?: string;
+  ordered_ids?: string[];
+  lesson_ids?: string[];
+  delete_lessons?: boolean;
+};
+
+export async function editOutline(
+  courseId: string,
+  action: OutlineAction,
+  accessToken?: string
+): Promise<OutlineResponse> {
+  return apiFetch<OutlineResponse>(`/courses/${courseId}/outline/actions`, {
+    method: 'POST',
+    body: action,
+    accessToken,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Content generation
 // ---------------------------------------------------------------------------
@@ -112,14 +151,20 @@ export async function generateContent(
   });
 }
 
-export async function publishCourse(courseId: string, accessToken?: string): Promise<PublishResult> {
+export async function publishCourse(
+  courseId: string,
+  accessToken?: string
+): Promise<PublishResult> {
   return apiFetch<PublishResult>(`/courses/${courseId}/publish`, {
     method: 'POST',
     accessToken,
   });
 }
 
-export async function getGenerationRun(runId: string, accessToken?: string): Promise<GenerationRun> {
+export async function getGenerationRun(
+  runId: string,
+  accessToken?: string
+): Promise<GenerationRun> {
   return apiFetch<GenerationRun>(`/generation-runs/${runId}`, { accessToken });
 }
 
@@ -127,7 +172,10 @@ export async function getGenerationRun(runId: string, accessToken?: string): Pro
 // Lesson review
 // ---------------------------------------------------------------------------
 
-export async function getLessonContent(lessonId: string, accessToken?: string): Promise<LessonContent> {
+export async function getLessonContent(
+  lessonId: string,
+  accessToken?: string
+): Promise<LessonContent> {
   return apiFetch<LessonContent>(`/lessons/${lessonId}/content`, { accessToken });
 }
 
