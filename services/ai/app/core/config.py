@@ -69,6 +69,8 @@ class Settings:
         os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
     REFRESH_TOKEN_EXPIRE_DAYS = int(
         os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+    REFRESH_TOKEN_GRACE_SECONDS = int(
+        os.getenv("REFRESH_TOKEN_GRACE_SECONDS", "10"))
 
     # Debug mode — enables /api/debug/* endpoints
     DEBUG_MODE: bool = os.getenv("DEBUG_MODE", "").lower() in ("true", "1", "yes")
@@ -132,6 +134,7 @@ class TokenPayload(BaseModel):
     iat: datetime
     type: str  # 'access' or 'refresh'
     jti: str = ""  # JWT ID — empty string for tokens issued before this field was added
+    family_id: str = ""  # Refresh-token lineage; empty for legacy access tokens
 
 
 def get_password_hash(password: str) -> str:
@@ -146,7 +149,8 @@ def create_access_token(
     user_id: str,
     email: str,
     role: str,
-    expires_delta: Optional[timedelta] = None
+    expires_delta: Optional[timedelta] = None,
+    family_id: Optional[str] = None,
 ) -> str:
     """
     Create a JWT access token.
@@ -174,6 +178,7 @@ def create_access_token(
         "iat": now,
         "type": "access",
         "jti": str(uuid.uuid4()),
+        "family_id": family_id or "",
     }
 
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -183,7 +188,8 @@ def create_refresh_token(
     user_id: str,
     email: str,
     role: str,
-    expires_delta: Optional[timedelta] = None
+    expires_delta: Optional[timedelta] = None,
+    family_id: Optional[str] = None,
 ) -> str:
     """
     Create a JWT refresh token.
@@ -211,6 +217,7 @@ def create_refresh_token(
         "iat": now,
         "type": "refresh",
         "jti": str(uuid.uuid4()),
+        "family_id": family_id or str(uuid.uuid4()),
     }
 
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -264,6 +271,7 @@ def validate_access_token(token: str) -> Optional[TokenPayload]:
             iat=datetime.fromtimestamp(payload["iat"], tz=timezone.utc),
             type=payload["type"],
             jti=payload.get("jti", ""),
+            family_id=payload.get("family_id", ""),
         )
     except (KeyError, ValueError):
         return None
@@ -296,6 +304,7 @@ def validate_refresh_token(token: str) -> Optional[TokenPayload]:
             iat=datetime.fromtimestamp(payload["iat"], tz=timezone.utc),
             type=payload["type"],
             jti=payload.get("jti", ""),
+            family_id=payload.get("family_id", ""),
         )
     except (KeyError, ValueError):
         return None
