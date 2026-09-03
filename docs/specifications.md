@@ -332,11 +332,25 @@ Students can submit feedback on answer quality, persisted for later analysis.
 
 ---
 
+### 28. Manual course-outline editing — ✅ Implemented
+
+Reviewers must be able to correct a generated course outline without regenerating it. They can
+rename, reorder, create and delete chapters and lessons; move lessons between chapters; and merge
+or split chapters from the course review page. Every operation is persisted immediately.
+
+**Implementation.** Instructor/admin-only outline actions are applied transactionally. Moving a
+lesson keeps its generated content, quiz relationship and source references intact. Destructive
+operations require explicit UI confirmation, and deleting a non-empty chapter requires the API
+caller to either confirm cascading deletion or identify a destination chapter. Chapters and
+lessons record whether and when a human modified them, and the review UI displays that provenance.
+
+---
+
 ## Summary
 
 | Status | Count | Requirements |
 |---|---|---|
-| ✅ Implemented | 22 | 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23, 26, 27 |
+| ✅ Implemented | 23 | 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23, 26, 27, 28 |
 | 🟡 Partial | 3 | 8, 15, 20 |
 | 🔴 Not implemented | 2 | 24, 25 |
 
