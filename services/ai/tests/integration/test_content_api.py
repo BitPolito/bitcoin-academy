@@ -244,6 +244,20 @@ class TestPublishCourse:
         assert body["published_chapters"] == 0
         assert body["skipped_chapters"] == 1
 
+    def test_skips_chapters_with_draft_lessons(self, client, db_session, auth_headers):
+        course = _seed_course(db_session)
+        ch = _seed_draft_chapter(db_session, course.id)
+        _seed_lesson(db_session, ch.id, status="published", content="ok")
+        _seed_lesson(db_session, ch.id, status="draft", content="not reviewed")
+
+        resp = client.post(f"/api/courses/{course.id}/publish", headers=auth_headers)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["published_chapters"] == 0
+        assert body["published_lessons"] == 0
+        assert body["skipped_chapters"] == 1
+
     def test_404_when_course_not_found(self, client, db_session, auth_headers):
         resp = client.post("/api/courses/nonexistent/publish", headers=auth_headers)
         assert resp.status_code == 404

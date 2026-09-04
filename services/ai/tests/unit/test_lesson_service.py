@@ -379,6 +379,21 @@ def test_publish_course_skips_chapters_with_needs_review():
     assert ch.status == "draft"
 
 
+def test_publish_course_skips_chapters_with_draft_lessons():
+    db, course = _make_db()
+    ch = _add_chapter(db, course.id, status="draft")
+    _add_lesson(db, ch.id, status="published", content="ready")
+    _add_lesson(db, ch.id, status="draft", content="not reviewed")
+
+    result = publish_course(course.id, db)
+
+    assert result["published_chapters"] == 0
+    assert result["published_lessons"] == 0
+    assert result["skipped_chapters"] == 1
+    db.refresh(ch)
+    assert ch.status == "draft"
+
+
 def test_publish_course_skips_stale_lessons():
     db, course = _make_db()
     chapter = _add_chapter(db, course.id)
