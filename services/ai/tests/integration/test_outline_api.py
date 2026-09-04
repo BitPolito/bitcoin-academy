@@ -411,7 +411,11 @@ def test_reorder_and_move_lesson_preserve_content_quiz_and_sources(client, db, r
     lessons[0].source_refs_json = json.dumps(["source-1"])
     quiz = Quiz(id=str(uuid.uuid4()), scope=QuizScope.LESSON, lesson_id=lessons[0].id, title="Quiz")
     target = Chapter(id=str(uuid.uuid4()), course_id=course.id, title="Target", order_index=1, status="draft")
-    db.add_all([quiz, target])
+    target_lesson = Lesson(
+        id=str(uuid.uuid4()), chapter=target, title="Existing target lesson",
+        content="Existing.", order_index=0, status="draft",
+    )
+    db.add_all([quiz, target, target_lesson])
     db.commit()
 
     reordered = client.post(
@@ -431,6 +435,82 @@ def test_reorder_and_move_lesson_preserve_content_quiz_and_sources(client, db, r
     assert lesson.content == "Content."
     assert lesson.source_refs_json == json.dumps(["source-1"])
     assert db.query(Quiz).filter_by(id=quiz.id, lesson_id=lesson.id).one()
+    source_order = db.query(Lesson.order_index).filter(
+        Lesson.chapter_id == source.id
+    ).order_by(Lesson.order_index).all()
+    target_order = db.query(Lesson.order_index).filter(
+        Lesson.chapter_id == target.id
+    ).order_by(Lesson.order_index).all()
+    assert [row.order_index for row in source_order] == [0]
+    assert [row.order_index for row in target_order] == [0, 1]
+    assert source.is_human_modified is True
+    assert target.is_human_modified is True
+
+
+@pytest.mark.integration
+def test_move_lesson_rejects_its_current_chapter(client, db, reviewer_headers):
+    course, lessons = make_course_with_lessons(db)
+    chapter = lessons[0].chapter
+    chapter.status = "draft"
+    db.commit()
+
+    response = client.post(
+        f"/api/courses/{course.id}/outline/actions",
+        headers=reviewer_headers,
+        json={
+            "action": "move_lesson",
+            "lesson_id": lessons[0].id,
+            "target_chapter_id": chapter.id,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.integration
+def test_reorder_rejects_duplicate_ids(client, db, reviewer_headers):
+    course, lessons = make_course_with_lessons(db)
+    source = lessons[0].chapter
+    source.status = "draft"
+    target, _ = _make_draft_chapter(db, course.id, "Target", 1)
+
+    chapters_response = client.post(
+        f"/api/courses/{course.id}/outline/actions",
+        headers=reviewer_headers,
+        json={
+            "action": "reorder_chapters",
+            "ordered_ids": [source.id, target.id, target.id],
+        },
+    )
+    lessons_response = client.post(
+        f"/api/courses/{course.id}/outline/actions",
+        headers=reviewer_headers,
+        json={
+            "action": "reorder_lessons",
+            "chapter_id": source.id,
+            "ordered_ids": [lessons[0].id, lessons[1].id, lessons[1].id],
+        },
+    )
+
+    assert chapters_response.status_code == 422
+    assert lessons_response.status_code == 422
+
+
+@pytest.mark.integration
+def test_delete_lesson_marks_parent_chapter_as_human_modified(client, db, reviewer_headers):
+    course, _ = make_course_with_lessons(db)
+    chapter, lesson = _make_draft_chapter(db, course.id)
+
+    response = client.post(
+        f"/api/courses/{course.id}/outline/actions",
+        headers=reviewer_headers,
+        json={"action": "delete_lesson", "lesson_id": lesson.id},
+    )
+
+    assert response.status_code == 200
+    db.refresh(chapter)
+    assert chapter.is_human_modified is True
+    assert chapter.human_modified_at
 
 
 @pytest.mark.integration
@@ -455,6 +535,32 @@ def test_merge_and_split_chapters_move_existing_lessons(client, db, reviewer_hea
     assert split.status_code == 200
     assert [chapter["title"] for chapter in split.json()["chapters"]] == ["Target", "Split"]
     assert split.json()["chapters"][1]["lessons"][0]["id"] == lessons[1].id
+
+
+@pytest.mark.integration
+def test_split_inserts_new_chapter_immediately_after_source(client, db, reviewer_headers):
+    course, lessons = make_course_with_lessons(db)
+    source = lessons[0].chapter
+    source.status = "draft"
+    trailing, _ = _make_draft_chapter(db, course.id, "Trailing", 1)
+
+    response = client.post(
+        f"/api/courses/{course.id}/outline/actions",
+        headers=reviewer_headers,
+        json={
+            "action": "split_chapter",
+            "chapter_id": source.id,
+            "title": "Split",
+            "lesson_ids": [lessons[1].id],
+        },
+    )
+
+    assert response.status_code == 200
+    assert [chapter["title"] for chapter in response.json()["chapters"]] == [
+        source.title,
+        "Split",
+        trailing.title,
+    ]
 
 
 @pytest.mark.integration
