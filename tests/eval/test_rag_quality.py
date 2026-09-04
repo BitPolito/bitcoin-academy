@@ -3,7 +3,7 @@
 Run manually before deployment (requires a live stack):
 
     docker-compose up -d api qvac redis postgres
-    uv run pytest tests/eval/test_rag_quality.py -v --no-cov -s
+    uv run --no-sync pytest tests/eval/test_rag_quality.py -v --no-cov -s
 
 Prerequisites:
     uv add ragas --dev
@@ -255,7 +255,7 @@ class TestRagQuality:
     """End-to-end RAG quality evaluation.
 
     Requires a live stack and an indexed course. Run manually:
-        EVAL_COURSE_ID=<course-id> uv run pytest tests/eval/test_rag_quality.py -v --no-cov -s
+        EVAL_COURSE_ID=<course-id> uv run --no-sync pytest tests/eval/test_rag_quality.py -v --no-cov -s
     """
 
     @pytest.fixture(scope="class")

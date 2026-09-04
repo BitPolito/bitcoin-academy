@@ -1,13 +1,23 @@
 FROM python:3.11-slim
 
+COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /uvx /bin/
+
 WORKDIR /app
 
-# pyproject declares `packages = ["app"]` and `readme = "README.md"`, so both must
-# exist before the install: with only pyproject.toml present, setuptools fails
-# with "package directory 'app' does not exist" and the image cannot be built.
-COPY pyproject.toml README.md ./
+# Keep the managed environment outside /app: the development Compose override
+# bind-mounts the source tree there and must not hide the installed environment.
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PATH="/opt/venv/bin:$PATH"
+
+# Install third-party packages in a cacheable layer, strictly from uv.lock.
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --locked --no-install-project
+
+# Install the project only after its package exists, then copy runtime assets.
 COPY app ./app
-RUN pip install --no-cache-dir .
+RUN uv sync --locked
 
 COPY . .
 

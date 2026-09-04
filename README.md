@@ -59,7 +59,7 @@ Open **http://localhost:3000** and log in:
 > Start them separately if you want to test uploads:
 > ```bash
 > redis-server --daemonize yes
-> cd services/ai && uv run arq app.workers.arq_worker.WorkerSettings
+> cd services/ai && uv run --no-sync arq app.workers.arq_worker.WorkerSettings
 > ```
 
 ---
@@ -166,14 +166,15 @@ Full list: [`services/ai/.env.example`](services/ai/.env.example).
 ```bash
 # Backend (pytest)
 cd services/ai
-uv run pytest                       # all tests
-uv run pytest tests/unit/
-uv run pytest tests/integration/
+uv sync --locked --extra dev        # install exactly the committed lock
+uv run --no-sync pytest             # all tests
+uv run --no-sync pytest tests/unit/
+uv run --no-sync pytest tests/integration/
 
 # RAG end-to-end suite
-uv run python tests/test_rag.py                            # 35 curated queries
-uv run python tests/test_rag.py --query "What is Bitcoin?" # single query
-uv run python tests/test_rag.py --output results.json      # save JSON report
+uv run --no-sync python tests/test_rag.py                            # 35 curated queries
+uv run --no-sync python tests/test_rag.py --query "What is Bitcoin?" # single query
+uv run --no-sync python tests/test_rag.py --output results.json      # save JSON report
 
 # Frontend
 cd apps/web && npm test
@@ -185,6 +186,10 @@ cd workers/qvac-service && npm test
 The RAG suite runs 35 queries across 7 categories (basic, chapter, conceptual, comparative, synthesis, adversarial, stress) through the full retrieval pipeline, scoring each PASS / WARN / FAIL by retrieval confidence. Results are saved as JSON for baseline comparisons.
 
 CI runs on every push and pull request to `master` via GitHub Actions (`.github/workflows/ci.yml`). See [`AGENTS.md`](AGENTS.md) for the contribution workflow.
+
+Python dependency changes are explicit: edit `pyproject.toml`, run `uv lock`, review and commit
+the resulting `uv.lock`, then run `uv sync --locked --extra dev`. CI and Docker reject a stale
+lockfile instead of resolving dependencies implicitly.
 
 ---
 

@@ -110,7 +110,7 @@ PIDS+=($!)
 log "Starting backend   → http://localhost:8000  (log: .logs/backend.log)"
 (
     cd "$ROOT/services/ai"
-    exec uv run uvicorn app.main:app --reload --port 8000
+    exec uv run --no-sync uvicorn app.main:app --reload --port 8000
 ) > "$LOG_DIR/backend.log" 2>&1 &
 PIDS+=($!)
 

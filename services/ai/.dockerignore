@@ -1,0 +1,15 @@
+.env
+*.db
+venv/
+.venv/
+uploads/
+chroma_db/
+qvac_ingest/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+*.log
+tests/
+docs/

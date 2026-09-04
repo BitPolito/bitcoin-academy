@@ -35,14 +35,14 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 if ($Setup) {
     Write-Step "Running backend setup..."
     Push-Location "$Root\services\ai"
-    uv sync
+    uv sync --locked --extra dev
     if (-not (Test-Path ".env")) {
         if (Test-Path ".env.example") {
             Copy-Item ".env.example" ".env"
             Write-Step ".env created from .env.example"
         }
     }
-    uv run python -m app.db.init_db
+    uv run --no-sync python -m app.db.init_db
     Pop-Location
 
     foreach ($dir in @("$Root\apps\web", "$Root\workers\qvac-service")) {
@@ -85,7 +85,7 @@ Start-Process powershell -ArgumentList "-NoExit", "-Command",
 
 Write-Step "Starting backend   → http://localhost:8000"
 Start-Process powershell -ArgumentList "-NoExit", "-Command",
-    "cd '$Root\services\ai'; uv run uvicorn app.main:app --reload --port 8000 *> '$LogDir\backend.log'; Read-Host 'Press Enter to close'"
+    "cd '$Root\services\ai'; uv run --no-sync uvicorn app.main:app --reload --port 8000 *> '$LogDir\backend.log'; Read-Host 'Press Enter to close'"
 
 Write-Step "Starting QVAC      → http://localhost:3001"
 Start-Process powershell -ArgumentList "-NoExit", "-Command",

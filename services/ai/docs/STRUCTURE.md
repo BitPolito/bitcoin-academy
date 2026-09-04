@@ -54,8 +54,7 @@ services/ai/
   - Tool configurations (black, isort, pylint)
   - Pytest configuration override
 
-- **requirements.txt** - Legacy dependency list (generated from pyproject.toml)
-  - Use `pip install -e .[dev]` instead
+- **uv.lock** - Committed, reproducible dependency resolution used by development, CI, and Docker
 
 ### Documentation
 - **README.md** - Backend setup and usage documentation
@@ -79,17 +78,17 @@ services/ai/
 ## Installation & Usage
 
 ```bash
-# Install with dev dependencies
-pip install -e .[dev]
+# Install the committed dependency resolution, including test tools
+uv sync --locked --extra dev
 
 # Run tests (uses config/pytest.ini)
-pytest
+uv run --no-sync pytest
 
 # Type check (uses config/mypy.ini)
-mypy app
+uv run --no-sync mypy app
 
 # Lint (uses config/setup.cfg)
-flake8 app
+uv run --no-sync flake8 app
 ```
 
 ## Adding Documentation

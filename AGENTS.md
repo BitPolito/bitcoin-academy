@@ -126,7 +126,8 @@ run wastes everyone's time.
 
 ```bash
 # Backend
-cd services/ai && uv run pytest && mypy app
+cd services/ai && uv sync --locked --extra dev
+uv run --no-sync pytest && uv run --no-sync mypy app
 
 # Frontend
 cd apps/web && npm run type-check && npm run lint && npm test

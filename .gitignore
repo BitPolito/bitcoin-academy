@@ -108,6 +108,7 @@ temp/
 
 # Docker
 .dockerignore
+!services/ai/.dockerignore
 docker-compose.local.yml
 
 # IDE config

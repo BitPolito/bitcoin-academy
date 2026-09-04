@@ -1,10 +1,10 @@
 """RAG test suite for The Bitcoin Standard.
 
 Usage:
-    uv run python tests/test_rag.py
-    uv run python tests/test_rag.py --output results.json
-    uv run python tests/test_rag.py --course <course_id>
-    uv run python tests/test_rag.py --query "What is Bitcoin?"
+    uv run --no-sync python tests/test_rag.py
+    uv run --no-sync python tests/test_rag.py --output results.json
+    uv run --no-sync python tests/test_rag.py --course <course_id>
+    uv run --no-sync python tests/test_rag.py --query "What is Bitcoin?"
 
 Runs 35 curated queries through the full retrieval pipeline and prints a
 color-coded report. Saves full JSON results to --output (default: rag_test_results.json).
