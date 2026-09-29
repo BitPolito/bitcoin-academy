@@ -363,7 +363,8 @@ async def _route(
         sources = _parse_citations(generated, pack)
     else:
         trace.fallback_used = True
-        answer = raw_answer or "No relevant content found."
+        # FIX: Prefer the assembled evidence pack over the raw answer or generic error
+        answer = pack.context_block() or raw_answer or "No relevant content found."
         sources = [
             SourceChunk(
                 snippet=c.text,
