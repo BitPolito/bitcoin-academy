@@ -6,7 +6,7 @@ Usage:
     uv run python tests/test_rag.py --course <course_id>
     uv run python tests/test_rag.py --query "What is Bitcoin?"
 
-Runs 35 curated queries through the full retrieval pipeline and prints a
+Runs 76 curated queries (35 book-specific + 41 technical) through the full retrieval pipeline and prints a
 color-coded report. Saves full JSON results to --output (default: rag_test_results.json).
 """
 import argparse
@@ -38,7 +38,7 @@ except ImportError:
     pass
 
 # ---------------------------------------------------------------------------
-# Queries — 35 total, 7 categories
+# Queries — 76 total, 8 categories (35 book-specific + 41 technical)
 # ---------------------------------------------------------------------------
 QUERIES: list[tuple[str, str]] = [
     # (category, query_text)
@@ -85,6 +85,15 @@ QUERIES: list[tuple[str, str]] = [
     ("stress",      "What does the book say about the blockchain compared with Bitcoin?"),
     ("stress",      "How does the book explain Bitcoin's global settlement properties?"),
 ]
+
+# Technical golden queries, merged from the retired tests/rag/test_queries.json
+# and tests/eval/test_rag_quality.py. The JSON file also keeps each query's
+# ground truth and expected keywords for future answer-level metrics.
+_GOLDEN_TECHNICAL = Path(__file__).resolve().parent / "data" / "rag_golden_technical.json"
+QUERIES.extend(
+    ("technical", q["query"])
+    for q in json.loads(_GOLDEN_TECHNICAL.read_text(encoding="utf-8"))["queries"]
+)
 
 # Sections we expect to see for specific query categories
 _CHAPTER_EXPECTED: dict[str, list[str]] = {
@@ -294,7 +303,7 @@ def _print_summary(results: list[QueryResult], out_path: str) -> None:
         by_cat[r.category].append(r)
     print(f"\n  {'Category':<12}  {'Pass':>4}  {'Warn':>4}  {'Fail':>4}  {'AvgScore':>8}  {'AvgLat':>6}")
     print(f"  {'─'*12}  {'─'*4}  {'─'*4}  {'─'*4}  {'─'*8}  {'─'*6}")
-    for cat in ["basic", "chapter", "conceptual", "comparative", "synthesis", "adversarial", "stress"]:
+    for cat in ["basic", "chapter", "conceptual", "comparative", "synthesis", "adversarial", "stress", "technical"]:
         rows = by_cat.get(cat, [])
         if not rows:
             continue
