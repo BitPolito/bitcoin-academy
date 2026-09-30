@@ -223,7 +223,7 @@ def test_readme_documents_the_rag_variables_that_exist():
     assert documented, "No configuration variables found in the README table"
 
     sources = "\n".join(
-        p.read_text()
+        p.read_text(encoding="utf-8")
         for p in (_SERVICES_AI / "app").rglob("*.py")
     )
     for name in sorted(documented):
