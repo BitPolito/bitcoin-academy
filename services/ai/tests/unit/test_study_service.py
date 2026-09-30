@@ -244,7 +244,7 @@ async def test_route_retrieve_action_never_calls_generation():
 async def test_route_generation_fallback_prefers_evidence_pack():
     pack = _make_pack()
     expected_block = pack.context_block()
-    
+
     # Mock retrieval returning a populated pack AND a raw answer
     with patch("app.services.study_service._retrieve_multi", new_callable=AsyncMock, return_value=("raw answer", pack)), \
          patch("app.services.study_service._generate", new_callable=AsyncMock, return_value=None):
@@ -262,7 +262,7 @@ async def test_route_generation_fallback_to_raw_answer_when_pack_empty():
     from app.services.study_service import _route, _empty_pack
     # Use the service's actual empty pack builder to avoid the test fixture trap
     pack = _empty_pack("Q", StudyAction.EXPLAIN)
-    
+
     with patch("app.services.study_service._retrieve_multi", new_callable=AsyncMock, return_value=("QVAC raw fallback", pack)), \
          patch("app.services.study_service._generate", new_callable=AsyncMock, return_value=None):
         trace = MagicMock()
@@ -278,7 +278,7 @@ async def test_route_generation_fallback_to_default_error_when_all_empty():
     from app.services.study_service import _route, _empty_pack
     # Use the service's actual empty pack builder
     pack = _empty_pack("Q", StudyAction.EXPLAIN)
-    
+
     with patch("app.services.study_service._retrieve_multi", new_callable=AsyncMock, return_value=("", pack)), \
          patch("app.services.study_service._generate", new_callable=AsyncMock, return_value=None):
         trace = MagicMock()
