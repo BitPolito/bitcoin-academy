@@ -60,3 +60,22 @@ class DocumentPreview(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class SectionNode(BaseModel):
+    """One heading in the document's section tree (course builder source)."""
+    title: str
+    level: int
+    page_start: int
+    page_end: int
+    parent_chunk_ids: List[str]
+    children: List["SectionNode"] = []
+
+
+class DocumentStructure(BaseModel):
+    document_id: str
+    # "ingest" = heading hierarchy extracted at ingest;
+    # "rebuilt" = flat tree reconstructed from chunk_parent (legacy docs);
+    # "unavailable" = document not READY or no parents indexed.
+    source: str
+    tree: Optional[List[SectionNode]] = None

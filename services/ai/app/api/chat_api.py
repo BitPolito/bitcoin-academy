@@ -1,4 +1,5 @@
 """Chat API controller - RAG-backed Q&A endpoint."""
+import asyncio
 import json
 from typing import AsyncGenerator, List
 
@@ -111,15 +112,33 @@ async def chat_stream(
 ) -> StreamingResponse:
     history = [{"role": h.role, "content": h.content} for h in body.history]
 
+    _HEARTBEAT_INTERVAL = 15.0  # seconds between keep-alive comments
+
     async def event_generator() -> AsyncGenerator[str, None]:
-        async for chunk in chat_service.stream_answer(
+        stream_iter = chat_service.stream_answer(
             question=body.message, course_id=course_id, history=history
-        ):
-            if chunk.startswith("\x00CITATIONS\x00"):
-                citations_json = chunk[len("\x00CITATIONS\x00"):]
-                yield f"data: [CITATIONS]{citations_json}\n\n"
-            else:
-                yield f"data: {json.dumps(chunk)}\n\n"
+        ).__aiter__()
+        # Keep a persistent Task so asyncio.wait_for timeout does NOT cancel the
+        # underlying generator — only the shield wrapper is cancelled on timeout.
+        pending: asyncio.Task | None = None
+        while True:
+            try:
+                if pending is None:
+                    pending = asyncio.ensure_future(stream_iter.__anext__())
+                chunk = await asyncio.wait_for(asyncio.shield(pending), timeout=_HEARTBEAT_INTERVAL)
+                pending = None  # consumed — create a new task next iteration
+                if chunk.startswith("\x00CITATIONS\x00"):
+                    citations_json = chunk[len("\x00CITATIONS\x00"):]
+                    yield f"data: [CITATIONS]{citations_json}\n\n"
+                else:
+                    yield f"data: {json.dumps(chunk)}\n\n"
+            except asyncio.TimeoutError:
+                yield ": keep-alive\n\n"
+                # pending task is still running in background — loop and wait again
+            except StopAsyncIteration:
+                break
+        if pending is not None:
+            pending.cancel()
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(

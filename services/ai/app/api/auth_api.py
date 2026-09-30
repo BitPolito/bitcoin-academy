@@ -41,7 +41,7 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication"])
         429: {"description": "Too many registration attempts"},
     },
 )
-@limiter.limit("5/minute")  # Rate limit: 5 registrations per minute per IP
+@limiter.limit("20/minute")  # Rate limit: 20 registrations per minute per IP
 def register(
     request: Request,
     data: RegisterRequest,
@@ -75,7 +75,7 @@ def register(
         429: {"description": "Too many login attempts"},
     },
 )
-@limiter.limit("10/minute")  # Rate limit: 10 login attempts per minute per IP
+@limiter.limit("30/minute")  # Rate limit: 30 login attempts per minute per IP
 def login(
     request: Request,
     data: LoginRequest,

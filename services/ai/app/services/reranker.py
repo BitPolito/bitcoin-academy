@@ -34,7 +34,7 @@ def _get_flashrank():
         return _flashrank_ranker
     _flashrank_attempted = True
     try:
-        from flashrank import Ranker  # type: ignore[import-untyped]
+        from flashrank import Ranker
         _flashrank_ranker = Ranker(model_name=_FLASHRANK_MODEL, cache_dir=_FLASHRANK_CACHE)
         logger.info("Flashrank reranker loaded: %s", _FLASHRANK_MODEL)
     except Exception as exc:
@@ -49,7 +49,7 @@ def _get_cross_encoder():
         return _cross_encoder
     _cross_encoder_attempted = True
     try:
-        from sentence_transformers import CrossEncoder  # type: ignore[import-untyped]
+        from sentence_transformers import CrossEncoder
         _cross_encoder = CrossEncoder(_CROSS_ENCODER_MODEL)
         logger.info("CrossEncoder fallback loaded: %s", _CROSS_ENCODER_MODEL)
     except Exception as exc:
@@ -83,7 +83,7 @@ def rerank(query: str, chunks: List[EvidenceChunk]) -> List[EvidenceChunk]:
     ranker = _get_flashrank()
     if ranker is not None:
         try:
-            from flashrank import RerankRequest  # type: ignore[import-untyped]
+            from flashrank import RerankRequest
             request = RerankRequest(
                 query=query,
                 passages=[{"id": i, "text": c.text} for i, c in enumerate(chunks)],
@@ -142,7 +142,7 @@ def _get_mmr_emb():
         return _mmr_emb
     _mmr_emb_attempted = True
     try:
-        from fastembed import TextEmbedding  # type: ignore[import]
+        from fastembed import TextEmbedding
         _mmr_emb = TextEmbedding(_MMR_EMB_MODEL)
         logger.info("MMR embedding model loaded: %s", _MMR_EMB_MODEL)
     except Exception as exc:

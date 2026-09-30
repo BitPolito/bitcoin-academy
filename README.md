@@ -19,68 +19,109 @@ Everything runs locally — no external API keys needed. The retrieval pipeline 
 
 Redis is optional in development but required in production for background ingestion, semantic cache, token blacklist, and account lockout. SQLite is used in development — no PostgreSQL setup needed.
 
+**Windows:** use `start.ps1` instead of `start.sh` (see [Windows Quick Start](#windows-quick-start) below), or use [Docker](#docker-full-stack) which works the same on all platforms.
+
 **Disk and RAM:** plan for ~4 GB of disk (embedding model ~670 MB + Qwen3-4B ~2.5 GB, downloaded on first run) and at least 8 GB RAM (~5 GB at runtime with the LLM loaded). 16 GB is more comfortable.
 
 If you're on a machine with less than 8 GB free, set `QVAC_LLM_ENABLED=false`. The system will run in retrieval-only mode (~670 MB total): all study actions still return source passages, but there's no prose generation.
 
 ---
 
-## Quick Start (Docker)
+## Quick Start
+
+Uses SQLite — no Postgres or Redis needed to try the platform.
 
 ```bash
-# 1. Create root .env with database credentials
-echo "DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy" > .env
-
-# 2. Copy and configure service env files
+# 1. Copy env files (defaults work as-is for a local demo)
 cp services/ai/.env.example services/ai/.env
 cp apps/web/.env.example     apps/web/.env.local
 
-# 3. Start everything
-docker compose up --build
+# 2. First-time setup and start all services
+./start.sh --setup
 ```
 
-`docker compose up` automatically merges `docker-compose.yml` with `docker-compose.override.yml`, which adds source mounts, hot reload, and exposed ports. To run the production base without the dev overrides:
+`--setup` installs dependencies, initialises the SQLite database, and creates the demo accounts.
+On the first run QVAC downloads the embedding model (~670 MB) — expect 2–5 minutes before the
+chat becomes available. You can monitor progress with:
 
 ```bash
-docker compose -f docker-compose.yml up --build
+tail -f .logs/qvac.log
 ```
 
-| Service | Dev URL |
-|---|---|
-| Frontend | http://localhost:3000 (through Caddy on :80 in prod) |
-| Backend API | http://localhost:8000 (through Caddy on /api/* in prod) |
-| Reverse proxy | http://localhost:80 |
-| QVAC service | http://localhost:3001 |
-| Interactive API docs | http://localhost:8000/docs (dev only) |
-
-Default development accounts created automatically:
+Open **http://localhost:3000** and log in:
 
 | Role | Email | Password |
 |---|---|---|
 | Admin | `admin@bitpolito.it` | `DevAdmin@2024!Secure` |
 | Student | `student@bitpolito.it` | `DevStudent@2024!Learn` |
 
+> **Document ingestion** (uploading PDFs/slides) also requires Redis and the ARQ background worker.
+> Start them separately if you want to test uploads:
+> ```bash
+> redis-server --daemonize yes
+> cd services/ai && uv run arq app.workers.arq_worker.WorkerSettings
+> ```
+
 ---
 
-## Manual Start (Development)
+## Windows Quick Start
+
+**Prerequisites:** [Node.js ≥ 22](https://nodejs.org), [Python 3.11](https://python.org/downloads), [uv](https://docs.astral.sh/uv/getting-started/installation/)
+
+Open **PowerShell** (not cmd) in the project root. If you get an execution-policy error, run once:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+Then:
+
+```powershell
+# 1. Copy env files
+Copy-Item services\ai\.env.example  services\ai\.env
+Copy-Item apps\web\.env.example     apps\web\.env.local
+
+# 2. First-time setup and start all services
+.\start.ps1 -Setup
+```
+
+This opens three separate PowerShell windows (frontend, backend, QVAC). Close them to stop all services. Subsequent runs: `.\start.ps1`.
+
+> **Alternative:** [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/) (requires WSL2) gives you the exact same stack with a single command — see [Docker (full stack)](#docker-full-stack).
+
+---
+
+## Docker (full stack)
+
+Runs Postgres, Redis, QVAC, API, frontend, and Caddy reverse proxy as containers.
 
 ```bash
-# Frontend
-cd apps/web && npm install && npm run dev
+# Copy env files
+cp services/ai/.env.example services/ai/.env
+cp apps/web/.env.example     apps/web/.env.local
 
-# Backend — run setup once, then start the server
-cd services/ai
-cp .env.example .env          # fill in SECRET_KEY at minimum
-bash setup-dev.sh             # installs deps, initialises DB, creates dev accounts
-uv run uvicorn app.main:app --reload --port 8000
+# Create root .env with the Postgres URL used by docker-compose variable substitution
+echo "DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy" > .env
 
-# Background worker (optional — requires Redis)
-redis-server --daemonize yes
-cd services/ai
-uv run arq app.workers.arq_worker.WorkerSettings
+# Start (dev mode — hot reload, ports exposed)
+docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml up --build
+```
 
-# QVAC service (downloads models on first run — 2–5 minutes)
-cd workers/qvac-service && npm install && node src/server.js
+> **First run:** QVAC downloads the embedding model (~670 MB) before it becomes healthy.
+> The `api` and `arq-worker` services wait for QVAC — allow up to 5 minutes.
+> Monitor with: `docker compose logs -f qvac`
+
+| Service | URL |
+|---|---|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| Reverse proxy (Caddy) | http://localhost:80 |
+| QVAC service | http://localhost:3001 |
+| Swagger UI | http://localhost:8000/docs |
+
+Production base only (no dev overrides):
+```bash
+docker compose -f infra/docker-compose.yml up --build
 ```
 
 ---
@@ -131,9 +172,9 @@ uv run pytest tests/unit/
 uv run pytest tests/integration/
 
 # RAG end-to-end suite
-uv run python test_rag.py                            # 35 curated queries
-uv run python test_rag.py --query "What is Bitcoin?" # single query
-uv run python test_rag.py --output results.json      # save JSON report
+uv run python tests/test_rag.py                            # 35 curated queries
+uv run python tests/test_rag.py --query "What is Bitcoin?" # single query
+uv run python tests/test_rag.py --output results.json      # save JSON report
 
 # Frontend
 cd apps/web && npm test
@@ -162,12 +203,16 @@ CI runs on every push and pull request to `master` via GitHub Actions (`.github/
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| `localhost:3000` — connection refused | Services not started, or `.env.local` missing | Run the two `cp` commands in Quick Start, then `./start.sh` (or `./start.sh --setup` on first run) |
+| Port 3000 occupied by a stale process | Previous run exited without cleanup | `./start.sh` kills stale processes automatically; if running manually: `kill $(lsof -ti :3000)` |
 | QVAC service fails to start | Model download timed out on first run | Re-run `node src/server.js` — models are cached after the first successful download |
 | `/health` returns `database: disconnected` | `DATABASE_URL` missing or wrong | Check `services/ai/.env`; confirm PostgreSQL is running (or use the SQLite default for dev) |
 | Document stuck in `processing` forever | Redis not running → ARQ worker not started | `redis-server --daemonize yes`, then start the ARQ worker |
 | Frontend CORS error | `CORS_ORIGINS` missing the frontend origin | Add the frontend URL to `CORS_ORIGINS` in `services/ai/.env` |
 | Chat returns "Il servizio di ricerca non è disponibile" | QVAC service not running | `cd workers/qvac-service && node src/server.js` |
-| SSR API calls fail in Docker (`ECONNREFUSED localhost:8000`) | Next.js server-side calls resolve to the wrong host | `docker-compose.yml` sets `API_BASE_URL=http://api:8000/api` for SSR; make sure the web container env is current |
+| SSR API calls fail in Docker (`ECONNREFUSED localhost:8000`) | Next.js server-side calls resolve to the wrong host | `infra/docker-compose.yml` sets `API_BASE_URL=http://api:8000/api` for SSR; make sure the web container env is current |
+| `start.sh` fails on Windows | bash not available | Use `.\start.ps1` in PowerShell, or run Docker (works on all platforms) |
+| `execution of scripts is disabled` (PowerShell) | Execution policy blocks unsigned scripts | `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned` |
 
 ---
 

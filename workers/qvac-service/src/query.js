@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from "fs";
 import path from "path";
 import { ragSearch } from "@qvac/sdk";
 import { getEmbeddingModelId, getLlmModelId } from "./models.js";
+import { withLlmLock, withLlmLockGen } from "./llm-queue.js";
 
 const INGEST_DIR = process.env.QVAC_INGEST_DIR ?? "/qvac_ingest";
 
@@ -64,6 +65,11 @@ function _stripMarkdown(text) {
     .trim();
 }
 
+// Strip <think>...</think> blocks produced by reasoning models like Qwen3.
+function _stripThinking(text) {
+  return text.replace(/<think>[\s\S]*?<\/think>\s*/gi, "").trim();
+}
+
 const DEFAULT_SYSTEM_PROMPT =
   "Sei un assistente educativo per BitPolito Academy. " +
   "Rispondi SOLO usando il contesto fornito. " +
@@ -80,9 +86,13 @@ const DEFAULT_SYSTEM_PROMPT =
  * @param {string} question        student's question
  * @param {{ label: string, text: string }[]} contextBlocks  pre-selected parent chunks
  * @param {string|null} [systemPrompt]  optional override; falls back to DEFAULT_SYSTEM_PROMPT
+ * @param {{ preserveMarkdown?: boolean, enableThinking?: boolean }} [opts]
+ *   preserveMarkdown: skip _stripMarkdown (use for structured study action output)
+ *   enableThinking: omit /nothink suffix (use for DERIVE to leverage Qwen3 reasoning)
  * @returns {{ answer: string }}
  */
-export async function generateFromContext(question, contextBlocks, systemPrompt = null) {
+export async function generateFromContext(question, contextBlocks, systemPrompt = null, opts = {}) {
+  const { preserveMarkdown = false, enableThinking = false } = opts;
   const llmId = getLlmModelId();
 
   if (!llmId) {
@@ -104,6 +114,11 @@ export async function generateFromContext(question, contextBlocks, systemPrompt 
     })
     .join("\n\n---\n\n");
 
+  const thinkSuffix = enableThinking ? "" : " /nothink";
+  const userContent = contextStr
+    ? `Contesto:\n${contextStr}\n\nDomanda: ${question}${thinkSuffix}`
+    : `Domanda: ${question}${thinkSuffix}`;
+
   const history = [
     {
       role: "system",
@@ -111,19 +126,19 @@ export async function generateFromContext(question, contextBlocks, systemPrompt 
     },
     {
       role: "user",
-      content: contextStr
-        ? `Contesto:\n${contextStr}\n\nDomanda: ${question}`
-        : `Domanda: ${question}`,
+      content: userContent,
     },
   ];
 
-  let answer = "";
-  const result = completion({ modelId: llmId, history, stream: false });
-  for await (const token of result.tokenStream) {
-    answer += token;
-  }
+  // stream: false → answer is in result.text (Promise), tokenStream is empty.
+  // Serialised through the LLM queue: one completion at a time on the model.
+  const rawAnswer = await withLlmLock(async () => {
+    const result = completion({ modelId: llmId, history, stream: false });
+    return await result.text;
+  });
 
-  return { answer: _stripMarkdown(answer) };
+  const cleaned = _stripThinking(rawAnswer || "");
+  return { answer: preserveMarkdown ? cleaned : _stripMarkdown(cleaned) };
 }
 
 
@@ -135,9 +150,12 @@ export async function generateFromContext(question, contextBlocks, systemPrompt 
  * @param {string} question
  * @param {{ label: string, text: string }[]} contextBlocks
  * @param {string|null} [systemPrompt]
+ * @param {{ enableThinking?: boolean }} [opts]
+ *   enableThinking: omit /nothink suffix (use for DERIVE)
  * @yields {string} individual tokens as they are produced
  */
-export async function* streamFromContext(question, contextBlocks, systemPrompt = null) {
+export async function* streamFromContext(question, contextBlocks, systemPrompt = null, opts = {}) {
+  const { enableThinking = false } = opts;
   const llmId = getLlmModelId();
 
   if (!llmId) {
@@ -158,20 +176,48 @@ export async function* streamFromContext(question, contextBlocks, systemPrompt =
     })
     .join("\n\n---\n\n");
 
+  const thinkSuffix = enableThinking ? "" : " /nothink";
+  const userContent = contextStr
+    ? `Contesto:\n${contextStr}\n\nDomanda: ${question}${thinkSuffix}`
+    : `Domanda: ${question}${thinkSuffix}`;
+
   const history = [
     { role: "system", content: systemPrompt || DEFAULT_SYSTEM_PROMPT },
-    {
-      role: "user",
-      content: contextStr
-        ? `Contesto:\n${contextStr}\n\nDomanda: ${question}`
-        : `Domanda: ${question}`,
-    },
+    { role: "user", content: userContent },
   ];
 
-  const result = completion({ modelId: llmId, history, stream: true });
-  for await (const token of result.tokenStream) {
-    yield token;
-  }
+  // Serialised through the LLM queue; the lock is held until the stream ends.
+  yield* withLlmLockGen(async function* () {
+    const result = completion({ modelId: llmId, history, stream: true });
+
+    // Buffer tokens while inside a <think>...</think> block; only yield post-thinking output.
+    let thinking = false;
+    let thinkBuf = "";
+    for await (const token of result.tokenStream) {
+      thinkBuf += token;
+      if (!thinking && thinkBuf.includes("<think>")) {
+        thinking = true;
+      }
+      if (thinking) {
+        if (thinkBuf.includes("</think>")) {
+          thinking = false;
+          // Yield any text that came after the closing tag.
+          const after = thinkBuf.split("</think>").slice(1).join("</think>").trimStart();
+          thinkBuf = "";
+          if (after) yield after;
+        }
+        // Still inside <think> — swallow the token.
+        continue;
+      }
+      // Normal token — flush the buffer and yield.
+      if (thinkBuf) {
+        yield thinkBuf;
+        thinkBuf = "";
+      }
+    }
+    // Flush any remaining buffer (e.g. model ended without </think>).
+    if (thinkBuf && !thinking) yield thinkBuf;
+  });
 }
 
 

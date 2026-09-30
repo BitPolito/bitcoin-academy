@@ -72,12 +72,8 @@ export function DocumentProcessingPanel({
   return (
     <div className="py-3 px-4 bg-gray-50 rounded-md space-y-1">
       <dl className="divide-y divide-gray-100">
-        <DetailRow label="Raw status" value={detail.status} />
         <DetailRow label="Processing stage" value={detail.processingStage} />
-        <DetailRow label="Parser used" value={detail.parserUsed} />
         <DetailRow label="Page / slide count" value={detail.pageCount} />
-        <DetailRow label="Chunk count" value={detail.chunkCount} />
-        <DetailRow label="Indexing status" value={detail.indexingStatus} />
         {detail.errorMessage && (
           <DetailRow
             label="Processing errors"

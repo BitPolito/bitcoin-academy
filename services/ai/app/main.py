@@ -11,11 +11,14 @@ from sqlalchemy import text
 
 from app.api.auth_api import router as auth_router
 from app.api.certificates_api import router as certificates_router
+from app.api.chapter_test_api import router as chapter_test_router
 from app.api.chat_api import router as chat_router
 from app.api.courses_api import router as courses_router
 from app.api.documents_api import router as documents_router
 from app.api.feedback_api import router as feedback_router
 from app.api.progress_api import router as progress_router
+from app.api.content_api import router as content_router
+from app.api.outline_api import router as outline_router
 from app.api.quizzes_api import router as quizzes_router
 from app.api.study_api import router as study_router
 from app.db.session import init_db, get_db
@@ -144,11 +147,14 @@ app.add_middleware(
 # Include routers
 app.include_router(auth_router)
 app.include_router(certificates_router)
+app.include_router(chapter_test_router)
 app.include_router(chat_router)
 app.include_router(courses_router)
 app.include_router(documents_router)
 app.include_router(feedback_router)
 app.include_router(progress_router)
+app.include_router(content_router)
+app.include_router(outline_router)
 app.include_router(quizzes_router)
 app.include_router(study_router)
 
@@ -171,14 +177,18 @@ def root():
 
 
 @app.get("/health", tags=["Health"])
-def health_check():
-    """Health check endpoint with database connectivity test."""
-    health_status = {
+async def health_check():
+    """Health check endpoint — tests DB, QVAC reachability, and cache mode."""
+    import httpx as _httpx
+
+    health_status: dict = {
         "status": "healthy",
         "database": "unknown",
+        "qvac": "unknown",
+        "cache": "unknown",
     }
 
-    # Check database connectivity
+    # ── Database ──────────────────────────────────────────────────
     try:
         gen = get_db()
         db = next(gen)
@@ -188,8 +198,23 @@ def health_check():
         finally:
             gen.close()
     except Exception as e:
-        logger.error(f"Database health check failed: {e}")
+        logger.error("Database health check failed: %s", e)
         health_status["database"] = "disconnected"
         health_status["status"] = "degraded"
+
+    # ── QVAC ─────────────────────────────────────────────────────
+    qvac_url = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
+    try:
+        async with _httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{qvac_url}/health")
+            health_status["qvac"] = "connected" if resp.status_code < 400 else "unreachable"
+    except Exception:
+        health_status["qvac"] = "unreachable"
+
+    if health_status["qvac"] == "unreachable":
+        health_status["status"] = "degraded"
+
+    # ── Cache ─────────────────────────────────────────────────────
+    health_status["cache"] = "redis" if os.getenv("REDIS_URL") else "in-memory"
 
     return health_status

@@ -1,10 +1,10 @@
 """RAG test suite for The Bitcoin Standard.
 
 Usage:
-    uv run python test_rag.py
-    uv run python test_rag.py --output results.json
-    uv run python test_rag.py --course <course_id>
-    uv run python test_rag.py --query "What is Bitcoin?"
+    uv run python tests/test_rag.py
+    uv run python tests/test_rag.py --output results.json
+    uv run python tests/test_rag.py --course <course_id>
+    uv run python tests/test_rag.py --query "What is Bitcoin?"
 
 Runs 35 curated queries through the full retrieval pipeline and prints a
 color-coded report. Saves full JSON results to --output (default: rag_test_results.json).
@@ -22,7 +22,7 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 # Environment — must be set before any app import
 # ---------------------------------------------------------------------------
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parent.parent
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_ROOT}/bitcoin_academy.db")
 os.environ.setdefault("CHROMA_DB_PATH", str(_ROOT / "chroma_db"))
 os.environ.setdefault("CHROMA_COLLECTION_NAME", "bitpolito_course")

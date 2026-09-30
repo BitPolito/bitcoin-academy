@@ -153,6 +153,12 @@ auth_secret*
 parsed_output/
 chroma_db/
 
+# Committed test fixtures are the one deliberate exception to the *.pdf/*.pptx
+# rule above — 17 tests in test_pipeline_e2e.py and test_documents_api.py were
+# permanently skipped for want of exactly these two files (see #154).
+!docs/src/bitcoin_technical_document.pdf
+!docs/src/bitcoin_creative_commons_en.pptx
+
 # AI service runtime artifacts
 services/ai/uploads/
 services/ai/qvac_ingest/

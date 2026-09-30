@@ -52,7 +52,7 @@ class RetrievalTestRequest(BaseModel):
     action: str = "explain"
 
 
-def _to_chunk_summary(chunk) -> ChunkSummary:  # type: ignore[no-untyped-def]
+def _to_chunk_summary(chunk) -> ChunkSummary:
     return ChunkSummary(
         chunk_id=chunk.chunk_id,
         text_preview=chunk.text[:200],
@@ -77,7 +77,8 @@ def get_document_chunks(
 
     if doc.sample_chunks_json:
         try:
-            return json.loads(doc.sample_chunks_json)
+            chunks: list[dict[str, Any]] = json.loads(doc.sample_chunks_json)
+            return chunks
         except json.JSONDecodeError:
             pass
     return []

@@ -17,18 +17,18 @@ export function ProgressBar({
 }: ProgressBarProps) {
   const clamped = Math.max(0, Math.min(100, percent));
   const barHeight = size === 'sm' ? 'h-1.5' : 'h-2.5';
-  const barColor = clamped === 100 ? 'bg-green-500' : 'bg-orange-500';
+  const barColor = clamped === 100 ? 'bg-[#1a7f3a]' : 'bg-[#a55a00]';
 
   return (
     <div className={className}>
       {(label || showPercent) && (
         <div className="flex justify-between items-center mb-1">
-          {label && <span className="text-xs text-gray-500">{label}</span>}
-          {showPercent && <span className="text-xs font-medium text-gray-700">{clamped}%</span>}
+          {label && <span className="text-xs opacity-60">{label}</span>}
+          {showPercent && <span className="text-xs font-medium opacity-70">{clamped}%</span>}
         </div>
       )}
       <div
-        className={`w-full bg-gray-200 rounded-full ${barHeight}`}
+        className={`w-full bg-blue-dark/10 rounded-full ${barHeight}`}
         role="progressbar"
         aria-valuenow={clamped}
         aria-valuemin={0}

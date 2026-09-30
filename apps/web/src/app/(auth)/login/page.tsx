@@ -11,14 +11,10 @@ interface FormErrors {
   general?: string;
 }
 
-const inputBase =
-  'appearance-none block w-full px-3 py-2 border rounded-md bg-white dark:bg-[#0a0a0a] text-[#001CE0] dark:text-white placeholder-[rgba(0,28,224,0.25)] dark:placeholder-white/25 focus:outline-none focus:ring-1 focus:ring-blue-dark focus:border-blue-dark sm:text-sm transition-colors';
-
-const inputBorder = 'border-[rgba(0,28,224,0.18)] dark:border-[rgba(255,255,255,0.22)]';
-const inputBorderErr = 'border-err dark:border-red-400';
-
-const labelClass =
-  'block font-mono text-[11px] tracking-wide uppercase text-[#001CE0]/70 dark:text-white/60';
+const inputBase = 'form-input';
+const inputBorder = 'form-input-border';
+const inputBorderErr = 'form-input-border-err';
+const labelClass = 'form-label';
 
 function LoginForm() {
   const router = useRouter();
@@ -63,9 +59,11 @@ function LoginForm() {
       });
       if (result?.error) {
         const friendlyError =
-          result.error === 'CredentialsSignin'
-            ? 'Invalid email or password. Please try again.'
-            : 'An unexpected error occurred. Please try again.';
+          result.error === 'TooManyRequests'
+            ? 'Troppe richieste — riprova tra qualche secondo.'
+            : result.error === 'CredentialsSignin'
+              ? 'Invalid email or password. Please try again.'
+              : 'An unexpected error occurred. Please try again.';
         setErrors({ general: friendlyError });
       } else if (result?.ok) {
         router.push(callbackUrl);
@@ -79,25 +77,25 @@ function LoginForm() {
   };
 
   return (
-    <div className="mt-8 bg-white dark:bg-[#0f0f0f] py-8 px-4 b-thin sm:rounded-lg sm:px-10">
+    <div className="mt-8 auth-card py-8 px-4 b-thin sm:rounded-lg sm:px-10">
       <h2 className="text-center text-xl font-bold ink dark:text-white mb-6 font-mono tracking-tight">
         Sign in
       </h2>
 
       {messageParam && (
-        <div className="mb-4 p-3 rounded bg-blue-50 dark:bg-[rgba(0,28,224,0.07)] border border-blue-200 dark:border-blue-600/30">
+        <div className="mb-4 form-alert-info">
           <p className="text-sm text-blue-800 dark:text-blue-300">{messageParam}</p>
         </div>
       )}
 
       {sessionError && (
-        <div className="mb-4 p-3 rounded bg-amber-50 dark:bg-[rgba(255,180,0,0.07)] border border-amber-200 dark:border-amber-600/30">
+        <div className="mb-4 form-alert-warn">
           <p className="text-sm text-amber-800 dark:text-amber-400">{sessionError}</p>
         </div>
       )}
 
       {errors.general && (
-        <div className="mb-4 p-3 rounded bg-red-50 dark:bg-[rgba(255,0,0,0.06)] border border-red-200 dark:border-red-700/40">
+        <div className="mb-4 form-alert-err">
           <p className="text-sm text-red-600 dark:text-red-400">{errors.general}</p>
         </div>
       )}
@@ -199,10 +197,10 @@ function LoginForm() {
       <div className="mt-6">
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-[rgba(0,28,224,0.12)] dark:border-[rgba(255,255,255,0.12)]" />
+            <div className="w-full border-t form-divider-line" />
           </div>
           <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-white dark:bg-[#0f0f0f] font-mono text-[11px] tracking-wide text-[#001CE0]/40 dark:text-white/30">
+            <span className="form-divider-text">
               Don&apos;t have an account?
             </span>
           </div>

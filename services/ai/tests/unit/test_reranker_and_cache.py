@@ -160,6 +160,74 @@ def test_mmr_on_an_empty_list_returns_empty():
         assert reranker.mmr_select([], top_k=3) == []
 
 
+def _chunk_with_rerank(chunk_id: str, rerank_score: float) -> EvidenceChunk:
+    c = _chunk(chunk_id, f"text for {chunk_id}", score=rerank_score)
+    return c.model_copy(update={"rerank_score": rerank_score})
+
+
+class _FakeEmbeddingModel:
+    """Returns a fixed vector per input text, keyed by substring match, so a
+    test can control which chunks look similar vs. diverse without a real
+    embedding model."""
+
+    def __init__(self, vectors_by_chunk_id: dict[str, list[float]]):
+        self._vectors = vectors_by_chunk_id
+
+    def embed(self, texts):
+        for text in texts:
+            matched = next(cid for cid in self._vectors if cid in text)
+            yield __import__("numpy").asarray(self._vectors[matched], dtype=float)
+
+
+def test_mmr_prefers_a_diverse_lower_relevance_chunk_over_a_redundant_one():
+    """The whole point of MMR: given a redundant near-duplicate of the top
+    chunk and a diverse-but-lower-scored alternative, diversity should win the
+    second slot rather than the raw relevance ranking alone."""
+    a = _chunk_with_rerank("A", 0.9)  # most relevant
+    b = _chunk_with_rerank("B", 0.8)  # second most relevant, near-duplicate of A
+    c = _chunk_with_rerank("C", 0.5)  # least relevant, but semantically distinct
+
+    fake_model = _FakeEmbeddingModel({"A": [1.0, 0.0], "B": [0.99, 0.01], "C": [0.0, 1.0]})
+
+    with patch.object(reranker, "_get_mmr_emb", return_value=fake_model):
+        result = reranker.mmr_select([a, b, c], top_k=2, lambda_=0.5)
+
+    ids = [chunk.chunk_id for chunk in result]
+    assert ids[0] == "A", "the single most relevant chunk must still be selected first"
+    assert ids[1] == "C", (
+        f"expected the diverse chunk C to beat the redundant chunk B for the "
+        f"second slot; got {ids}. If B wins, MMR is not penalising redundancy."
+    )
+
+
+def test_mmr_with_lambda_one_ignores_diversity_and_matches_pure_relevance_order():
+    """lambda_=1.0 is documented as 'pure relevance' — verifies the diversity
+    term is actually gated by lambda rather than always contributing."""
+    a = _chunk_with_rerank("A", 0.9)
+    b = _chunk_with_rerank("B", 0.8)
+    c = _chunk_with_rerank("C", 0.5)
+
+    fake_model = _FakeEmbeddingModel({"A": [1.0, 0.0], "B": [0.99, 0.01], "C": [0.0, 1.0]})
+
+    with patch.object(reranker, "_get_mmr_emb", return_value=fake_model):
+        result = reranker.mmr_select([a, b, c], top_k=2, lambda_=1.0)
+
+    assert [chunk.chunk_id for chunk in result] == ["A", "B"]
+
+
+def test_mmr_falls_back_to_top_k_when_embedding_inference_fails():
+    """A loaded-but-broken embedding model must degrade like a missing one,
+    not propagate an exception into the study dispatch path."""
+    chunks = [_chunk(f"c{i}", f"text {i}") for i in range(4)]
+    broken_model = MagicMock()
+    broken_model.embed.side_effect = RuntimeError("inference crashed")
+
+    with patch.object(reranker, "_get_mmr_emb", return_value=broken_model):
+        result = reranker.mmr_select(chunks, top_k=2)
+
+    assert [c.chunk_id for c in result] == ["c0", "c1"]
+
+
 # ---------------------------------------------------------------------------
 # Semantic cache — similarity maths
 # ---------------------------------------------------------------------------

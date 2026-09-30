@@ -66,7 +66,7 @@ async def _call_qvac(system_prompt: str, question: str) -> Optional[str]:
                 },
             )
             resp.raise_for_status()
-            answer = resp.json().get("answer", "").strip()
+            answer: str = resp.json().get("answer", "").strip()
             # Reject QVAC's no-LLM fallback string.
             if not answer or answer == _QVAC_NO_LLM_FALLBACK:
                 return None

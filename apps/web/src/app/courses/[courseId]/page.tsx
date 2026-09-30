@@ -1,15 +1,16 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { getCourse, type Course } from '@/lib/services/courses';
+import { getCourse, updateCourse, deleteCourse, type Course } from '@/lib/services/courses';
 import { DocumentUpload } from '@/components/documents/DocumentUpload';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { getDocumentListRows, deleteDocument, reindexCourse } from '@/lib/api/documents';
 import type { DocumentListRow } from '@/lib/api/types';
 import { DocumentProcessingPanel } from '@/components/documents/DocumentProcessingPanel';
 import { useToast } from '@/components/ui/Toast';
+import { EditCourseModal } from '@/components/courses/EditCourseModal';
 
 type DocFilter = 'all' | 'ready' | 'processing' | 'error';
 
@@ -34,38 +35,122 @@ const STATE_DOT: Record<string, string> = {
 };
 
 const LIFECYCLE_STAGES = ['uploading', 'processing', 'ready'] as const;
+const PROCESSING_SUBSTAGES = ['parsing', 'chunking', 'indexing'] as const;
+const POLL_INTERVAL_MS = 5_000;
+const POLL_TIMEOUT_MS = 15 * 60 * 1_000;
 
-function Lifecycle({ status }: { status: string }) {
+function useElapsedMinutes(startIso: string | null): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!startIso) return;
+    const tick = () => setElapsed(Math.floor((Date.now() - new Date(startIso).getTime()) / 60_000));
+    tick();
+    const id = setInterval(tick, 30_000);
+    return () => clearInterval(id);
+  }, [startIso]);
+  return elapsed;
+}
+
+function Lifecycle({ status, processingStage, updatedAt }: { status: string; processingStage?: string; updatedAt?: string }) {
+  const isActive = status === 'processing' || status === 'uploading';
+  const elapsedMin = useElapsedMinutes(isActive ? (updatedAt ?? null) : null);
   const failed = status === 'error';
   const idx = failed ? -1 : (LIFECYCLE_STAGES as readonly string[]).indexOf(status);
+
+  const subIdx = processingStage
+    ? (PROCESSING_SUBSTAGES as readonly string[]).indexOf(processingStage)
+    : -1;
+
   return (
-    <div className="flex items-center gap-1.5">
-      {LIFECYCLE_STAGES.map((s, i) => {
-        const done = !failed && i < idx;
-        const here = !failed && i === idx;
-        return (
-          <div key={s} className="flex items-center gap-1.5 flex-1">
-            <div
-              className={`flex-1 h-7 b-thin rounded-sm flex items-center justify-center font-mono text-[10px] tracking-[0.16em] uppercase ${
-                done
-                  ? 'bg-blue-dark text-white dark:bg-white dark:text-blue-dark'
-                  : here
-                    ? 'bg-blue-dark/10'
-                    : 'opacity-40'
-              }`}
-            >
-              {s}
+    <div>
+      {/* Top-level lifecycle: uploading → processing → ready */}
+      <div className="flex items-center gap-1.5">
+        {LIFECYCLE_STAGES.map((s, i) => {
+          const done = !failed && i < idx;
+          const here = !failed && i === idx;
+          return (
+            <div key={s} className="flex items-center gap-1.5 flex-1">
+              <div
+                className={`flex-1 h-7 b-thin rounded-sm flex items-center justify-center font-mono text-[10px] tracking-[0.16em] uppercase ${
+                  done
+                    ? 'bg-blue-dark text-white dark:bg-white dark:text-blue-dark'
+                    : here
+                      ? 'bg-blue-dark/10'
+                      : 'opacity-40'
+                }`}
+              >
+                {s}
+              </div>
+              {i < LIFECYCLE_STAGES.length - 1 && (
+                <span className="opacity-40 mono text-[10px]">›</span>
+              )}
             </div>
-            {i < LIFECYCLE_STAGES.length - 1 && (
-              <span className="opacity-40 mono text-[10px]">›</span>
-            )}
+          );
+        })}
+        {failed && (
+          <span className="ml-2 chip" style={{ color: '#b3261e', border: '1px solid #b3261e' }}>
+            FAILED
+          </span>
+        )}
+      </div>
+
+      {/* Sub-stage stepper — visible while processing */}
+      {status === 'processing' && (
+        <div className="mt-3">
+          <div className="flex items-center gap-1">
+            {PROCESSING_SUBSTAGES.map((sub, i) => {
+              const subDone = i < subIdx;
+              const subHere = i === subIdx;
+              return (
+                <div key={sub} className="flex items-center gap-1 flex-1">
+                  <div
+                    className={`flex-1 h-5 rounded-sm flex items-center justify-center font-mono text-[9px] tracking-[0.14em] uppercase transition-all ${
+                      subDone
+                        ? 'bg-blue-dark/60 text-white dark:bg-white/60 dark:text-blue-dark'
+                        : subHere
+                          ? 'bg-blue-dark/15 dotpulse-border'
+                          : 'b-thin opacity-30'
+                    }`}
+                    style={subHere ? { border: '1px solid rgba(0,28,224,0.35)' } : undefined}
+                  >
+                    {subHere && (
+                      <span
+                        className="inline-block w-1 h-1 rounded-full dotpulse mr-1 flex-shrink-0"
+                        style={{ background: '#a55a00' }}
+                      />
+                    )}
+                    {sub}
+                  </div>
+                  {i < PROCESSING_SUBSTAGES.length - 1 && (
+                    <span className="opacity-30 mono text-[9px]">›</span>
+                  )}
+                </div>
+              );
+            })}
+            <div className="flex items-center gap-1 flex-1">
+              <span className="opacity-30 mono text-[9px]">›</span>
+              <div className="flex-1 h-5 b-thin rounded-sm flex items-center justify-center font-mono text-[9px] tracking-[0.14em] uppercase opacity-30">
+                ready
+              </div>
+            </div>
           </div>
-        );
-      })}
-      {failed && (
-        <span className="ml-2 chip" style={{ color: '#b3261e', border: '1px solid #b3261e' }}>
-          FAILED
-        </span>
+          <div className="mt-1.5 flex items-center gap-2 font-mono text-[10px] opacity-60">
+            <span>{processingStage ? processingStage.charAt(0).toUpperCase() + processingStage.slice(1) + '…' : 'Processing…'}</span>
+            {elapsedMin > 0 && <span className="opacity-70">· {elapsedMin} min elapsed</span>}
+          </div>
+        </div>
+      )}
+
+      {/* Uploading state */}
+      {status === 'uploading' && (
+        <div className="mt-2 flex items-center gap-2 font-mono text-[11px] opacity-70">
+          <span
+            className="inline-block w-1.5 h-1.5 rounded-full dotpulse flex-shrink-0"
+            style={{ background: '#a55a00' }}
+          />
+          <span>Uploading…</span>
+          {elapsedMin > 0 && <span className="opacity-60">· {elapsedMin} min</span>}
+        </div>
       )}
     </div>
   );
@@ -88,8 +173,29 @@ export default function CourseWorkspacePage() {
   const [filter, setFilter] = useState<DocFilter>('all');
   const [refreshKey, setRefreshKey] = useState(0);
   const [reindexing, setReindexing] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [pollTimedOut, setPollTimedOut] = useState(false);
+  const pollStartRef = useRef<number | null>(null);
 
   const refreshDocuments = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  async function handleEdit(title: string, description?: string) {
+    const updated = await updateCourse(courseId, title, description, accessToken);
+    setCourse(updated);
+  }
+
+  async function handleDelete() {
+    if (!confirm(`Eliminare il corso "${course?.title}" e tutti i suoi documenti? L'operazione non è reversibile.`)) return;
+    setDeleting(true);
+    try {
+      await deleteCourse(courseId, accessToken);
+      router.push('/courses');
+    } catch {
+      showToast('Impossibile eliminare il corso. Riprova.', 'err');
+      setDeleting(false);
+    }
+  }
 
   async function handleReindexAll() {
     if (reindexing) return;
@@ -139,6 +245,26 @@ export default function CourseWorkspacePage() {
     }
     if (courseId) loadDocs();
   }, [courseId, accessToken, refreshKey]);
+
+  // Auto-poll every 5s while documents are processing; stop after 15 min.
+  useEffect(() => {
+    const hasActive = docs.some((d) => d.status === 'processing' || d.status === 'uploading');
+    if (!hasActive) {
+      pollStartRef.current = null;
+      return;
+    }
+    if (pollTimedOut) return;
+    if (pollStartRef.current === null) pollStartRef.current = Date.now();
+    const id = setInterval(() => {
+      if (Date.now() - (pollStartRef.current ?? Date.now()) >= POLL_TIMEOUT_MS) {
+        setPollTimedOut(true);
+        clearInterval(id);
+        return;
+      }
+      refreshDocuments();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [docs, pollTimedOut, refreshDocuments]);
 
   if (loading) {
     return (
@@ -194,6 +320,20 @@ export default function CourseWorkspacePage() {
 
   return (
     <main className="page-fade max-w-8xl mx-auto px-6 py-6">
+      {pollTimedOut && (
+        <div
+          className="mb-4 b-thin rounded-lg px-4 py-3 font-mono text-[11px] flex items-center gap-3"
+          style={{ borderColor: '#a55a00', color: '#a55a00' }}
+        >
+          <span>L&apos;elaborazione sta richiedendo più tempo del previsto — controlla i log o riprova il documento.</span>
+          <button
+            className="ml-auto underline opacity-80 hover:opacity-100"
+            onClick={() => { setPollTimedOut(false); refreshDocuments(); }}
+          >
+            Riprendi polling
+          </button>
+        </div>
+      )}
       {/* Course header */}
       <div className="b-hard rounded-lg bg-white dark:bg-blue-dark/30 px-6 py-5 mb-5 flex items-start gap-6">
         <div className="flex-1 min-w-0">
@@ -234,6 +374,29 @@ export default function CourseWorkspacePage() {
             title="Re-ingest all documents (full parse → chunk → BM25 → QVAC)"
           >
             {reindexing ? 'Queuing…' : '↺ Reindex all'}
+          </button>
+          <button
+            className="btn-ghost"
+            onClick={() => setShowEdit(true)}
+            title="Edit course title and description"
+          >
+            Edit
+          </button>
+          <button
+            className="btn-ghost"
+            onClick={handleDelete}
+            disabled={deleting}
+            style={{ color: '#b3261e' }}
+            title="Delete course and all its documents"
+          >
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
+          <button
+            className="btn-ghost"
+            onClick={() => router.push(`/courses/${courseId}/review`)}
+            title="Review AI-generated outline, lessons, and quizzes"
+          >
+            Review
           </button>
           <button className="btn-primary" onClick={() => router.push(`/courses/${courseId}/study`)}>
             Study →
@@ -286,10 +449,10 @@ export default function CourseWorkspacePage() {
 
           {/* Document list */}
           <div className="b-hard rounded-lg bg-white dark:bg-blue-dark/30 overflow-hidden">
-            <div className="grid grid-cols-[1fr_100px_120px_56px] gap-3 px-4 py-2.5 b-thin-b font-mono text-[10px] tracking-[0.18em] uppercase opacity-70">
+            <div className="grid grid-cols-[1fr_56px] sm:grid-cols-[1fr_100px_120px_56px] gap-3 px-4 py-2.5 b-thin-b font-mono text-[10px] tracking-[0.18em] uppercase opacity-70">
               <div>Document</div>
-              <div>Size</div>
-              <div>Status</div>
+              <div className="hidden sm:block">Size</div>
+              <div className="hidden sm:block">Status</div>
               <div />
             </div>
 
@@ -300,9 +463,20 @@ export default function CourseWorkspacePage() {
                 ))}
               </div>
             ) : filtered.length === 0 ? (
-              <div className="p-10 text-center font-mono text-[11px] opacity-60">
-                {filter === 'all' ? 'No documents uploaded yet.' : 'No documents in this view.'}
-              </div>
+              filter === 'all' ? (
+                <div className="p-10 text-center">
+                  <div className="mx-auto w-10 h-10 b-thin rounded-md mb-4 stripes" />
+                  <p className="font-medium mb-1">Nessun documento ancora</p>
+                  <p className="font-mono text-[11px] opacity-60 leading-relaxed mb-4 max-w-xs mx-auto">
+                    Trascina un file PDF, PPTX, MD o TXT nell&apos;area sopra — o clicca per selezionarlo.
+                    Academy lo indicizza e lo rende interrogabile dall&apos;AI tutor.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-10 text-center font-mono text-[11px] opacity-60">
+                  Nessun documento in questa vista.
+                </div>
+              )
             ) : (
               filtered.map((doc) => (
                 <DocRow
@@ -340,12 +514,11 @@ export default function CourseWorkspacePage() {
                         Lifecycle
                       </span>
                     </div>
-                    <Lifecycle status={selected.status} />
-                    {selected.processingStage && (
-                      <div className="font-mono text-[11px] opacity-70 mt-2">
-                        stage · {selected.processingStage}
-                      </div>
-                    )}
+                    <Lifecycle
+                      status={selected.status}
+                      processingStage={selected.processingStage}
+                      updatedAt={selected.updatedAt}
+                    />
                   </div>
 
                   {selected.status === 'error' && selected.errorMessage && (
@@ -406,6 +579,14 @@ export default function CourseWorkspacePage() {
           </div>
         </div>
       </div>
+
+      {showEdit && course && (
+        <EditCourseModal
+          course={course}
+          onClose={() => setShowEdit(false)}
+          onSave={handleEdit}
+        />
+      )}
     </main>
   );
 }
@@ -456,7 +637,7 @@ function DocRow({
   return (
     <div
       onClick={onSelect}
-      className={`grid grid-cols-[1fr_100px_120px_56px] gap-3 px-4 py-3 b-thin-b items-center cursor-pointer transition-colors group ${
+      className={`grid grid-cols-[1fr_56px] sm:grid-cols-[1fr_100px_120px_56px] gap-3 px-4 py-3 b-thin-b items-center cursor-pointer transition-colors group ${
         selected ? 'bg-blue-dark/8 dark:bg-white/10' : 'hover:bg-blue-dark/5 dark:hover:bg-white/5'
       }`}
     >
@@ -470,9 +651,9 @@ function DocRow({
         </div>
       </div>
 
-      <div className="font-mono text-[11px] opacity-80 tnum">{formatSize(doc.size)}</div>
+      <div className="hidden sm:block font-mono text-[11px] opacity-80 tnum">{formatSize(doc.size)}</div>
 
-      <div>
+      <div className="hidden sm:block">
         <span className="chip" style={{ color: dot, borderColor: dot, border: '1px solid' }}>
           <span
             className={`inline-block w-1.5 h-1.5 rounded-full ${animated ? 'dotpulse' : ''}`}

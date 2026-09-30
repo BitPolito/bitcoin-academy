@@ -71,13 +71,13 @@ describe('ProgressBar', () => {
     it('uses green color at 100%', () => {
       const { container } = render(<ProgressBar percent={100} />);
       const inner = container.querySelector('[style]') as HTMLElement;
-      expect(inner?.className).toContain('bg-green-500');
+      expect(inner?.className).toContain('bg-[#1a7f3a]');
     });
 
     it('uses orange color below 100%', () => {
       const { container } = render(<ProgressBar percent={50} />);
       const inner = container.querySelector('[style]') as HTMLElement;
-      expect(inner?.className).toContain('bg-orange-500');
+      expect(inner?.className).toContain('bg-[#a55a00]');
     });
   });
 });

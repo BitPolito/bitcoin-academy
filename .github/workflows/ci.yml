@@ -6,9 +6,11 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, mvp-testing]
   pull_request:
-    branches: [master]
+    # mvp-testing is the active development line and receives master's changes
+    # periodically, so the gate must run there too rather than only on master.
+    branches: [master, mvp-testing]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -164,10 +166,10 @@ jobs:
       # declared volumes, services and build targets. Catches the class of
       # defect where the stack is broken but nothing builds it in CI.
       - name: Validate compose configuration (production)
-        run: docker compose -f docker-compose.yml config --quiet
+        run: docker compose -f infra/docker-compose.yml config --quiet
 
       - name: Validate compose configuration (development merge)
-        run: docker compose config --quiet
+        run: docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml config --quiet
 
       - name: Build backend image
         run: docker build -t bitcoin-academy-api:ci ./services/ai

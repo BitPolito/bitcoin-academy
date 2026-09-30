@@ -22,6 +22,7 @@ describe('OutputPane', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    localStorage.clear();
   });
 
   describe('initial render', () => {
@@ -47,7 +48,9 @@ describe('OutputPane', () => {
 
     it('shows the empty-state prompt when no messages', () => {
       render(<OutputPane {...defaultProps} />);
-      expect(screen.getByText(/type a topic/i)).toBeInTheDocument();
+      // The prompt is the textarea's placeholder attribute, not rendered text,
+      // so getByText would never match it.
+      expect(screen.getByPlaceholderText(/type a topic/i)).toBeInTheDocument();
     });
 
     it('shows lesson-specific placeholder when a lesson is selected', () => {

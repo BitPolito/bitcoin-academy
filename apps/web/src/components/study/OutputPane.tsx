@@ -2,9 +2,11 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useToast } from '@/components/ui/Toast';
 import { sendChatMessageStream, submitFeedback, type Citation, type HistoryEntry } from '@/lib/services/chat';
-import { sendStudyAction } from '@/lib/services/study';
+import { sendStudyAction, sendStudyActionStream } from '@/lib/services/study';
 import type { ApiCitationOut, ApiStudyResponse, StudyAction } from '@/lib/api/types';
 import type { Lesson } from '@/lib/services/courses';
 import { StudyActionBar } from './StudyActionBar';
@@ -27,7 +29,17 @@ interface ActionMessage {
   durationMs?: number;
 }
 
-type Message = ChatMessage | ActionMessage;
+interface ActionStreamingMessage {
+  role: 'action-streaming';
+  action: StudyAction;
+  query: string;
+  content: string;
+}
+
+type Message = ChatMessage | ActionMessage | ActionStreamingMessage;
+
+// Actions that stream tokens progressively (full text needed for QUIZ/ORAL parsing).
+const STREAMING_ACTIONS = new Set<StudyAction>(['explain', 'summarize', 'derive', 'compare', 'open_questions']);
 
 interface OutputPaneProps {
   courseId: string;
@@ -217,6 +229,31 @@ const NEXT_ACTIONS: Array<{ action: StudyAction; glyph: string; label: string }>
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+const STORAGE_PREFIX = 'study:';
+const STORAGE_MAX_MESSAGES = 20;
+
+function loadStoredMessages(courseId: string): Message[] {
+  try {
+    const raw = localStorage.getItem(`${STORAGE_PREFIX}${courseId}`);
+    return raw ? (JSON.parse(raw) as Message[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMessages(courseId: string, msgs: Message[]) {
+  try {
+    // Exclude in-flight streaming messages — they have no `result` field and would
+    // crash on restore if any code path accesses msg.result.
+    const toSave = msgs
+      .filter((m) => m.role !== 'action-streaming')
+      .slice(-STORAGE_MAX_MESSAGES);
+    localStorage.setItem(`${STORAGE_PREFIX}${courseId}`, JSON.stringify(toSave));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export function OutputPane({
   courseId,
   accessToken,
@@ -226,7 +263,8 @@ export function OutputPane({
   initialAction = null,
   onActionResult,
 }: OutputPaneProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(() => loadStoredMessages(courseId));
+  const [sessionRestored, setSessionRestored] = useState(() => loadStoredMessages(courseId).length > 0);
   const [input, setInput] = useState(initialQuery);
   const [loading, setLoading] = useState(false);
   const [activeAction, setActiveAction] = useState<StudyAction | null>(null);
@@ -240,12 +278,19 @@ export function OutputPane({
   // Captures the index of the in-flight assistant message inside the functional
   // setMessages updater so it stays correct across React's concurrent-mode batching.
   const assistantIdxRef = useRef(-1);
+  // Index of the in-flight action-streaming message (set when first token arrives).
+  const streamingActionIdxRef = useRef(-1);
   const [retryQuestion, setRetryQuestion] = useState<string | null>(null);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const { showToast } = useToast();
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
+
+  useEffect(() => {
+    if (messages.length > 0) saveMessages(courseId, messages);
+  }, [courseId, messages]);
 
   // Last action result for drawers
   const lastActionResult = [...messages]
@@ -266,6 +311,7 @@ export function OutputPane({
     setLoading(true);
     setActiveAction(null);
     setRetryQuestion(null);
+    setSessionRestored(false);
 
     // Add user + empty assistant messages atomically; capture assistant index inside
     // the updater to avoid stale closure values in concurrent-mode React (A6).
@@ -299,6 +345,8 @@ export function OutputPane({
         history,
       );
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : '';
+      const is429 = errMsg.includes('Troppe richieste');
       // Append error notice after any tokens already streamed (A9).
       setMessages((prev) =>
         prev.map((m, mi) =>
@@ -307,12 +355,12 @@ export function OutputPane({
                 ...m,
                 content:
                   (m.content ? m.content + '\n\n' : '') +
-                  (err instanceof Error ? `⚠ ${err.message}` : '⚠ Could not complete response.'),
+                  (errMsg ? `⚠ ${errMsg}` : '⚠ Could not complete response.'),
               }
             : m
         )
       );
-      showToast('Connection lost — try again.', 'warn');
+      showToast(is429 ? 'Troppe richieste — riprova tra qualche secondo.' : 'Connection lost — try again.', 'warn');
       setRetryQuestion(question);
     } finally {
       setLoading(false);
@@ -335,8 +383,88 @@ export function OutputPane({
     const query = queryOverride || input.trim() || selectedLesson?.title || 'this course material';
     setLoading(true);
     setActiveAction(action);
+    setSessionRestored(false);
     setMessages((prev) => [...prev, { role: 'user', content: `[${action}] ${query}` }]);
     const t0 = Date.now();
+
+    // Streaming path: EXPLAIN, SUMMARIZE, DERIVE, COMPARE, OPEN_QUESTIONS stream tokens.
+    // Loading spinner stays until first token; then replaced by progressive streaming message.
+    if (STREAMING_ACTIONS.has(action) && !ragOnly) {
+      let streamingCitations: ApiCitationOut[] = [];
+      streamingActionIdxRef.current = -1;
+
+      try {
+        await sendStudyActionStream(
+          courseId,
+          action,
+          query,
+          (token) => {
+            setMessages((prev) => {
+              if (streamingActionIdxRef.current === -1) {
+                // First token: stop loading spinner, add streaming message
+                streamingActionIdxRef.current = prev.length;
+                return [...prev, { role: 'action-streaming', action, query, content: token }];
+              }
+              return prev.map((m, i) =>
+                i === streamingActionIdxRef.current && m.role === 'action-streaming'
+                  ? { ...m, content: m.content + token }
+                  : m
+              );
+            });
+            // Stop the loading skeleton once streaming begins
+            setLoading(false);
+          },
+          (citations) => {
+            streamingCitations = citations;
+          },
+          accessToken,
+          ragOnly,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Study action failed.';
+        if (msg.includes('Troppe richieste')) showToast('Troppe richieste — riprova tra qualche secondo.', 'warn');
+        setMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${msg}` }]);
+        setLoading(false);
+        setActiveAction(null);
+        return;
+      }
+
+      const durationMs = Date.now() - t0;
+
+      // Replace action-streaming message with final action-result
+      let finalResult: ApiStudyResponse | null = null;
+      setMessages((prev) => {
+        const idx = streamingActionIdxRef.current;
+        const streamMsg = idx >= 0 ? prev[idx] : null;
+        const answer = streamMsg?.role === 'action-streaming' ? streamMsg.content : '';
+
+        if (!answer) {
+          return [...prev, { role: 'assistant' as const, content: 'No response received.' }];
+        }
+
+        finalResult = {
+          answer,
+          citations: streamingCitations,
+          retrieval_used: streamingCitations.length > 0,
+          action,
+        };
+
+        return prev.map((m, i) =>
+          i === idx
+            ? ({ role: 'action-result', action, query, result: finalResult!, durationMs } as ActionMessage)
+            : m
+        );
+      });
+
+      if (streamingCitations.length > 0) setShowEvidence(true);
+      // Notify parent (lesson progress, analytics) — same contract as buffered path.
+      if (finalResult) onActionResult?.(finalResult, selectedLesson ?? null);
+      setLoading(false);
+      setActiveAction(null);
+      return;
+    }
+
+    // Buffered path: QUIZ, ORAL, RETRIEVE, or ragOnly (need full text before parsing).
     try {
       const result = await sendStudyAction(courseId, action, query, accessToken, ragOnly);
       const durationMs = Date.now() - t0;
@@ -347,12 +475,13 @@ export function OutputPane({
       if (result.citations.length > 0) setShowEvidence(true);
       onActionResult?.(result, selectedLesson ?? null);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Study action failed.';
+      if (err instanceof Error && msg.includes('Troppe richieste')) {
+        showToast('Troppe richieste — riprova tra qualche secondo.', 'warn');
+      }
       setMessages((prev) => [
         ...prev,
-        {
-          role: 'assistant',
-          content: err instanceof Error ? `Error: ${err.message}` : 'Study action failed.',
-        },
+        { role: 'assistant', content: `Error: ${msg}` },
       ]);
     } finally {
       setLoading(false);
@@ -440,6 +569,23 @@ export function OutputPane({
 
       {/* Message thread */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 ws-scroll">
+        {/* Session restored banner */}
+        {sessionRestored && messages.length > 0 && (
+          <div className="flex items-center gap-3 b-thin rounded-md px-3 py-2 font-mono text-[11px] opacity-70">
+            <span>Sessione precedente ripristinata</span>
+            <button
+              onClick={() => {
+                setMessages([]);
+                setSessionRestored(false);
+                localStorage.removeItem(`${STORAGE_PREFIX}${courseId}`);
+              }}
+              className="ml-auto underline hover:opacity-100"
+            >
+              Ricomincia da zero
+            </button>
+          </div>
+        )}
+
         {/* Empty states */}
         {messages.length === 0 && !hasIndexedDocs && (
           <div className="flex items-center justify-center h-full">
@@ -459,9 +605,21 @@ export function OutputPane({
           <div className="flex items-center justify-center h-full">
             <div className="text-center max-w-xs">
               <div className="mx-auto w-10 h-10 b-thin rounded-md mb-4 stripes" />
-              <p className="font-mono text-[11px] opacity-60 leading-relaxed">
-                Type a topic in the input below, then click a study action — or just ask a question.
+              <p className="font-mono text-[11px] opacity-60 leading-relaxed mb-4">
+                Scrivi un argomento qui sotto e scegli un&apos;azione di studio — o fai una domanda libera.
               </p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {(['summarize', 'explain', 'quiz'] as const).map((a) => (
+                  <button
+                    key={a}
+                    onClick={() => handleAction(a)}
+                    disabled={loading}
+                    className="btn-ghost text-xs py-1 px-2.5 disabled:opacity-40"
+                  >
+                    {a === 'summarize' ? '≡' : a === 'explain' ? 'Σ' : '▢'} {a.charAt(0).toUpperCase() + a.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -469,22 +627,50 @@ export function OutputPane({
         {messages.map((msg, i) => {
           const isLast = i === messages.length - 1;
 
-          if (msg.role === 'action-result') {
+          if (msg.role === 'action-streaming') {
             return (
               <div key={i} className="space-y-2">
                 <div className="inline-flex items-center gap-1.5">
                   <span className="chip" style={{ border: '1px solid currentColor' }}>
                     {msg.action.replace('_', ' ')}
                   </span>
+                  <span className="font-mono text-[11px] opacity-60 truncate max-w-48">{msg.query}</span>
+                  <span className="font-mono text-[10px] opacity-40 animate-pulse ml-1">…</span>
+                </div>
+                <div className="b-thin rounded-lg p-4">
+                  <ReactMarkdown className="md-prose" remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                </div>
+              </div>
+            );
+          }
+
+          if (msg.role === 'action-result') {
+            return (
+              <div key={i} className="space-y-2">
+                <div className="inline-flex items-center gap-1.5 w-full">
+                  <span className="chip" style={{ border: '1px solid currentColor' }}>
+                    {msg.action.replace('_', ' ')}
+                  </span>
                   <span className="font-mono text-[11px] opacity-60 truncate max-w-48">
                     {msg.query}
                   </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(msg.result.answer).then(() => {
+                        setCopiedIdx(i);
+                        setTimeout(() => setCopiedIdx((v) => (v === i ? null : v)), 2000);
+                      });
+                    }}
+                    className="ml-auto w-6 h-6 flex items-center justify-center rounded b-thin opacity-50 hover:opacity-100 transition-opacity text-sm flex-shrink-0"
+                    title="Copia risposta"
+                  >
+                    {copiedIdx === i ? '✓' : '⎘'}
+                  </button>
                 </div>
                 <div className="b-thin rounded-lg p-4">
                   <StudyOutput
                     result={msg.result}
                     courseId={courseId}
-                    onOralFollowUp={(query) => handleAction('oral', query)}
                   />
                 </div>
 
@@ -597,6 +783,18 @@ export function OutputPane({
                         ))}
                       </>
                     )}
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(msg.content).then(() => {
+                          setCopiedIdx(i);
+                          setTimeout(() => setCopiedIdx((v) => (v === i ? null : v)), 2000);
+                        });
+                      }}
+                      className="ml-auto w-6 h-6 flex items-center justify-center rounded b-thin opacity-50 hover:opacity-100 transition-opacity text-sm"
+                      title="Copia risposta"
+                    >
+                      {copiedIdx === i ? '✓' : '⎘'}
+                    </button>
                   </div>
                 )}
                 {msg.role === 'assistant' && retryQuestion !== null && isLast && (
@@ -652,9 +850,6 @@ export function OutputPane({
         <div className="flex items-center gap-2 mb-2">
           <span className="chip text-[10px]" style={{ border: '1px solid currentColor' }}>
             ⌖ scope · all course docs
-          </span>
-          <span className="chip text-[10px]" style={{ border: '1px solid currentColor' }}>
-            k=5 · QVAC
           </span>
           <button
             onClick={() => setRagOnly((v) => !v)}

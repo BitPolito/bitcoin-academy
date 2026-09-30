@@ -194,13 +194,17 @@ export default function CoursesPage() {
       ) : courses.length === 0 ? (
         <div className="b-hard rounded-lg p-10 text-center bg-white dark:bg-blue-dark">
           <div className="mx-auto w-10 h-10 b-thin rounded-md mb-4 stripes" />
-          <div className="font-medium text-lg">No courses yet</div>
-          <div className="opacity-70 text-sm mt-1 mb-5">
-            Create your first course to get started.
+          <div className="font-medium text-lg mb-1">Crea il tuo primo corso</div>
+          <div className="opacity-70 text-sm mt-1 mb-6 max-w-xs mx-auto leading-relaxed">
+            Ogni corso è un workspace isolato. Carica slide, appunti e dispense — Academy
+            indicizza tutto e mantiene ogni risposta ancorata alla fonte.
           </div>
-          <button className="btn-primary" onClick={() => setShowCreate(true)}>
-            Create workspace →
-          </button>
+          <div className="flex items-center justify-center gap-3">
+            <button className="btn-primary" onClick={() => setShowCreate(true)}>
+              Crea il tuo primo corso →
+            </button>
+            <span className="font-mono text-[11px] opacity-50">⌘N</span>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
