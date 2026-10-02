@@ -6,7 +6,8 @@ All network calls, hybrid_search, reranker, and parent_expansion are mocked.
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.services.chat_service import _qvac_dict_to_chunk, ChatResult, Citation
+from app.rag.retriever import _qvac_dict_to_chunk
+from app.services.chat_service import ChatResult, Citation
 from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk
 
 

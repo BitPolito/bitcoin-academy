@@ -107,10 +107,14 @@ evidence-pack assembly, and preservation of source anchors.
 deduplication, action-specific boosting, cross-encoder reranking, MMR diversification, token-aware
 truncation, parent expansion, and contextual compression.
 
-**Gap.** These are not applied uniformly. The full hybrid pipeline (dense + BM25 sparse retrieval,
-normalised fusion, reranking, MMR) currently runs in the conversational path, while the study
-actions use dense-only retrieval with a small candidate pool — meaning the reranker reorders few
-candidates and no sparse retrieval contributes. Consolidating the two paths is planned work.
+Both the study actions and the conversational path run one shared pipeline
+(`app/rag/retriever.py`): dense QVAC retrieval (ChromaDB fallback) and BM25 sparse retrieval over a
+`RAG_RETRIEVE_K` candidate pool, normalised fusion, cross-encoder reranking, MMR down to `RAG_TOP_K`,
+and parent expansion. Action-specific boosting and two-hop retrieval stay in the study layer;
+compression and the context token budget stay in the chat layer.
+
+**Gap.** The quality improvement for the study actions has not yet been measured with the RAG
+evaluation suite (`services/ai/tests/test_rag.py`); no before/after numbers are recorded.
 
 ---
 
