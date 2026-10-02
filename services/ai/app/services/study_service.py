@@ -17,17 +17,17 @@ from typing import AsyncGenerator, List, Optional
 
 import httpx
 
-from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk, EvidencePack
+from app.schemas.evidence_pack import EvidenceChunk, EvidencePack
 from app.schemas.study_schemas import (
     STUDY_ACTION_REGISTRY,
     StudyAction,
 )
+from app.rag.retriever import unified_retrieval
 from app.services import evidence_pack_service
 
 logger = logging.getLogger(__name__)
 
 _QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
-_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 
 # Bump when any prompt in _SYSTEM_PROMPTS below changes meaning (not just
 # wording) — tracked in app/prompts/registry.py for cross-system auditing.
@@ -251,55 +251,37 @@ def _parse_citations(text: str, pack: EvidencePack) -> List[SourceChunk]:
 
 
 async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple[str, EvidencePack]:
-    """Call QVAC /query, wrap response into a structured EvidencePack.
+    """Run the shared hybrid pipeline and wrap the result into an EvidencePack.
 
-    Returns (raw_answer, pack).  raw_answer is the QVAC-generated string
-    (used as fallback when the LLM is unavailable); pack is the canonical
-    interface for generation and citation display.
+    Returns (raw_answer, pack). raw_answer is always "" now: retrieval no
+    longer goes through QVAC /query, which pre-generated an answer, so the
+    generation-failure fallback relies on the pack alone.
+
+    Uses the same pipeline as the chat path (app.rag.retriever): a
+    RAG_RETRIEVE_K candidate pool, BM25 fusion, reranking and MMR down to
+    RAG_TOP_K, parent expansion. Action-specific boosting is applied on top
+    by evidence_pack_service.build_from_chunks.
 
     The retrieval query may be rewritten or HyDE-expanded before hitting QVAC;
     the original *question* is preserved for generation prompts and citations.
-    Returns an empty pack when QVAC is unavailable.
+    Returns an empty pack when every dense source is unavailable.
     """
     from app.rag.query_rewriter import expand_query
     retrieval_query = await expand_query(question)
 
     try:
-        resp = await _qvac_client.post(
-            "/query",
-            json={"question": retrieval_query, "workspace": course_id, "topK": _TOP_K},
+        context_chunks, _ = await unified_retrieval(
+            question, course_id, retrieval_query, client=_qvac_client
         )
-        resp.raise_for_status()
-        data = resp.json()
-        raw_answer: str = data.get("answer", "")
-
-        candidates: List[EvidenceChunk] = [
-            EvidenceChunk(
-                chunk_id=s.get("chunk_id") or f"qvac_{s.get('doc_id', 'unk')}_{i}",
-                text=s.get("snippet", ""),
-                score=float(s.get("score", 0.0)),
-                anchor=CitationAnchor(
-                    doc_id=str(s.get("doc_id", "")),
-                    doc_name=str(s.get("label", "")),
-                    section=s.get("section") or None,
-                    page=int(s["page"]) if s.get("page") else None,
-                    slide=int(s["slide"]) if s.get("slide") else None,
-                    chunk_id=s.get("chunk_id") or f"qvac_{s.get('doc_id', 'unk')}_{i}",
-                    chunk_type="paragraph",
-                ),
-            )
-            for i, s in enumerate(data.get("sources", []))
-        ]
-
-        if not candidates:
-            logger.info("QVAC returned 0 chunks for course '%s'", course_id)
-
-        pack = evidence_pack_service.build_from_chunks(question, action.value, candidates)
-        return raw_answer, pack
-
     except (httpx.HTTPError, ValueError, KeyError) as exc:
-        logger.warning("QVAC retrieval failed (%s) — returning empty pack", exc)
+        logger.warning("Retrieval failed (%s) — returning empty pack", exc)
         return "", _empty_pack(question, action)
+
+    if not context_chunks:
+        logger.info("Retrieval returned 0 chunks for course '%s'", course_id)
+
+    pack = evidence_pack_service.build_from_chunks(question, action.value, context_chunks)
+    return "", pack
 
 
 _AND_SPLIT = re.compile(
