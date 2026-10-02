@@ -469,7 +469,7 @@ async def _route(
         sources = _parse_citations(generated, pack)
     else:
         trace.fallback_used = True
-        answer = raw_answer or "No relevant content found."
+        answer = pack.context_block() or raw_answer or "No relevant content found."
         sources = [
             SourceChunk(
                 snippet=c.text,
@@ -638,7 +638,7 @@ async def stream_dispatch(
             answer = generated
             sources = _parse_citations(generated, pack)
         else:
-            answer = raw_answer or "No relevant content found."
+            answer = pack.context_block() or raw_answer or "No relevant content found."
             sources = _make_sources(pack.chunks)
         yield answer
         yield _cache_and_sentinel(answer, sources)
@@ -674,7 +674,7 @@ async def stream_dispatch(
             sources = _parse_citations(generated, pack)
             yield _cache_and_sentinel(generated, sources)
         else:
-            fallback = raw_answer or "No relevant content found."
+            fallback = pack.context_block() or raw_answer or "No relevant content found."
             sources = _make_sources(pack.chunks)
             yield fallback
             yield _cache_and_sentinel(fallback, sources)
