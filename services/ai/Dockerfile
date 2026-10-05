@@ -11,4 +11,6 @@ RUN pip install --no-cache-dir .
 
 COPY . .
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# Initialise the database once before the workers start: each worker's
+# lifespan would otherwise race the others on migrations and seeding.
+CMD ["sh", "-c", "python -m app.db.migrate && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"]
