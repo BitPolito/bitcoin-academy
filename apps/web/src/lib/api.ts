@@ -31,7 +31,10 @@ async function handleResponse<T>(response: Response): Promise<T> {
     const errorBody = await response.json().catch(() => ({}));
     throw new ApiError(
       response.status,
-      errorBody.detail || errorBody.message || `Request failed (${response.status})`,
+      errorBody.detail ||
+        errorBody.error?.message ||
+        errorBody.message ||
+        `Request failed (${response.status})`,
       errorBody
     );
   }
