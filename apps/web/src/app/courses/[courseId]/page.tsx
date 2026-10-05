@@ -216,18 +216,21 @@ export default function CourseWorkspacePage() {
     }
   }
 
+  // Every course endpoint requires a token, and useSession() is still loading on
+  // the first render after a reload: fetching then only produces a stale 401.
   useEffect(() => {
     async function load() {
       try {
         const courseData = await getCourse(courseId, accessToken);
         setCourse(courseData);
+        setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load course');
       } finally {
         setLoading(false);
       }
     }
-    if (courseId) load();
+    if (courseId && accessToken) load();
   }, [courseId, accessToken]);
 
   useEffect(() => {
@@ -243,7 +246,7 @@ export default function CourseWorkspacePage() {
         setDocsLoading(false);
       }
     }
-    if (courseId) loadDocs();
+    if (courseId && accessToken) loadDocs();
   }, [courseId, accessToken, refreshKey]);
 
   // Auto-poll every 5s while documents are processing; stop after 15 min.
