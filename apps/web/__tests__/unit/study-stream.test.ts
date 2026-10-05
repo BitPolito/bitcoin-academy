@@ -175,6 +175,21 @@ describe('sendStudyActionStream', () => {
     ).rejects.toThrow('Stream request failed (500)');
   });
 
+  it('surfaces the validation message for a rejected query', async () => {
+    // FastAPI returns validation errors as an array under `detail`.
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 422,
+      json: async () => ({
+        detail: [{ loc: ['body', 'query'], msg: 'String should have at least 3 characters' }],
+      }),
+    } as unknown as Response);
+
+    await expect(
+      sendStudyActionStream('c1', 'explain', 'ab', () => {}, () => {})
+    ).rejects.toThrow('String should have at least 3 characters');
+  });
+
   it('fails clearly when the response carries no body', async () => {
     mockFetch.mockResolvedValue({ ok: true, status: 200, body: null } as Response);
 

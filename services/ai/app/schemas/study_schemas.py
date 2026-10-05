@@ -116,8 +116,18 @@ STUDY_ACTION_REGISTRY: Dict[StudyAction, ActionMeta] = {
 # API DTOs
 # ---------------------------------------------------------------------------
 
+# Study actions take a topic as well as a question, and course terms such as
+# "PoW" or "UTXO" are valid topics.
+MIN_STUDY_QUERY_LENGTH = 3
+
+
 class StudyDispatchRequest(BaseModel):
-    query: str = Field(..., min_length=5, max_length=2000, description="Student question (min 5 characters)")
+    query: str = Field(
+        ...,
+        min_length=MIN_STUDY_QUERY_LENGTH,
+        max_length=2000,
+        description=f"Student question or topic (min {MIN_STUDY_QUERY_LENGTH} characters)",
+    )
     action: StudyAction
     rag_only: bool = Field(
         False,
