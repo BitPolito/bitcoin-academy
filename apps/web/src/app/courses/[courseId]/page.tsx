@@ -11,6 +11,7 @@ import type { DocumentListRow } from '@/lib/api/types';
 import { DocumentProcessingPanel } from '@/components/documents/DocumentProcessingPanel';
 import { useToast } from '@/components/ui/Toast';
 import { EditCourseModal } from '@/components/courses/EditCourseModal';
+import { canManageCourses } from '@/lib/auth/roles';
 
 type DocFilter = 'all' | 'ready' | 'processing' | 'error';
 
@@ -162,6 +163,7 @@ export default function CourseWorkspacePage() {
   const courseId = params.courseId as string;
   const { data: session } = useSession();
   const accessToken = session?.user?.accessToken;
+  const canManage = canManageCourses(session?.user?.role);
 
   const { showToast } = useToast();
   const [course, setCourse] = useState<Course | null>(null);
@@ -191,8 +193,12 @@ export default function CourseWorkspacePage() {
     try {
       await deleteCourse(courseId, accessToken);
       router.push('/courses');
-    } catch {
-      showToast('Impossibile eliminare il corso. Riprova.', 'err');
+    } catch (err) {
+      // Show the server's reason (e.g. a 403) instead of implying a retry will help.
+      showToast(
+        err instanceof Error && err.message ? err.message : 'Impossibile eliminare il corso.',
+        'err',
+      );
       setDeleting(false);
     }
   }
@@ -378,22 +384,26 @@ export default function CourseWorkspacePage() {
           >
             {reindexing ? 'Queuing…' : '↺ Reindex all'}
           </button>
-          <button
-            className="btn-ghost"
-            onClick={() => setShowEdit(true)}
-            title="Edit course title and description"
-          >
-            Edit
-          </button>
-          <button
-            className="btn-ghost"
-            onClick={handleDelete}
-            disabled={deleting}
-            style={{ color: '#b3261e' }}
-            title="Delete course and all its documents"
-          >
-            {deleting ? 'Deleting…' : 'Delete'}
-          </button>
+          {canManage && (
+            <>
+              <button
+                className="btn-ghost"
+                onClick={() => setShowEdit(true)}
+                title="Edit course title and description"
+              >
+                Edit
+              </button>
+              <button
+                className="btn-ghost"
+                onClick={handleDelete}
+                disabled={deleting}
+                style={{ color: '#b3261e' }}
+                title="Delete course and all its documents"
+              >
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </>
+          )}
           <button
             className="btn-ghost"
             onClick={() => router.push(`/courses/${courseId}/review`)}
