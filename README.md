@@ -123,7 +123,10 @@ Production base only (no dev overrides):
 ```bash
 docker compose -f infra/docker-compose.yml up --build
 ```
+### Local Development with Native Backend
+If you are running the AI service natively on your host (e.g., Windows/Mac) and need to connect to the QVAC Docker container, you must expose its port using the dev override file:
 
+`docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up`
 ---
 
 ## Configuration
@@ -171,10 +174,12 @@ uv run pytest                       # all tests
 uv run pytest tests/unit/
 uv run pytest tests/integration/
 
-# RAG end-to-end suite
-uv run python tests/test_rag.py                            # 35 curated queries
-uv run python tests/test_rag.py --query "What is Bitcoin?" # single query
-uv run python tests/test_rag.py --output results.json      # save JSON report
+
+# RAG end-to-end suite (45 curated queries across 8 categories)
+uv run python test_rag.py                            # full run with terminal report
+uv run python test_rag.py --query "What is a UTXO?"  # single query debug
+uv run python test_rag.py --output baseline.json     # save JSON report for PR diffing
+
 
 # Frontend
 cd apps/web && npm test
@@ -183,7 +188,7 @@ cd apps/web && npm test
 cd workers/qvac-service && npm test
 ```
 
-The RAG suite runs 35 queries across 7 categories (basic, chapter, conceptual, comparative, synthesis, adversarial, stress) through the full retrieval pipeline, scoring each PASS / WARN / FAIL by retrieval confidence. Results are saved as JSON for baseline comparisons.
+The RAG suite runs 45 queries across 8 categories (basic, chapter, conceptual, comparative, synthesis, adversarial, stress, technical) through the full retrieval pipeline, scoring each PASS / WARN / FAIL by retrieval confidence. Results are saved as JSON for baseline comparisons.
 
 CI runs on every push and pull request to `master` via GitHub Actions (`.github/workflows/ci.yml`). See [`AGENTS.md`](AGENTS.md) for the contribution workflow.
 

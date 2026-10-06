@@ -183,6 +183,17 @@ jobs:
       - name: Build QVAC service image
         run: docker build -t bitcoin-academy-qvac:ci ./workers/qvac-service
 
+      - name: Smoke test QVAC container
+        run: |
+          # Start the newly built container in the background
+          docker run -d -p 3001:3001 --name qvac-smoke bitcoin-academy-qvac:ci
+          
+          # Wait a few seconds for the Node and C++ runtime to initialize
+          sleep 5
+          
+          # Attempt to hit the service. If it crashes, print the logs and fail the CI
+          curl -f --retry 5 --retry-connrefused --retry-delay 2 http://localhost:3001/health || (docker logs qvac-smoke && exit 1)
+
   # Aggregates every job above into one check. Set THIS as the required status
   # check on master: adding a job below does not then require reconfiguring
   # branch protection, and a skipped or cancelled job cannot pass silently.
@@ -208,3 +219,5 @@ jobs:
             exit 1
           fi
           echo "All checks passed."
+
+          

@@ -52,8 +52,6 @@ services:
 
   qvac:
     build: ../workers/qvac-service
-    ports:
-      - "3001:3001"
     restart: unless-stopped
     volumes:
       - qvac_data:/app/hyperdb

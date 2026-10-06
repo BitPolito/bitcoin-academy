@@ -8,13 +8,17 @@
     "ingest": "node src/ingest.js",
     "test": "node --test --experimental-test-module-mocks tests/*.test.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "@qvac/sdk": "^0.9.1"
   },
   "optionalDependencies": {
-    "bare-runtime-darwin-arm64": "^1.28.5"
+    "bare-runtime-darwin-arm64": "^1.28.5",
+    "bare-runtime-darwin-x64": "^1.28.5",
+    "bare-runtime-linux-x64": "^1.28.5",
+    "bare-runtime-linux-arm64": "^1.28.5",
+    "bare-runtime-win32-x64": "^1.28.5"
+  },
+  "overrides": {
+    "compact-encoding": "3.5.2"
   }
 }
