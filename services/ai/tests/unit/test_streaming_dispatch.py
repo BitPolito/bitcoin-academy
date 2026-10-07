@@ -198,22 +198,13 @@ async def test_stream_dispatch_falls_back_to_buffered_generate_when_the_stream_y
 
 
 @pytest.mark.asyncio
-async def test_stream_dispatch_final_fallback_uses_raw_answer_not_the_evidence_pack():
-    """Documents current, surprising behaviour rather than the intended one.
+async def test_stream_dispatch_final_fallback_prefers_the_evidence_pack():
+    """When streaming and buffered generation both fail, the retrieved evidence
+    is surfaced rather than QVAC's bare `raw_answer` (or the generic message).
 
-    When both the streaming and buffered generation paths fail, the final
-    fallback is `raw_answer` — the bare string QVAC's own dense-retrieval call
-    returned — not `pack.context_block()`. `dispatch()` has the identical
-    branch (see `_route`'s `else: answer = raw_answer or "No relevant content
-    found."`), so this is shared, existing behaviour, not new.
-
-    The consequence: if `raw_answer` happens to be empty while `pack.chunks`
-    holds real retrieved passages, the student sees "No relevant content
-    found." even though evidence was retrieved and is sitting right there in
-    the pack. That contradicts the graceful-degradation principle in
-    docs/overview.md ("every study action still returns source passages").
-    Tracked as a follow-up rather than fixed here, since this issue is about
-    testing and reporting, not changing product behaviour.
+    This mirrors `_route`'s generation-failure fallback so `dispatch()` and
+    `stream_dispatch()` degrade identically (graceful degradation in
+    docs/overview.md).
     """
     from app.schemas.evidence_pack import EvidencePack, EvidenceChunk, CitationAnchor
 
@@ -243,8 +234,36 @@ async def test_stream_dispatch_final_fallback_uses_raw_answer_not_the_evidence_p
             study_service.stream_dispatch("Explain proof of work", COURSE_ID, StudyAction.EXPLAIN)
         )
 
-    # Current behaviour: the retrieved evidence is discarded here.
-    assert chunks[0] == "No relevant content found."
+    assert chunks[0] == pack.context_block()
+    assert "raw passage text" in chunks[0]
+
+
+@pytest.mark.asyncio
+async def test_stream_dispatch_buffered_action_fallback_prefers_the_evidence_pack():
+    """QUIZ/ORAL are buffered: a failed generation must also surface the pack."""
+    from app.schemas.evidence_pack import EvidencePack, EvidenceChunk, CitationAnchor
+
+    chunk = EvidenceChunk(
+        chunk_id="c1", text="quiz source passage", score=0.9,
+        anchor=CitationAnchor(
+            doc_id="d1", doc_name="doc.pdf", section=None, page=1,
+            slide=None, chunk_id="c1", chunk_type="paragraph",
+        ),
+    )
+    pack = EvidencePack(
+        query="q", action="quiz", chunks=[chunk], total_candidates=1,
+        ordering=[0], deduped_passages=["quiz source passage"],
+    )
+
+    with patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"), \
+         patch.object(study_service, "_retrieve_multi", return_value=("", pack)), \
+         patch.object(study_service, "_generate", new=AsyncMock(return_value=None)):
+        chunks = await _drain(
+            study_service.stream_dispatch("Quiz me", COURSE_ID, StudyAction.QUIZ)
+        )
+
+    assert chunks[0] == pack.context_block()
 
 
 # ---------------------------------------------------------------------------
