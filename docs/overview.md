@@ -145,18 +145,13 @@ observability and debugging.
 
 ---
 
-## 4. Known architectural tension
+## 4. Retrieval architecture
 
-The platform currently contains **two parallel retrieval paths**:
-
-- `study_service` — used by the study actions, performing dense retrieval against QVAC.
-- `chat_service` — used by the conversational endpoint, implementing the full hybrid pipeline
-  (dense + BM25 sparse, normalised fusion, cross-encoder reranking, MMR diversification, parent
-  expansion).
-
-The richer pipeline therefore currently serves the conversational endpoint rather than the study
-actions, which are the product's core. Consolidating the two paths is tracked as planned
-architectural work and is the highest-priority refactor in the roadmap.
+Both `study_service` (the study actions) and `chat_service` (the conversational endpoint) retrieve
+through one shared pipeline in `app/rag/retriever.py`: dense QVAC retrieval and BM25 sparse
+retrieval, normalised fusion, cross-encoder reranking, MMR diversification and parent expansion.
+Each caller keeps only its own concerns on top: action boosting and two-hop retrieval for the study
+actions, compression and the context budget for chat.
 
 ---
 

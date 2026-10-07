@@ -14,21 +14,20 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from typing import AsyncGenerator, List, Optional
-from app.rag.retriever import unified_retrieval
 
 import httpx
 
-from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk, EvidencePack
+from app.schemas.evidence_pack import EvidenceChunk, EvidencePack
 from app.schemas.study_schemas import (
     STUDY_ACTION_REGISTRY,
     StudyAction,
 )
+from app.rag.retriever import unified_retrieval
 from app.services import evidence_pack_service
 
 logger = logging.getLogger(__name__)
 
 _QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
-_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 
 # Bump when any prompt in _SYSTEM_PROMPTS below changes meaning (not just
 # wording) — tracked in app/prompts/registry.py for cross-system auditing.
@@ -250,35 +249,39 @@ def _parse_citations(text: str, pack: EvidencePack) -> List[SourceChunk]:
         for c in source_chunks
     ]
 
-async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple[str, EvidencePack]:
-    """Call unified RAG pipeline, wrap response into a structured EvidencePack.
 
-    Returns ("", pack). We no longer rely on QVAC's naive /query endpoint 
-    to pre-generate an answer; we rely entirely on our robust generation step.
+async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple[str, EvidencePack]:
+    """Run the shared hybrid pipeline and wrap the result into an EvidencePack.
+
+    Returns (raw_answer, pack). raw_answer is always "" now: retrieval no
+    longer goes through QVAC /query, which pre-generated an answer, so the
+    generation-failure fallback relies on the pack alone.
+
+    Uses the same pipeline as the chat path (app.rag.retriever): a
+    RAG_RETRIEVE_K candidate pool, BM25 fusion, reranking and MMR down to
+    RAG_TOP_K, parent expansion. Action-specific boosting is applied on top
+    by evidence_pack_service.build_from_chunks.
 
     The retrieval query may be rewritten or HyDE-expanded before hitting QVAC;
     the original *question* is preserved for generation prompts and citations.
-    Returns an empty pack when retrieval is unavailable.
+    Returns an empty pack when every dense source is unavailable.
     """
     from app.rag.query_rewriter import expand_query
-    from app.rag.retriever import unified_retrieval
-    
     retrieval_query = await expand_query(question)
 
     try:
-        # Call the new robust pipeline instead of the naive QVAC /query endpoint
-        context_chunks, reranked = await unified_retrieval(question, course_id, retrieval_query)
-
-        if not context_chunks:
-            logger.info("Unified retrieval returned 0 chunks for course '%s'", course_id)
-
-        pack = evidence_pack_service.build_from_chunks(question, action.value, context_chunks)
-        # We no longer pre-generate a raw_answer during retrieval.
-        return "", pack
-
-    except Exception as exc:
-        logger.warning("Unified retrieval failed (%s) — returning empty pack", exc)
+        context_chunks, _ = await unified_retrieval(
+            question, course_id, retrieval_query, client=_qvac_client
+        )
+    except (httpx.HTTPError, ValueError, KeyError) as exc:
+        logger.warning("Retrieval failed (%s) — returning empty pack", exc)
         return "", _empty_pack(question, action)
+
+    if not context_chunks:
+        logger.info("Retrieval returned 0 chunks for course '%s'", course_id)
+
+    pack = evidence_pack_service.build_from_chunks(question, action.value, context_chunks)
+    return "", pack
 
 
 _AND_SPLIT = re.compile(
@@ -336,6 +339,7 @@ async def _retrieve_multi(
         question, action.value, list(merged.values())
     )
     return raw_answers[0] if raw_answers else "", combined
+
 
 _THINKING_ACTIONS = frozenset({StudyAction.DERIVE})
 
@@ -469,7 +473,7 @@ async def _route(
         sources = _parse_citations(generated, pack)
     else:
         trace.fallback_used = True
-        answer = raw_answer or "No relevant content found."
+        answer = pack.context_block() or raw_answer or "No relevant content found."
         sources = [
             SourceChunk(
                 snippet=c.text,
@@ -638,7 +642,7 @@ async def stream_dispatch(
             answer = generated
             sources = _parse_citations(generated, pack)
         else:
-            answer = raw_answer or "No relevant content found."
+            answer = pack.context_block() or raw_answer or "No relevant content found."
             sources = _make_sources(pack.chunks)
         yield answer
         yield _cache_and_sentinel(answer, sources)
@@ -674,7 +678,7 @@ async def stream_dispatch(
             sources = _parse_citations(generated, pack)
             yield _cache_and_sentinel(generated, sources)
         else:
-            fallback = raw_answer or "No relevant content found."
+            fallback = pack.context_block() or raw_answer or "No relevant content found."
             sources = _make_sources(pack.chunks)
             yield fallback
             yield _cache_and_sentinel(fallback, sources)

@@ -5,7 +5,7 @@ needs to be running.  The three properties verified per the issue spec are:
 
 1. Correct action dispatch (action echoed in response, retrieval called with
    the right workspace/question).
-2. Citations present in the response when QVAC returns sources.
+2. Citations present in the response when QVAC returns chunks.
 3. Graceful fallback when QVAC is unavailable (200, no citations, answer set).
 """
 import pytest
@@ -24,9 +24,10 @@ def _auth(user_id: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _qvac_resp(answer: str = "Bitcoin is a decentralised currency.", sources: list | None = None) -> MagicMock:
+def _qvac_resp(answer: str = "Bitcoin is a decentralised currency.", chunks: list | None = None) -> MagicMock:
+    # Serves both QVAC /retrieve ("chunks") and /generate ("answer").
     resp = MagicMock()
-    resp.json.return_value = {"answer": answer, "sources": sources or []}
+    resp.json.return_value = {"answer": answer, "chunks": chunks or []}
     resp.raise_for_status.return_value = None
     return resp
 
@@ -34,10 +35,10 @@ def _qvac_resp(answer: str = "Bitcoin is a decentralised currency.", sources: li
 def _qvac_with_sources() -> MagicMock:
     return _qvac_resp(
         answer="Bitcoin uses proof-of-work to achieve consensus.",
-        sources=[
+        chunks=[
             {
                 "chunk_id": "c1",
-                "snippet": "Bitcoin uses proof-of-work.",
+                "content": "Bitcoin uses proof-of-work.",
                 "score": 0.92,
                 "doc_id": "doc-abc",
                 "label": "bitcoin_intro.pdf",
@@ -47,7 +48,7 @@ def _qvac_with_sources() -> MagicMock:
             },
             {
                 "chunk_id": "c2",
-                "snippet": "Miners compete to find a valid hash.",
+                "content": "Miners compete to find a valid hash.",
                 "score": 0.85,
                 "doc_id": "doc-abc",
                 "label": "bitcoin_intro.pdf",
@@ -60,7 +61,7 @@ def _qvac_with_sources() -> MagicMock:
 
 
 def _qvac_empty() -> MagicMock:
-    return _qvac_resp(answer="No relevant content found.", sources=[])
+    return _qvac_resp(answer="No relevant content found.", chunks=[])
 
 
 def _study_payload(action: str = "explain", query: str = "What is Bitcoin?") -> dict:
@@ -188,6 +189,29 @@ def test_study_dispatches_with_correct_question(client, db):
 
     _, call_kwargs = mock_post.call_args
     assert call_kwargs["json"]["question"] == "What is a Merkle tree?"
+
+
+@pytest.mark.integration
+def test_study_uses_the_hybrid_pipeline_candidate_pool(client, db):
+    """Study actions retrieve via QVAC /retrieve with the RAG_RETRIEVE_K pool,
+    the same hybrid pipeline as chat, not the QVAC /query top-k shortcut."""
+    from app.rag import retriever
+
+    user = make_user(db)
+    course, _ = make_course_with_lessons(db)
+
+    mock_post = AsyncMock(return_value=_qvac_with_sources())
+    with patch("app.services.study_service._qvac_client.post", mock_post):
+        client.post(
+            f"/api/courses/{course.id}/study",
+            json=_study_payload("retrieve", "What is proof-of-work?"),
+            headers=_auth(user.id),
+        )
+
+    args, kwargs = mock_post.call_args_list[0]
+    assert args[0] == "/retrieve"
+    assert kwargs["json"]["topK"] == retriever._TOP_K_RETRIEVE
+    assert all(call.args[0] != "/query" for call in mock_post.call_args_list)
 
 
 @pytest.mark.integration
