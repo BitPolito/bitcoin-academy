@@ -107,7 +107,6 @@ tmp/
 temp/
 
 # Docker
-.dockerignore
 docker-compose.local.yml
 
 # IDE config
