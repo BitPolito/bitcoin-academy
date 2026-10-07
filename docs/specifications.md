@@ -138,7 +138,9 @@ concept explanations, section summaries, open questions, quiz questions, and ora
 
 **Implementation.** All five output types are supported, plus derivations and comparisons. Prompts
 instruct the model to answer using only the provided context and to state explicitly when the
-answer is absent from it.
+answer is absent from it. When retrieval returns no evidence for an action that requires it, no
+generation runs: the action answers "No relevant content found." with no citations, and that
+result is not cached, so material uploaded later can answer the same request.
 
 ---
 
