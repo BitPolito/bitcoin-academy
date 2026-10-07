@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 libv
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --omit=dev
+# Clean the npm cache in the same layer: it is ~1.3 GB and never used at runtime.
+RUN npm ci --omit=dev && npm cache clean --force
 COPY . .
 CMD ["node", "src/server.js"]
