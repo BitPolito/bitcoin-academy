@@ -145,7 +145,8 @@ export default function CourseReviewPage() {
         setLoading(false);
       }
     }
-    if (courseId) load();
+    // Wait for the session: without a token the request can only fail with 401.
+    if (courseId && accessToken) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId, accessToken]);
 
