@@ -184,15 +184,22 @@ jobs:
         run: docker build -t bitcoin-academy-qvac:ci ./workers/qvac-service
 
       - name: Smoke test QVAC container
+        # The server listens only after loading its models, so this also waits
+        # for the embedding model download (~670 MB). The LLM is disabled to keep
+        # the download small; the native runtime still loads, which is what this
+        # step guards (missing shared library, wrong libc, illegal instruction).
         run: |
-          # Start the newly built container in the background
-          docker run -d -p 3001:3001 --name qvac-smoke bitcoin-academy-qvac:ci
-          
-          # Wait a few seconds for the Node and C++ runtime to initialize
-          sleep 5
-          
-          # Attempt to hit the service. If it crashes, print the logs and fail the CI
-          curl -f --retry 5 --retry-connrefused --retry-delay 2 http://localhost:3001/health || (docker logs qvac-smoke && exit 1)
+          docker run -d --name qvac-smoke -p 3001:3001 -e QVAC_LLM_ENABLED=false bitcoin-academy-qvac:ci
+          for i in $(seq 1 180); do
+            if curl -sf http://localhost:3001/health; then
+              echo; echo "QVAC healthy after $((i * 5))s"; exit 0
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' qvac-smoke)" != "true" ]; then
+              echo "QVAC container exited during startup"; docker logs qvac-smoke; exit 1
+            fi
+            sleep 5
+          done
+          echo "QVAC not healthy after 15 minutes"; docker logs qvac-smoke; exit 1
 
   # Aggregates every job above into one check. Set THIS as the required status
   # check on master: adding a job below does not then require reconfiguring
@@ -219,5 +226,3 @@ jobs:
             exit 1
           fi
           echo "All checks passed."
-
-          
