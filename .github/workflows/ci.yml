@@ -91,6 +91,33 @@ jobs:
             services/ai/htmlcov
           retention-days: 14
 
+  backend-windows:
+    name: Backend Unit Tests (Windows)
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        working-directory: services/ai
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          
+      - name: Install backend dependencies
+        run: uv sync --dev
+
+      - name: Run Windows unit tests
+        run: uv run pytest tests/unit/
+        env:
+          PYTHONUTF8: 1
+
   frontend:
     name: Frontend (Node.js)
     runs-on: ubuntu-latest
@@ -201,17 +228,19 @@ jobs:
     name: Quality gate
     runs-on: ubuntu-latest
     if: always()
-    needs: [backend, frontend, qvac-service, build]
+    needs: [backend, backend-windows, frontend, qvac-service, build]
 
     steps:
       - name: Verify every job succeeded
         run: |
-          echo "backend:      ${{ needs.backend.result }}"
-          echo "frontend:     ${{ needs.frontend.result }}"
-          echo "qvac-service: ${{ needs.qvac-service.result }}"
-          echo "build:        ${{ needs.build.result }}"
+          echo "backend:         ${{ needs.backend.result }}"
+          echo "backend-windows: ${{ needs.backend-windows.result }}"
+          echo "frontend:        ${{ needs.frontend.result }}"
+          echo "qvac-service:    ${{ needs.qvac-service.result }}"
+          echo "build:           ${{ needs.build.result }}"
 
           if [ "${{ needs.backend.result }}" != "success" ] || \
+             [ "${{ needs.backend-windows.result }}" != "success" ] || \
              [ "${{ needs.frontend.result }}" != "success" ] || \
              [ "${{ needs.qvac-service.result }}" != "success" ] || \
              [ "${{ needs.build.result }}" != "success" ]; then
@@ -219,5 +248,3 @@ jobs:
             exit 1
           fi
           echo "All checks passed."
-
-          

@@ -47,7 +47,7 @@ def _write_bm25_index(tmp_path: Path, ids: list, tokenized: list) -> None:
     }
     with (tmp_path / "COURSE1_bm25.pkl").open("wb") as f:
         pickle.dump({"bm25": bm25, "ids": ids}, f)
-    with (tmp_path / "COURSE1_corpus.json").open("w") as f:
+    with (tmp_path / "COURSE1_corpus.json").open("w", encoding="utf-8") as f:
         json.dump(corpus, f)
 
 
@@ -82,7 +82,7 @@ def test_load_bm25_index_returns_tuple_when_present(tmp_path):
 @pytest.mark.unit
 def test_load_bm25_index_returns_none_on_corrupt_pickle(tmp_path):
     (tmp_path / "COURSE1_bm25.pkl").write_bytes(b"not a valid pickle")
-    (tmp_path / "COURSE1_corpus.json").write_text("{}")
+    (tmp_path / "COURSE1_corpus.json").write_text("{}", encoding="utf-8")
     with patch("app.services.hybrid_search._QVAC_INGEST_DIR", tmp_path):
         result = load_bm25_index("COURSE1")
     assert result is None

@@ -10,6 +10,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:PYTHONUTF8 = 1
 $Root =$PSScriptRoot
 
 function Write-Step { param($msg) Write-Host "[start] $msg" -ForegroundColor Cyan }

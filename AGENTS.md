@@ -214,7 +214,7 @@ in code.
 | New endpoint | Integration test covering success and failure paths |
 | New service logic | Unit tests, including edge cases |
 | Bug fix | A regression test that fails before the fix |
-| RAG pipeline change | Evaluation suite run, with results in the PR |
+| RAG pipeline change |Run test_rag.py and include summary table in PR: cd services/ai && uv run python test_rag.py --output baseline_results.json |
 | Frontend component | Unit test; integration test for full flows |
 
 Do not weaken or delete a failing test to make CI pass. A failing test is either a real defect or a
