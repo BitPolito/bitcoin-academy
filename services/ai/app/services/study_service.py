@@ -20,6 +20,7 @@ import httpx
 from app.schemas.evidence_pack import EvidenceChunk, EvidencePack
 from app.schemas.study_schemas import (
     STUDY_ACTION_REGISTRY,
+    ActionMeta,
     StudyAction,
 )
 from app.rag.retriever import unified_retrieval
@@ -206,6 +207,17 @@ def _empty_pack(query: str, action: StudyAction) -> EvidencePack:
         query=query, action=action.value,
         chunks=[], total_candidates=0, ordering=[], deduped_passages=[],
     )
+
+
+# Returned instead of a generated answer when retrieval finds no evidence.
+_NO_EVIDENCE_ANSWER = "No relevant content found."
+
+
+def _lacks_evidence(meta: ActionMeta, pack: EvidencePack) -> bool:
+    """Study outputs must be generated only from retrieved evidence
+    (specification 10). With an empty pack the model would answer from its own
+    knowledge, presented to the student as course material."""
+    return meta.retrieval_required and not pack.chunks
 
 
 _REF_PATTERN = re.compile(r'\[ref_(\d+)\]', re.IGNORECASE)
@@ -441,6 +453,15 @@ async def _route(
         raw_answer, pack = await _retrieve_multi(question, course_id, action)
         trace.chunks_found = len(pack.chunks)
 
+    if _lacks_evidence(meta, pack):
+        trace.fallback_used = True
+        return DispatchResult(
+            answer=raw_answer or _NO_EVIDENCE_ANSWER,
+            citations=[],
+            retrieval_used=False,
+            evidence_pack=pack,
+        )
+
     # Step 2 — skip generation when the action doesn't need it, OR when rag_only is active.
     # rag_only lets callers force raw-retrieval mode for every action (e.g. no LLM key configured).
     if not meta.generation_required or rag_only:
@@ -456,7 +477,7 @@ async def _route(
             )
             for c in pack.chunks
         ]
-        answer = pack.context_block() or raw_answer or "No relevant content found."
+        answer = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER
         return DispatchResult(
             answer=answer,
             citations=all_sources,
@@ -473,7 +494,7 @@ async def _route(
         sources = _parse_citations(generated, pack)
     else:
         trace.fallback_used = True
-        answer = pack.context_block() or raw_answer or "No relevant content found."
+        answer = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER
         sources = [
             SourceChunk(
                 snippet=c.text,
@@ -542,6 +563,11 @@ async def dispatch(
         result = await _route(question, course_id, action, trace, rag_only=rag_only)
         trace.output_length = len(result.answer)
 
+        # A no-evidence result is not cached, so a document uploaded later can
+        # answer the same question.
+        if not result.retrieval_used and STUDY_ACTION_REGISTRY[action].retrieval_required:
+            return result
+
         set_cached(cache_key, course_id, {
             "answer": result.answer,
             "citations": [dataclasses.asdict(c) for c in result.citations],
@@ -603,6 +629,12 @@ async def stream_dispatch(
     if meta.retrieval_required:
         raw_answer, pack = await _retrieve_multi(question, course_id, action)
 
+    # No evidence: no generation and no cache write (see _lacks_evidence).
+    if _lacks_evidence(meta, pack):
+        yield raw_answer or _NO_EVIDENCE_ANSWER
+        yield _CITATIONS_SENTINEL + json.dumps([])
+        return
+
     # Build citations list for the sentinel payload
     def _make_sources(chunks: list[EvidenceChunk]) -> List[SourceChunk]:
         return [
@@ -629,7 +661,7 @@ async def stream_dispatch(
 
     # Retrieve-only or rag_only: emit context block as a single chunk, then citations
     if not meta.generation_required or rag_only:
-        answer = pack.context_block() or raw_answer or "No relevant content found."
+        answer = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER
         sources = _make_sources(pack.chunks)
         yield answer
         yield _cache_and_sentinel(answer, sources)
@@ -642,7 +674,7 @@ async def stream_dispatch(
             answer = generated
             sources = _parse_citations(generated, pack)
         else:
-            answer = pack.context_block() or raw_answer or "No relevant content found."
+            answer = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER
             sources = _make_sources(pack.chunks)
         yield answer
         yield _cache_and_sentinel(answer, sources)
@@ -678,7 +710,7 @@ async def stream_dispatch(
             sources = _parse_citations(generated, pack)
             yield _cache_and_sentinel(generated, sources)
         else:
-            fallback = pack.context_block() or raw_answer or "No relevant content found."
+            fallback = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER
             sources = _make_sources(pack.chunks)
             yield fallback
             yield _cache_and_sentinel(fallback, sources)
