@@ -114,5 +114,3 @@ def test_detect_tier_reprobes_after_ttl_expires():
         assert hardware_tier.detect_tier() == "C"
         assert hardware_tier.detect_tier() == "C"
     assert mock_detect.call_count == 2
-    
-    

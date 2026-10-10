@@ -84,18 +84,6 @@ QUERIES: list[tuple[str, str]] = [
     ("stress",      "What is the book's view on energy use in Bitcoin mining?"),
     ("stress",      "What does the book say about the blockchain compared with Bitcoin?"),
     ("stress",      "How does the book explain Bitcoin's global settlement properties?"),
-    # Technical & Protocol (consolidated from test_queries.json and test_rag_quality.py)
-    ("technical",   "What is a UTXO and how does it differ from an account balance?"),
-    ("technical",   "What is the Merkle tree and why is it used in Bitcoin?"),
-    ("technical",   "What is the Lightning Network and how do payment channels work?"),
-    ("technical",   "Compare SegWit and Taproot upgrades."),
-    ("technical",   "How does the difficulty adjustment algorithm work?"),
-    ("technical",   "What is Script in Bitcoin transactions?"),
-    ("technical",   "What is a Schnorr signature and how does it differ from ECDSA?"),
-    ("technical",   "What is Simplified Payment Verification (SPV)?"),
-    ("technical",   "What is the difference between a full node and a light node?"),
-    ("technical",   "How does the Bitcoin P2P network propagate transactions?"),
-    
 ]
 
 # Technical golden queries, merged from the retired tests/rag/test_queries.json
@@ -204,13 +192,12 @@ VERDICT_FMT = {
 # Core runner
 # ---------------------------------------------------------------------------
 async def run_query(query: str, course_id: str, idx: int, category: str) -> QueryResult:
-    from app.services.study_service import dispatch
-    from app.schemas.study_schemas import StudyAction 
+    from app.services.chat_service import answer as rag_answer
 
     result = QueryResult(idx=idx, category=category, query=query, answer="")
     t0 = time.perf_counter()
     try:
-        chat = await dispatch(query, course_id, StudyAction.EXPLAIN)
+        chat = await rag_answer(query, course_id)
         result.elapsed_s = round(time.perf_counter() - t0, 2)
         result.answer = chat.answer
         result.retrieval_used = chat.retrieval_used
