@@ -6,7 +6,7 @@ Usage:
     uv run python tests/test_rag.py --course <course_id>
     uv run python tests/test_rag.py --query "What is Bitcoin?"
 
-Runs 35 curated queries through the full retrieval pipeline and prints a
+Runs 76 curated queries (35 book-specific + 41 technical) through the full retrieval pipeline and prints a
 color-coded report. Saves full JSON results to --output (default: rag_test_results.json).
 """
 import argparse
@@ -38,7 +38,7 @@ except ImportError:
     pass
 
 # ---------------------------------------------------------------------------
-# Queries — 35 total, 7 categories
+# Queries — 76 total, 8 categories (35 book-specific + 41 technical)
 # ---------------------------------------------------------------------------
 QUERIES: list[tuple[str, str]] = [
     # (category, query_text)
@@ -97,6 +97,15 @@ QUERIES: list[tuple[str, str]] = [
     ("technical",   "How does the Bitcoin P2P network propagate transactions?"),
     
 ]
+
+# Technical golden queries, merged from the retired tests/rag/test_queries.json
+# and tests/eval/test_rag_quality.py. The JSON file also keeps each query's
+# ground truth and expected keywords for future answer-level metrics.
+_GOLDEN_TECHNICAL = Path(__file__).resolve().parent / "data" / "rag_golden_technical.json"
+QUERIES.extend(
+    ("technical", q["query"])
+    for q in json.loads(_GOLDEN_TECHNICAL.read_text(encoding="utf-8"))["queries"]
+)
 
 # Sections we expect to see for specific query categories
 _CHAPTER_EXPECTED: dict[str, list[str]] = {

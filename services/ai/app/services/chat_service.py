@@ -8,7 +8,6 @@ from typing import List
 
 import httpx
 
-from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk
 from app.rag.retriever import unified_retrieval
 
 logger = logging.getLogger(__name__)
@@ -16,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 def _strip_markdown(text: str) -> str:
     """Remove Markdown syntax and PDF artefacts from a text block before passing it to the LLM."""
+    # LaTeX source metadata lines ("Ammous c01.tex V1 - 03/05/2018 1:08pm Page 10")
     text = re.sub(r'^[A-Za-z]+\s+\w+\.tex\s+V\d+[^\n]*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
     text = re.sub(r'\*{1,3}([^*\n]+)\*{1,3}', r'\1', text)
@@ -36,11 +36,10 @@ def _clean_answer(text: str) -> str:
 
 
 _QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "")
-_TOP_K_GENERATE = int(os.getenv("RAG_TOP_K", "5"))
+# RAG_MAX_CONTEXT_TOKENS: rough token budget (words × 1.3) for context blocks.
 _MAX_CONTEXT_TOKENS = int(os.getenv("RAG_MAX_CONTEXT_TOKENS", "6000"))
 
 _client = httpx.AsyncClient(base_url=_QVAC_SERVICE_URL, timeout=60.0)
-
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -73,19 +72,25 @@ async def _retrieve_and_rank(
     course_id: str,
     retrieval_query: str,
 ) -> tuple[list[dict], list[Citation]]:
-    """Execute unified retrieval, compress contexts, and assemble token budget."""
-    from app.rag.compressor import compress_passages
+    """Shared hybrid retrieval, then chat-specific compression and token budget.
 
-    # 1. Call the unified pipeline
-    context_chunks, reranked = await unified_retrieval(question, course_id, retrieval_query)
+    Retrieval itself lives in app.rag.retriever so the study actions run the
+    same pipeline. Raises httpx.HTTPError only when every dense source fails.
+    """
+    from app.rag.compressor import compress_passages  # noqa: PLC0415
 
-    # 2. Context compression
+    context_chunks, reranked = await unified_retrieval(
+        question, course_id, retrieval_query, client=_client
+    )
+
+    # ── Context compression (opt-in via RAG_COMPRESS_CONTEXT=true) ───────────
+    # Runs in executor to avoid blocking the event loop (QVAC /generate calls).
     texts_raw = [_strip_markdown(c.text) for c in context_chunks]
     compressed_texts: list[str] = await asyncio.get_event_loop().run_in_executor(
         None, compress_passages, question, texts_raw
     )
 
-    # 3. Token budget assembly
+    # ── Token budget assembly ─────────────────────────────────────────────────
     context_blocks: list[dict] = []
     total_est_tokens = 0
     for c, clean_text in zip(context_chunks, compressed_texts):
@@ -100,7 +105,6 @@ async def _retrieve_and_rank(
         label = f"{c.anchor.doc_name} · {loc}" if loc else c.anchor.doc_name
         context_blocks.append({"label": label, "text": clean_text})
 
-    # 4. Format citations
     citations = [
         Citation(
             snippet=c.text[:200],
@@ -126,9 +130,10 @@ async def answer(
     history: list[dict] | None = None,
 ) -> ChatResult:
     """Hybrid RAG answer: dense (QVAC) + sparse (BM25) → RRF → rerank → parent context → LLM."""
-    from app.rag.query_rewriter import expand_query
-    from app.services.cache_service import get_cached, set_cached
+    from app.rag.query_rewriter import expand_query  # noqa: PLC0415
+    from app.services.cache_service import get_cached, set_cached  # noqa: PLC0415
 
+    # Semantic cache — skip pipeline on near-duplicate query.
     cached = get_cached(question, course_id)
     if cached is not None:
         return ChatResult(
@@ -195,10 +200,16 @@ async def stream_answer(
     course_id: str,
     history: list[dict] | None = None,
 ):
-    """Stream tokens from QVAC /stream using the same retrieval pipeline as answer()."""
-    import json as _json
-    from app.rag.query_rewriter import expand_query
-    from app.services.cache_service import get_cached, set_cached
+    """Stream tokens from QVAC /stream using the same retrieval pipeline as answer().
+
+    Yields raw token strings.  Ends with a special "\x00CITATIONS\x00<json>"
+    sentinel so the client can render citations after streaming completes.
+    Falls back to buffered /generate when QVAC /stream is unavailable.
+    Serves cached answer as a single burst when a near-duplicate query hits the cache.
+    """
+    import json as _json  # noqa: PLC0415
+    from app.rag.query_rewriter import expand_query  # noqa: PLC0415
+    from app.services.cache_service import get_cached, set_cached  # noqa: PLC0415
 
     cached = get_cached(question, course_id)
     if cached is not None:
@@ -251,6 +262,8 @@ async def stream_answer(
                     token = _json.loads(payload)
                 except Exception:
                     token = payload
+                # QVAC returns "[ERROR] ..." as a regular token when the LLM is busy.
+                # Treat any error token as a stream failure and fall back to /generate.
                 if isinstance(token, str) and token.startswith("[ERROR]"):
                     logger.warning("QVAC /stream error token: %s", token)
                     stream_failed = True
@@ -261,6 +274,7 @@ async def stream_answer(
         logger.warning("QVAC /stream failed (%s) — falling back to buffered generate", exc)
         stream_failed = True
 
+    # Fall back to buffered /generate when streaming errored or returned nothing.
     if stream_failed or not accumulated:
         try:
             gen_resp = await _client.post(
@@ -293,6 +307,3 @@ async def stream_answer(
         })
 
     yield "\x00CITATIONS\x00" + _json.dumps(citations_json)
-    
-    
-    

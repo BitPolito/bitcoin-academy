@@ -4,14 +4,22 @@
 # Usage:
 #   .\start.ps1        - start all services
 #   .\start.ps1 -Setup - run first-time setup before starting
+#
+# Requirements: Node.js >= 22, Python 3.11, uv (https://astral.sh/uv)
+# Run in PowerShell (not cmd). If you hit execution-policy errors:
+#   Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+#
+# Keep this file ASCII-only: Windows PowerShell 5.1 reads BOM-less UTF-8 as
+# the ANSI code page, and non-ASCII characters break parsing.
 
 param(
     [switch]$Setup
 )
 
 $ErrorActionPreference = "Stop"
+# Force UTF-8 for Python: the Windows default code page (cp1252) breaks file reads.
 $env:PYTHONUTF8 = 1
-$Root =$PSScriptRoot
+$Root = $PSScriptRoot
 
 function Write-Step { param($msg) Write-Host "[start] $msg" -ForegroundColor Cyan }
 function Write-Err  { param($msg) Write-Host "[start] ERROR: $msg" -ForegroundColor Red }

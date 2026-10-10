@@ -81,6 +81,21 @@ async def _drain(gen):
     return [chunk async for chunk in gen]
 
 
+def _pack_with_one_chunk():
+    """Generation only runs on retrieved evidence, so streaming tests need one."""
+    from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk, EvidencePack
+
+    chunk = EvidenceChunk(
+        chunk_id="c1", text="source passage", score=0.9,
+        anchor=CitationAnchor(doc_id="DOC1", doc_name="notes.pdf", section="", page=1,
+                              slide=None, chunk_id="c1", chunk_type="paragraph"),
+    )
+    return EvidencePack(
+        query="q", action="explain", chunks=[chunk], total_candidates=1,
+        ordering=[0], deduped_passages=["source passage"],
+    )
+
+
 # ---------------------------------------------------------------------------
 # study_service.stream_dispatch
 # ---------------------------------------------------------------------------
@@ -117,6 +132,37 @@ async def test_stream_dispatch_serves_a_cache_hit_as_a_single_burst_without_retr
 
 
 @pytest.mark.asyncio
+async def test_stream_dispatch_does_not_generate_without_evidence():
+    """With an empty evidence pack a streaming action must not call the model:
+    the answer would be ungrounded and presented as course material."""
+    from app.schemas.evidence_pack import EvidencePack
+
+    empty_pack = EvidencePack(
+        query="q", action="explain", chunks=[], total_candidates=0,
+        ordering=[], deduped_passages=[],
+    )
+
+    async def _fake_stream_generate(*args, **kwargs):
+        yield "An ungrounded answer."
+
+    with patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached") as mock_set, \
+         patch.object(study_service, "_retrieve_multi", return_value=("", empty_pack)), \
+         patch.object(study_service, "_stream_generate", side_effect=_fake_stream_generate) as mock_stream, \
+         patch.object(study_service, "_generate", new_callable=AsyncMock,
+                      return_value="An ungrounded answer.") as mock_gen:
+        chunks = await _drain(
+            study_service.stream_dispatch("this course material", COURSE_ID, StudyAction.EXPLAIN)
+        )
+
+    mock_stream.assert_not_called()
+    mock_gen.assert_not_called()
+    mock_set.assert_not_called()
+    assert chunks[0] == "No relevant content found."
+    assert json.loads(chunks[1][len(_CITATIONS_SENTINEL):]) == []
+
+
+@pytest.mark.asyncio
 async def test_stream_dispatch_buffers_retrieve_action_instead_of_streaming():
     """RETRIEVE needs the full parsed chunk list, not a token stream — it must
     never call QVAC /stream even though it is not excluded by generation_required."""
@@ -148,10 +194,7 @@ async def test_stream_dispatch_buffers_retrieve_action_instead_of_streaming():
 async def test_stream_dispatch_yields_tokens_progressively_for_a_streaming_action():
     from app.schemas.evidence_pack import EvidencePack
 
-    pack = EvidencePack(
-        query="q", action="explain", chunks=[], total_candidates=0,
-        ordering=[], deduped_passages=["source passage"],
-    )
+    pack = _pack_with_one_chunk()
 
     async def _fake_stream_generate(*args, **kwargs):
         for tok in ["Bitcoin ", "uses ", "proof of work."]:
@@ -175,10 +218,7 @@ async def test_stream_dispatch_falls_back_to_buffered_generate_when_the_stream_y
     must not leave the student staring at a blank answer."""
     from app.schemas.evidence_pack import EvidencePack
 
-    pack = EvidencePack(
-        query="q", action="explain", chunks=[], total_candidates=0,
-        ordering=[], deduped_passages=["source passage"],
-    )
+    pack = _pack_with_one_chunk()
 
     async def _empty_stream(*args, **kwargs):
         return
@@ -198,22 +238,13 @@ async def test_stream_dispatch_falls_back_to_buffered_generate_when_the_stream_y
 
 
 @pytest.mark.asyncio
-async def test_stream_dispatch_final_fallback_uses_raw_answer_not_the_evidence_pack():
-    """Documents current, surprising behaviour rather than the intended one.
+async def test_stream_dispatch_final_fallback_prefers_the_evidence_pack():
+    """When streaming and buffered generation both fail, the retrieved evidence
+    is surfaced rather than QVAC's bare `raw_answer` (or the generic message).
 
-    When both the streaming and buffered generation paths fail, the final
-    fallback is `raw_answer` — the bare string QVAC's own dense-retrieval call
-    returned — not `pack.context_block()`. `dispatch()` has the identical
-    branch (see `_route`'s `else: answer = raw_answer or "No relevant content
-    found."`), so this is shared, existing behaviour, not new.
-
-    The consequence: if `raw_answer` happens to be empty while `pack.chunks`
-    holds real retrieved passages, the student sees "No relevant content
-    found." even though evidence was retrieved and is sitting right there in
-    the pack. That contradicts the graceful-degradation principle in
-    docs/overview.md ("every study action still returns source passages").
-    Tracked as a follow-up rather than fixed here, since this issue is about
-    testing and reporting, not changing product behaviour.
+    This mirrors `_route`'s generation-failure fallback so `dispatch()` and
+    `stream_dispatch()` degrade identically (graceful degradation in
+    docs/overview.md).
     """
     from app.schemas.evidence_pack import EvidencePack, EvidenceChunk, CitationAnchor
 
@@ -243,8 +274,36 @@ async def test_stream_dispatch_final_fallback_uses_raw_answer_not_the_evidence_p
             study_service.stream_dispatch("Explain proof of work", COURSE_ID, StudyAction.EXPLAIN)
         )
 
-    # Current behaviour: the retrieved evidence is discarded here.
-    assert chunks[0] == "No relevant content found."
+    assert chunks[0] == pack.context_block()
+    assert "raw passage text" in chunks[0]
+
+
+@pytest.mark.asyncio
+async def test_stream_dispatch_buffered_action_fallback_prefers_the_evidence_pack():
+    """QUIZ/ORAL are buffered: a failed generation must also surface the pack."""
+    from app.schemas.evidence_pack import EvidencePack, EvidenceChunk, CitationAnchor
+
+    chunk = EvidenceChunk(
+        chunk_id="c1", text="quiz source passage", score=0.9,
+        anchor=CitationAnchor(
+            doc_id="d1", doc_name="doc.pdf", section=None, page=1,
+            slide=None, chunk_id="c1", chunk_type="paragraph",
+        ),
+    )
+    pack = EvidencePack(
+        query="q", action="quiz", chunks=[chunk], total_candidates=1,
+        ordering=[0], deduped_passages=["quiz source passage"],
+    )
+
+    with patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"), \
+         patch.object(study_service, "_retrieve_multi", return_value=("", pack)), \
+         patch.object(study_service, "_generate", new=AsyncMock(return_value=None)):
+        chunks = await _drain(
+            study_service.stream_dispatch("Quiz me", COURSE_ID, StudyAction.QUIZ)
+        )
+
+    assert chunks[0] == pack.context_block()
 
 
 # ---------------------------------------------------------------------------

@@ -123,6 +123,16 @@ describe('apiFetch', () => {
     await expect(apiFetch('/courses')).rejects.toThrow('Validation failed');
   });
 
+  it('surfaces the message from the backend error envelope', async () => {
+    // The backend's exception handlers answer with { error: { message, code } },
+    // not FastAPI's default { detail }.
+    mockFetch.mockResolvedValue(
+      jsonResponse({ error: { message: 'Missing authentication token', code: 'UNAUTHORIZED' } }, 401)
+    );
+
+    await expect(apiFetch('/courses')).rejects.toThrow('Missing authentication token');
+  });
+
   it('falls back to a generic message when the error body is unparseable', async () => {
     // A 502 from a proxy returns HTML, not JSON — this must not throw a
     // SyntaxError that masks the real status.

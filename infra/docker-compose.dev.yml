@@ -1,4 +1,0 @@
-services:
-  qvac:
-    ports:
-      - "3001:3001"

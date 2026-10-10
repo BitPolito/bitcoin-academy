@@ -123,10 +123,11 @@ Production base only (no dev overrides):
 ```bash
 docker compose -f infra/docker-compose.yml up --build
 ```
-### Local Development with Native Backend
-If you are running the AI service natively on your host (e.g., Windows/Mac) and need to connect to the QVAC Docker container, you must expose its port using the dev override file:
 
-`docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up`
+The production base does not publish the QVAC port: only the API reaches it, over the Compose
+network. The dev command above (with `docker-compose.override.yml`) maps it to `localhost:3001`,
+for example to run the backend natively against the QVAC container.
+
 ---
 
 ## Configuration
@@ -174,12 +175,10 @@ uv run pytest                       # all tests
 uv run pytest tests/unit/
 uv run pytest tests/integration/
 
-
-# RAG end-to-end suite (45 curated queries across 8 categories)
-uv run python test_rag.py                            # full run with terminal report
-uv run python test_rag.py --query "What is a UTXO?"  # single query debug
-uv run python test_rag.py --output baseline.json     # save JSON report for PR diffing
-
+# RAG evaluation suite (the single authoritative retrieval benchmark)
+uv run python tests/test_rag.py                            # 76 curated queries
+uv run python tests/test_rag.py --query "What is Bitcoin?" # single query
+uv run python tests/test_rag.py --output results.json      # save JSON report
 
 # Frontend
 cd apps/web && npm test
@@ -188,7 +187,7 @@ cd apps/web && npm test
 cd workers/qvac-service && npm test
 ```
 
-The RAG suite runs 45 queries across 8 categories (basic, chapter, conceptual, comparative, synthesis, adversarial, stress, technical) through the full retrieval pipeline, scoring each PASS / WARN / FAIL by retrieval confidence. Results are saved as JSON for baseline comparisons.
+`services/ai/tests/test_rag.py` is the only supported way to evaluate retrieval quality. It runs 76 queries across 8 categories (basic, chapter, conceptual, comparative, synthesis, adversarial, stress, technical) through the full retrieval pipeline, scoring each PASS / WARN / FAIL by retrieval confidence (top citation score >= 0.35 is PASS; retrieval not used is FAIL). The `technical` queries live in `services/ai/tests/data/rag_golden_technical.json`, together with their ground truths and expected keywords. Results are saved as JSON: run the suite before and after a change with `--output before.json` / `--output after.json` and compare the summaries and per-category averages. It needs the QVAC service running and an indexed course.
 
 CI runs on every push and pull request to `master` via GitHub Actions (`.github/workflows/ci.yml`). See [`AGENTS.md`](AGENTS.md) for the contribution workflow.
 
