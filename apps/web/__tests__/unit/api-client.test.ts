@@ -133,6 +133,20 @@ describe('apiFetch', () => {
     await expect(apiFetch('/courses')).rejects.toThrow('Missing authentication token');
   });
 
+  it('turns a FastAPI validation error list into a readable message', async () => {
+    // Without this the UI showed "[object Object]".
+    mockFetch.mockResolvedValue(
+      jsonResponse(
+        { detail: [{ loc: ['body', 'query'], msg: 'String should have at least 3 characters' }] },
+        422
+      )
+    );
+
+    await expect(apiFetch('/courses/c1/study')).rejects.toThrow(
+      'String should have at least 3 characters'
+    );
+  });
+
   it('falls back to a generic message when the error body is unparseable', async () => {
     // A 502 from a proxy returns HTML, not JSON — this must not throw a
     // SyntaxError that masks the real status.
