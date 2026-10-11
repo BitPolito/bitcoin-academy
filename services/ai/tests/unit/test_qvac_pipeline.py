@@ -87,7 +87,7 @@ def test_write_jsonl_one_line_per_chunk(tmp_path):
     chunks = [_chunk(text=f"chunk {i}") for i in range(4)]
     with patch.object(pipeline_mod, "QVAC_INGEST_DIR", tmp_path):
         out = pipeline_mod._write_jsonl(chunks, "DOC1")
-    lines = [l for l in out.read_text().splitlines() if l.strip()]
+    lines = [l for l in out.read_text(encoding="utf-8").splitlines() if l.strip()]
     assert len(lines) == 4
 
 
@@ -96,7 +96,7 @@ def test_write_jsonl_each_line_is_valid_json(tmp_path):
     chunks = [_chunk(text=f"chunk {i}") for i in range(3)]
     with patch.object(pipeline_mod, "QVAC_INGEST_DIR", tmp_path):
         out = pipeline_mod._write_jsonl(chunks, "DOC1")
-    for line in out.read_text().splitlines():
+    for line in out.read_text(encoding="utf-8").splitlines():
         obj = json.loads(line)
         assert isinstance(obj, dict)
 
@@ -106,7 +106,7 @@ def test_write_jsonl_content_matches_input(tmp_path):
     c = _chunk(text="Proof-of-work secures the chain.", doc_id="DOCX")
     with patch.object(pipeline_mod, "QVAC_INGEST_DIR", tmp_path):
         out = pipeline_mod._write_jsonl([c], "DOCX")
-    row = json.loads(out.read_text().strip())
+    row = json.loads(out.read_text(encoding="utf-8").strip())
     assert row["text"] == "Proof-of-work secures the chain."
     assert row["doc_id"] == "DOCX"
     assert row["chunk_type"] == "paragraph"
@@ -117,7 +117,7 @@ def test_write_jsonl_content_matches_input(tmp_path):
 def test_write_jsonl_empty_input_creates_empty_file(tmp_path):
     with patch.object(pipeline_mod, "QVAC_INGEST_DIR", tmp_path):
         out = pipeline_mod._write_jsonl([], "DOC2")
-    assert out.read_text() == ""
+    assert out.read_text(encoding="utf-8") == ""
 
 
 @pytest.mark.unit
@@ -337,7 +337,7 @@ def test_build_bm25_corpus_contains_chunk_text(tmp_path):
     pytest.importorskip("rank_bm25")
     with patch.object(pipeline_mod, "QVAC_INGEST_DIR", tmp_path):
         pipeline_mod._build_bm25_index([_chunk(text="UTXO is unspent.")], "COURSE1", "DOC1")
-    corpus = json.loads((tmp_path / "COURSE1_corpus.json").read_text())
+    corpus = json.loads((tmp_path / "COURSE1_corpus.json").read_text(encoding="utf-8"))
     texts = [v["text"] for v in corpus.values()]
     assert "UTXO is unspent." in texts
 
@@ -351,7 +351,7 @@ def test_build_bm25_removes_stale_entries_on_reingest(tmp_path):
     # Re-ingest same doc_id
     with patch.object(pipeline_mod, "QVAC_INGEST_DIR", tmp_path):
         pipeline_mod._build_bm25_index([_chunk(text="Updated text.", doc_id="DOC1")], "COURSE1", "DOC1")
-    corpus = json.loads((tmp_path / "COURSE1_corpus.json").read_text())
+    corpus = json.loads((tmp_path / "COURSE1_corpus.json").read_text(encoding="utf-8"))
     texts = [v["text"] for v in corpus.values()]
     assert "Original text." not in texts
     assert "Updated text." in texts
@@ -366,7 +366,7 @@ def test_build_bm25_accumulates_chunks_from_different_docs(tmp_path):
     with patch.object(pipeline_mod, "QVAC_INGEST_DIR", tmp_path):
         pipeline_mod._build_bm25_index([c1], "COURSE1", "DOC_A")
         pipeline_mod._build_bm25_index([c2], "COURSE1", "DOC_B")
-    corpus = json.loads((tmp_path / "COURSE1_corpus.json").read_text())
+    corpus = json.loads((tmp_path / "COURSE1_corpus.json").read_text(encoding="utf-8"))
     texts = [v["text"] for v in corpus.values()]
     assert "Doc A content." in texts
     assert "Doc B content." in texts

@@ -454,12 +454,14 @@ def test_pipeline_qvac_jsonl_contains_only_paragraph_chunks(client, db):
                     os.remove(tmp_path)
 
             jsonl_path = Path(tmp_qvac) / f"{doc_id}_contingency.jsonl"
-            rows = [json.loads(l) for l in jsonl_path.read_text().splitlines()]
+            rows = [json.loads(l) for l in jsonl_path.read_text(encoding="utf-8").splitlines()]
             assert len(rows) > 0
             for row in rows:
                 assert row["chunk_type"] in {"paragraph", "table"}, (
                     f"unexpected chunk_type in QVAC JSONL: {row['chunk_type']}"
                 )
+
+
 
 
 @pytest.mark.slow
@@ -565,7 +567,7 @@ def test_pipeline_qvac_jsonl_has_required_fields(client, db):
                     os.remove(tmp_path)
 
             jsonl_path = Path(tmp_qvac) / f"{doc_id}_contingency.jsonl"
-            rows = [json.loads(l) for l in jsonl_path.read_text().splitlines()]
+            rows = [json.loads(l) for l in jsonl_path.read_text(encoding="utf-8").splitlines()]
             assert len(rows) > 0
             for row in rows:
                 missing = required_fields - row.keys()

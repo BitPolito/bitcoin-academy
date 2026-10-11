@@ -191,7 +191,7 @@ def test_rerank_score_defaults_to_zero_meaning_not_reranked():
 def _env_example_keys() -> set[str]:
     path = _SERVICES_AI / ".env.example"
     keys = set()
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -218,7 +218,7 @@ def test_readme_documents_the_rag_variables_that_exist():
     """The README RAG table drifted from code before (SKIP_CHROMA_INDEX was
     documented as `true` while the code defaulted to `false`). This asserts the
     variables named in the table are ones the code actually reads."""
-    readme = (_REPO_ROOT / "README.md").read_text()
+    readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
     documented = set(re.findall(r"^\|\s*`([A-Z][A-Z0-9_]+)`\s*\|", readme, re.MULTILINE))
     assert documented, "No configuration variables found in the README table"
 

@@ -17,6 +17,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Force UTF-8 for Python: the Windows default code page (cp1252) breaks file reads.
+$env:PYTHONUTF8 = 1
 $Root = $PSScriptRoot
 
 function Write-Step { param($msg) Write-Host "[start] $msg" -ForegroundColor Cyan }

@@ -91,6 +91,38 @@ jobs:
             services/ai/htmlcov
           retention-days: 14
 
+  backend-windows:
+    name: Backend unit tests (Windows)
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        working-directory: services/ai
+
+    env:
+      DATABASE_URL: sqlite:///./ci_windows.db
+      SECRET_KEY: CI-AUTH-JWT-KEY-FOR-PIPELINE-ONLY-32!
+      ENVIRONMENT: development
+      PYTHONUTF8: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/ai/pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      # Unit tests only: they catch path and encoding bugs without Postgres.
+      - name: Run unit tests
+        # The 76% coverage ratchet applies to the full Linux run, not to this subset.
+        run: pytest tests/unit/ --no-cov
+
   frontend:
     name: Frontend (Node.js)
     runs-on: ubuntu-latest
@@ -208,17 +240,19 @@ jobs:
     name: Quality gate
     runs-on: ubuntu-latest
     if: always()
-    needs: [backend, frontend, qvac-service, build]
+    needs: [backend, backend-windows, frontend, qvac-service, build]
 
     steps:
       - name: Verify every job succeeded
         run: |
-          echo "backend:      ${{ needs.backend.result }}"
+          echo "backend:         ${{ needs.backend.result }}"
+          echo "backend-windows: ${{ needs.backend-windows.result }}"
           echo "frontend:     ${{ needs.frontend.result }}"
           echo "qvac-service: ${{ needs.qvac-service.result }}"
           echo "build:        ${{ needs.build.result }}"
 
           if [ "${{ needs.backend.result }}" != "success" ] || \
+             [ "${{ needs.backend-windows.result }}" != "success" ] || \
              [ "${{ needs.frontend.result }}" != "success" ] || \
              [ "${{ needs.qvac-service.result }}" != "success" ] || \
              [ "${{ needs.build.result }}" != "success" ]; then
