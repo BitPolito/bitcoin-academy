@@ -289,6 +289,43 @@ async def test_route_generation_fallback_to_default_error_when_all_empty():
     assert trace.fallback_used is True
 
 
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_route_does_not_generate_without_evidence():
+    """Study outputs must come only from retrieved evidence (specification 10).
+    With an empty pack the model would answer from its own knowledge, and the
+    UI would present that as course material."""
+    from app.services.study_service import _route, _empty_pack
+    pack = _empty_pack("this course material", StudyAction.EXPLAIN)
+
+    with patch("app.services.study_service._retrieve_multi", new_callable=AsyncMock, return_value=("", pack)), \
+         patch("app.services.study_service._generate", new_callable=AsyncMock,
+               return_value="An ungrounded answer.") as mock_gen:
+        trace = MagicMock()
+        result = await _route("this course material", "COURSE1", StudyAction.EXPLAIN, trace)
+
+    mock_gen.assert_not_called()
+    assert result.answer == "No relevant content found."
+    assert result.citations == []
+    assert result.retrieval_used is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_dispatch_does_not_cache_a_no_evidence_result():
+    """An empty result must not be cached: a document uploaded later has to be
+    able to answer the same question."""
+    with patch("app.services.study_service._route", new_callable=AsyncMock,
+               return_value=DispatchResult(answer="No relevant content found.", citations=[],
+                                           retrieval_used=False)), \
+         patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached") as mock_set:
+        from app.services.study_service import dispatch
+        await dispatch("this course material", "COURSE1", StudyAction.EXPLAIN)
+
+    mock_set.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # dispatch
 # ---------------------------------------------------------------------------
