@@ -7,6 +7,10 @@ WORKDIR /app
 # with "package directory 'app' does not exist" and the image cannot be built.
 COPY pyproject.toml README.md ./
 COPY app ./app
+# sentence-transformers (the CrossEncoder fallback reranker) depends on torch, and
+# PyPI's Linux torch wheels bundle CUDA: ~3 GB of NVIDIA libraries the service
+# never uses. Install the CPU-only build first so `pip install .` reuses it.
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch
 RUN pip install --no-cache-dir .
 
 COPY . .

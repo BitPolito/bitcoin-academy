@@ -124,6 +124,10 @@ Production base only (no dev overrides):
 docker compose -f infra/docker-compose.yml up --build
 ```
 
+The production base does not publish the QVAC port: only the API reaches it, over the Compose
+network. The dev command above (with `docker-compose.override.yml`) maps it to `localhost:3001`,
+for example to run the backend natively against the QVAC container.
+
 ---
 
 ## Configuration

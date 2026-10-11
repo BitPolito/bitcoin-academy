@@ -15,6 +15,10 @@
     "@qvac/sdk": "^0.9.1"
   },
   "optionalDependencies": {
-    "bare-runtime-darwin-arm64": "^1.28.5"
+    "bare-runtime-darwin-arm64": "^1.28.5",
+    "bare-runtime-darwin-x64": "^1.28.5",
+    "bare-runtime-linux-x64": "^1.28.5",
+    "bare-runtime-linux-arm64": "^1.28.5",
+    "bare-runtime-win32-x64": "^1.28.5"
   }
 }

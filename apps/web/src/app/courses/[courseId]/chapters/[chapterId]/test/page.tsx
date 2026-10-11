@@ -33,13 +33,15 @@ export default function ChapterTestPage() {
       try {
         const data = await getChapterTest(chapterId, accessToken);
         setTest(data);
+        setError(null);
       } catch {
         setError('No test available yet for this chapter.');
       } finally {
         setLoading(false);
       }
     }
-    if (chapterId) load();
+    // Wait for the session: without a token the request can only fail with 401.
+    if (chapterId && accessToken) load();
   }, [chapterId, accessToken]);
 
   async function handleSubmit() {
