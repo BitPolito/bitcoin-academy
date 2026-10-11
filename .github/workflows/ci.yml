@@ -120,7 +120,8 @@ jobs:
 
       # Unit tests only: they catch path and encoding bugs without Postgres.
       - name: Run unit tests
-        run: pytest tests/unit/
+        # The 76% coverage ratchet applies to the full Linux run, not to this subset.
+        run: pytest tests/unit/ --no-cov
 
   frontend:
     name: Frontend (Node.js)
