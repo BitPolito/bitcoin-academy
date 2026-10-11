@@ -38,6 +38,21 @@ interface ActionStreamingMessage {
 
 type Message = ChatMessage | ActionMessage | ActionStreamingMessage;
 
+// Only one study action streams at a time (the UI is locked while loading), so
+// the in-flight message is the last action-streaming entry.
+function replaceLastStreaming(
+  messages: Message[],
+  update: (m: ActionStreamingMessage) => Message,
+): Message[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === 'action-streaming') {
+      return [...messages.slice(0, i), update(m), ...messages.slice(i + 1)];
+    }
+  }
+  return messages;
+}
+
 // Actions that stream tokens progressively (full text needed for QUIZ/ORAL parsing).
 const STREAMING_ACTIONS = new Set<StudyAction>(['explain', 'summarize', 'derive', 'compare', 'open_questions']);
 
@@ -278,8 +293,6 @@ export function OutputPane({
   // Captures the index of the in-flight assistant message inside the functional
   // setMessages updater so it stays correct across React's concurrent-mode batching.
   const assistantIdxRef = useRef(-1);
-  // Index of the in-flight action-streaming message (set when first token arrives).
-  const streamingActionIdxRef = useRef(-1);
   const [retryQuestion, setRetryQuestion] = useState<string | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const { showToast } = useToast();
@@ -391,7 +404,10 @@ export function OutputPane({
     // Loading spinner stays until first token; then replaced by progressive streaming message.
     if (STREAMING_ACTIONS.has(action) && !ragOnly) {
       let streamingCitations: ApiCitationOut[] = [];
-      streamingActionIdxRef.current = -1;
+      // The answer is accumulated here, outside React state, and every updater
+      // below is pure: StrictMode invokes updaters twice in development, and an
+      // updater with side effects dropped every streamed token.
+      let answer = '';
 
       try {
         await sendStudyActionStream(
@@ -399,18 +415,14 @@ export function OutputPane({
           action,
           query,
           (token) => {
-            setMessages((prev) => {
-              if (streamingActionIdxRef.current === -1) {
-                // First token: stop loading spinner, add streaming message
-                streamingActionIdxRef.current = prev.length;
-                return [...prev, { role: 'action-streaming', action, query, content: token }];
-              }
-              return prev.map((m, i) =>
-                i === streamingActionIdxRef.current && m.role === 'action-streaming'
-                  ? { ...m, content: m.content + token }
-                  : m
-              );
-            });
+            const isFirstToken = answer === '';
+            answer += token;
+            const content = answer;
+            setMessages((prev) =>
+              isFirstToken
+                ? [...prev, { role: 'action-streaming', action, query, content }]
+                : replaceLastStreaming(prev, (m) => ({ ...m, content }))
+            );
             // Stop the loading skeleton once streaming begins
             setLoading(false);
           },
@@ -431,34 +443,26 @@ export function OutputPane({
 
       const durationMs = Date.now() - t0;
 
-      // Replace action-streaming message with final action-result
-      let finalResult: ApiStudyResponse | null = null;
-      setMessages((prev) => {
-        const idx = streamingActionIdxRef.current;
-        const streamMsg = idx >= 0 ? prev[idx] : null;
-        const answer = streamMsg?.role === 'action-streaming' ? streamMsg.content : '';
+      if (!answer) {
+        setMessages((prev) => [...prev, { role: 'assistant', content: 'No response received.' }]);
+        setLoading(false);
+        setActiveAction(null);
+        return;
+      }
 
-        if (!answer) {
-          return [...prev, { role: 'assistant' as const, content: 'No response received.' }];
-        }
-
-        finalResult = {
-          answer,
-          citations: streamingCitations,
-          retrieval_used: streamingCitations.length > 0,
-          action,
-        };
-
-        return prev.map((m, i) =>
-          i === idx
-            ? ({ role: 'action-result', action, query, result: finalResult!, durationMs } as ActionMessage)
-            : m
-        );
-      });
+      // Replace the action-streaming message with the final action-result.
+      const finalResult: ApiStudyResponse = {
+        answer,
+        citations: streamingCitations,
+        retrieval_used: streamingCitations.length > 0,
+        action,
+      };
+      const resultMessage: ActionMessage = { role: 'action-result', action, query, result: finalResult, durationMs };
+      setMessages((prev) => replaceLastStreaming(prev, () => resultMessage));
 
       if (streamingCitations.length > 0) setShowEvidence(true);
       // Notify parent (lesson progress, analytics) — same contract as buffered path.
-      if (finalResult) onActionResult?.(finalResult, selectedLesson ?? null);
+      onActionResult?.(finalResult, selectedLesson ?? null);
       setLoading(false);
       setActiveAction(null);
       return;

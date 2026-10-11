@@ -23,6 +23,29 @@ interface FetchOptions extends Omit<RequestInit, 'body'> {
   accessToken?: string;
 }
 
+/**
+ * Extracts a user-facing message from any backend error body: FastAPI's
+ * `{ detail: string }`, its validation list `{ detail: [{ msg }] }`, and the
+ * app's `{ error: { message } }` envelope.
+ */
+export function errorMessageFromBody(body: unknown): string | null {
+  const b = (body ?? {}) as {
+    detail?: unknown;
+    message?: unknown;
+    error?: { message?: unknown };
+  };
+  if (typeof b.detail === 'string' && b.detail) return b.detail;
+  if (Array.isArray(b.detail)) {
+    const msgs = b.detail
+      .map((d) => (d && typeof d === 'object' ? (d as { msg?: unknown }).msg : undefined))
+      .filter((m): m is string => typeof m === 'string' && m.length > 0);
+    if (msgs.length > 0) return msgs.join('; ');
+  }
+  if (typeof b.error?.message === 'string' && b.error.message) return b.error.message;
+  if (typeof b.message === 'string' && b.message) return b.message;
+  return null;
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
   if (response.status === 429) {
     throw new ApiError(429, 'Troppe richieste — riprova tra qualche secondo');
@@ -31,10 +54,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
     const errorBody = await response.json().catch(() => ({}));
     throw new ApiError(
       response.status,
-      errorBody.detail ||
-        errorBody.error?.message ||
-        errorBody.message ||
-        `Request failed (${response.status})`,
+      errorMessageFromBody(errorBody) ?? `Request failed (${response.status})`,
       errorBody
     );
   }

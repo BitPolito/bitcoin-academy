@@ -350,4 +350,34 @@ async def test_dispatch_rag_only_propagated():
 async def test_dispatch_rejects_short_query():
     from app.services.study_service import dispatch
     with pytest.raises(ValueError, match="too short"):
-        await dispatch("abc", "COURSE1", StudyAction.EXPLAIN)
+        await dispatch("ab", "COURSE1", StudyAction.EXPLAIN)
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+@pytest.mark.parametrize("topic", ["PoW", "UTXO", "SHA"])
+async def test_dispatch_accepts_short_course_terms(topic):
+    """Study actions take a topic; terms such as UTXO or PoW are valid ones."""
+    with patch("app.services.study_service._route", new_callable=AsyncMock,
+               return_value=DispatchResult(answer="ok", citations=[], retrieval_used=True)), \
+         patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"):
+        from app.services.study_service import dispatch
+        result = await dispatch(topic, "COURSE1", StudyAction.EXPLAIN)
+
+    assert result.answer == "ok"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("topic", ["PoW", "UTXO"])
+def test_study_request_accepts_short_course_terms(topic):
+    from app.schemas.study_schemas import StudyDispatchRequest
+    assert StudyDispatchRequest(query=topic, action=StudyAction.EXPLAIN).query == topic
+
+
+@pytest.mark.unit
+def test_study_request_rejects_a_two_character_query():
+    from pydantic import ValidationError
+    from app.schemas.study_schemas import StudyDispatchRequest
+    with pytest.raises(ValidationError):
+        StudyDispatchRequest(query="ab", action=StudyAction.EXPLAIN)

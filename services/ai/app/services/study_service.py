@@ -19,6 +19,7 @@ import httpx
 
 from app.schemas.evidence_pack import EvidenceChunk, EvidencePack
 from app.schemas.study_schemas import (
+    MIN_STUDY_QUERY_LENGTH,
     STUDY_ACTION_REGISTRY,
     ActionMeta,
     StudyAction,
@@ -527,8 +528,10 @@ async def dispatch(
     including when an exception is raised.  The request_id is not exposed
     in the HTTP response — it lives only in the log.
     """
-    if len(question.strip()) < 5:
-        raise ValueError("Query too short — must be at least 5 characters")
+    if len(question.strip()) < MIN_STUDY_QUERY_LENGTH:
+        raise ValueError(
+            f"Query too short — must be at least {MIN_STUDY_QUERY_LENGTH} characters"
+        )
 
     request_id = str(uuid.uuid4())
     started_at = time.perf_counter()
@@ -609,8 +612,10 @@ async def stream_dispatch(
 
     Sentinel format: \\x00CITATIONS\\x00<json-array-of-SourceChunk-dicts>
     """
-    if len(question.strip()) < 5:
-        raise ValueError("Query too short — must be at least 5 characters")
+    if len(question.strip()) < MIN_STUDY_QUERY_LENGTH:
+        raise ValueError(
+            f"Query too short — must be at least {MIN_STUDY_QUERY_LENGTH} characters"
+        )
 
     # --- Semantic cache lookup (shared with dispatch()) ---
     from app.services.cache_service import get_cached, set_cached  # noqa: PLC0415

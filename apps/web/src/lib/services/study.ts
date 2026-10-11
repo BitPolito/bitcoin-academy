@@ -1,4 +1,4 @@
-import { apiFetch, API_BASE_URL } from '@/lib/api';
+import { apiFetch, API_BASE_URL, errorMessageFromBody } from '@/lib/api';
 import type { ApiCitationOut, ApiStudyRequest, ApiStudyResponse, StudyAction } from '@/lib/api/types';
 
 export type { StudyAction, ApiStudyResponse as StudyResponse };
@@ -48,8 +48,14 @@ export async function sendStudyActionStream(
   });
 
   if (!response.ok) {
-    const msg = response.status === 429 ? 'Troppe richieste — riprova tra qualche secondo.' : `Stream request failed (${response.status})`;
-    throw new Error(msg);
+    if (response.status === 429) throw new Error('Troppe richieste — riprova tra qualche secondo.');
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      /* non-JSON error body: fall back to the status code */
+    }
+    throw new Error(errorMessageFromBody(body) ?? `Stream request failed (${response.status})`);
   }
   if (!response.body) throw new Error('Stream response body is null');
 
