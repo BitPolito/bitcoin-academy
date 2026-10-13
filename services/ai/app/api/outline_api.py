@@ -32,6 +32,7 @@ from app.schemas.outline_schemas import (
     GenerateOutlineBody,
     GenerationRunSchema,
     LessonDraftSchema,
+    OutlineActionBody,
     OutlineResponse,
     PatchOutlineBody,
 )
@@ -39,6 +40,8 @@ from app.repositories import course_repo
 from app.services import course_service
 
 router = APIRouter(prefix="/api", tags=["Outline"])
+
+_require_reviewer = CurrentUser(roles=[UserRole.ADMIN, UserRole.INSTRUCTOR])
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +57,8 @@ def _chapter_to_schema(chapter: Chapter) -> ChapterDraftSchema:
             status=ls.status,
             order_index=ls.order_index,
             source_refs=json.loads(ls.source_refs_json) if ls.source_refs_json else [],
+            is_human_modified=ls.is_human_modified,
+            human_modified_at=ls.human_modified_at,
         )
         for ls in sorted(chapter.lessons, key=lambda x: x.order_index)
     ]
@@ -64,6 +69,8 @@ def _chapter_to_schema(chapter: Chapter) -> ChapterDraftSchema:
         status=chapter.status,
         order_index=chapter.order_index,
         lessons=lessons,
+        is_human_modified=chapter.is_human_modified,
+        human_modified_at=chapter.human_modified_at,
     )
 
 
@@ -276,6 +283,36 @@ def patch_outline(
     chapters = (
         db.query(Chapter)
         .filter(Chapter.course_id == course_id, Chapter.status == "draft")
+        .order_by(Chapter.order_index)
+        .all()
+    )
+    return OutlineResponse(
+        course_id=course_id,
+        run_id=_latest_run_id(course_id, db),
+        chapters=[_chapter_to_schema(ch) for ch in chapters],
+    )
+
+
+@router.post(
+    "/courses/{course_id}/outline/actions",
+    response_model=OutlineResponse,
+    summary="Apply one manual outline editing operation",
+)
+def edit_outline(
+    body: OutlineActionBody,
+    course_id: str = Path(..., min_length=1, max_length=36),
+    db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(_require_reviewer),
+):
+    if course_service.get_course(db, course_id) is None:
+        raise NotFoundError("Course", course_id)
+
+    from app.services.outline_edit_service import apply_action
+
+    apply_action(db, course_id, body)
+    chapters = (
+        db.query(Chapter)
+        .filter(Chapter.course_id == course_id)
         .order_by(Chapter.order_index)
         .all()
     )

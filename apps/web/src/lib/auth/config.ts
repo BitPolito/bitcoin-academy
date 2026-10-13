@@ -5,6 +5,7 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const ACCESS_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 min — must match backend ACCESS_TOKEN_EXPIRE_MINUTES
 const REFRESH_BUFFER_MS = 60 * 1000; // refresh 1 min before expiry
+const refreshFlights = new Map<string, Promise<JWT>>();
 
 async function refreshAccessToken(token: JWT): Promise<JWT> {
   try {
@@ -27,6 +28,21 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
   } catch {
     return { ...token, error: 'RefreshAccessTokenError' };
   }
+}
+
+export function refreshAccessTokenSingleFlight(token: JWT): Promise<JWT> {
+  const refreshToken = token.refreshToken;
+  if (!refreshToken) {
+    return Promise.resolve({ ...token, error: 'RefreshAccessTokenError' });
+  }
+  const existing = refreshFlights.get(refreshToken);
+  if (existing) return existing;
+
+  const flight = refreshAccessToken(token).finally(() => {
+    refreshFlights.delete(refreshToken);
+  });
+  refreshFlights.set(refreshToken, flight);
+  return flight;
 }
 
 export const authOptions: AuthOptions = {
@@ -97,7 +113,7 @@ export const authOptions: AuthOptions = {
       }
 
       // Token expired — attempt refresh
-      return refreshAccessToken(token);
+      return refreshAccessTokenSingleFlight(token);
     },
     async session({ session, token }) {
       session.user.id = token.sub;

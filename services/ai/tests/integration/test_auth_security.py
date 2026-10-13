@@ -12,6 +12,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.rate_limit import limiter
+from app.core.config import settings
+from app.core.token_blacklist import token_blacklist
 from app.db.models import Base
 from app.db.session import SessionLocal, engine
 from app.main import app
@@ -25,9 +27,11 @@ VALID_PASSWORD = "SecureP@ss123!"
 @pytest.fixture(autouse=True)
 def setup_database():
     limiter.enabled = False
+    token_blacklist.clear()
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
+    token_blacklist.clear()
     limiter.enabled = True
 
 
@@ -202,6 +206,37 @@ class TestTokenLifecycle:
         new_access = refreshed.json()["access_token"]
         me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {new_access}"})
         assert me.status_code == 200
+
+    def test_refresh_rotates_and_concurrent_retry_returns_same_tokens(self):
+        registered = _register("locktest@example.com")
+        original = registered["tokens"]["refresh_token"]
+
+        first = client.post("/api/auth/refresh", json={"refresh_token": original})
+        concurrent = client.post("/api/auth/refresh", json={"refresh_token": original})
+
+        assert first.status_code == concurrent.status_code == 200
+        assert concurrent.json() == first.json()
+        assert first.json()["refresh_token"] != original
+
+    def test_reuse_after_grace_revokes_the_entire_family(self, monkeypatch):
+        registered = _register("locktest@example.com")
+        original = registered["tokens"]["refresh_token"]
+        first = client.post("/api/auth/refresh", json={"refresh_token": original})
+        replacement = first.json()["refresh_token"]
+        replacement_access = first.json()["access_token"]
+        monkeypatch.setattr(settings, "REFRESH_TOKEN_GRACE_SECONDS", -1)
+
+        reused = client.post("/api/auth/refresh", json={"refresh_token": original})
+        family_member = client.post(
+            "/api/auth/refresh", json={"refresh_token": replacement}
+        )
+        protected_request = client.get(
+            "/api/auth/me", headers={"Authorization": f"Bearer {replacement_access}"}
+        )
+
+        assert reused.status_code == 401
+        assert family_member.status_code == 401
+        assert protected_request.status_code == 401
 
     def test_an_access_token_cannot_be_used_to_refresh(self):
         """Token types must not be interchangeable: an access token leaked from

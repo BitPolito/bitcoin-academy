@@ -24,8 +24,6 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 _ROOT = Path(__file__).resolve().parent.parent
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_ROOT}/bitcoin_academy.db")
-os.environ.setdefault("CHROMA_DB_PATH", str(_ROOT / "chroma_db"))
-os.environ.setdefault("CHROMA_COLLECTION_NAME", "bitpolito_course")
 os.environ.setdefault("QVAC_SERVICE_URL", "http://localhost:3001")
 os.environ.setdefault("RAG_RETRIEVE_K", "20")
 os.environ.setdefault("RAG_TOP_K", "10")

@@ -1,8 +1,6 @@
-"""Document ingestion pipeline — QVAC-primary, structure-aware chunking.
+"""Document ingestion pipeline — QVAC-backed, structure-aware chunking.
 
 Flow: parse (page-by-page) → clean → chunk (structure-aware) → filter → JSONL → QVAC /ingest
-ChromaDB is not written during ingestion. It remains as a passive fallback
-at query time in chat_service.py if QVAC is unreachable.
 """
 import json
 import logging
@@ -21,12 +19,9 @@ logger = logging.getLogger(__name__)
 _HERE = Path(__file__).resolve()
 _SERVICES_AI = _HERE.parents[2]          # services/ai/
 
-CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", str(_SERVICES_AI / "chroma_db"))
-CHROMA_COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "bitpolito_course")
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(_SERVICES_AI / "uploads")))
 QVAC_INGEST_DIR = Path(os.getenv("QVAC_INGEST_DIR", str(_SERVICES_AI / "qvac_ingest")))
 QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
-SKIP_CHROMA_INDEX = os.getenv("SKIP_CHROMA_INDEX", "false").lower() == "true"
 
 from app.db.models import CourseDocument, DocumentProcessingStage, DocumentStatus  # noqa: E402
 from app.db.session import get_db_context                                           # noqa: E402
@@ -1070,57 +1065,12 @@ def run(
                 logger.warning("Could not save parent chunks to DB for %s: %s", document_id, exc)
 
             # ------------------------------------------------------------------
-            # Stage 5 — INDEXING (ChromaDB — skipped when SKIP_CHROMA_INDEX=true)
+            # Stage 5 — INDEXING
             # ------------------------------------------------------------------
             _set_stage(doc, DocumentProcessingStage.INDEXING, db)
 
-            if not SKIP_CHROMA_INDEX:
-                from fastembed import TextEmbedding  # noqa: PLC0415
-                import chromadb                      # noqa: PLC0415
-                from chromadb.config import Settings as ChromaSettings  # noqa: PLC0415
-
-                os.makedirs(CHROMA_DB_PATH, exist_ok=True)
-                chroma_client = chromadb.PersistentClient(
-                    path=CHROMA_DB_PATH,
-                    settings=ChromaSettings(anonymized_telemetry=False),
-                )
-                collection = chroma_client.get_or_create_collection(
-                    name=CHROMA_COLLECTION_NAME,
-                    metadata={"hnsw:space": "cosine"},
-                )
-                embedding_model = TextEmbedding("sentence-transformers/all-MiniLM-L6-v2")
-                texts = [c["text"] for c in chunks]
-                embeddings = [v.tolist() for v in embedding_model.embed(texts)]
-                ids = [c["id"] for c in chunks]
-                metadatas = [
-                    {
-                        "doc_id": c["doc_id"],
-                        "filename": filename,
-                        "course_id": course_id,
-                        "material_type": material_type,
-                        "label": c["citation_label"],
-                        "section": c["citation_section"],
-                        "page": c["citation_page"],
-                        "slide": c["citation_slide"],
-                        "chunk_type": c["chunk_type"],
-                        "parent_id": c.get("parent_id", ""),
-                    }
-                    for c in chunks
-                ]
-                if ids:
-                    collection.upsert(
-                        ids=ids,
-                        embeddings=embeddings,
-                        documents=texts,
-                        metadatas=metadatas,
-                    )
-                    logger.info("Indexed %d vectors into ChromaDB at %s", len(ids), CHROMA_DB_PATH)
-            else:
-                logger.info("SKIP_CHROMA_INDEX=true — skipping ChromaDB embedding for %s", document_id)
-
-            # ------------------------------------------------------------------
-            # Stage 6 — QVAC ingest
-            # ------------------------------------------------------------------
+            # QVAC is the sole dense index. ChromaDB was removed because its
+            # embedded server has unresolved pre-auth code-injection issues.
             jsonl_path = _write_jsonl(chunks, document_id)
             qvac_ok = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=False)
 

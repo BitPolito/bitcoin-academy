@@ -188,15 +188,37 @@ def test_rerank_score_defaults_to_zero_meaning_not_reranked():
 # Configuration integrity — documented defaults must match code defaults.
 # ---------------------------------------------------------------------------
 
-def _env_example_keys() -> set[str]:
-    path = _SERVICES_AI / ".env.example"
-    keys = set()
-    for line in path.read_text(encoding="utf-8").splitlines():
+def _env_example_defaults() -> dict[str, str]:
+    defaults = {}
+    for line in (_SERVICES_AI / ".env.example").read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
-        keys.add(line.split("=", 1)[0].strip())
-    return keys
+        name, value = line.split("=", 1)
+        defaults[name.strip()] = value.strip()
+    return defaults
+
+
+def _env_example_keys() -> set[str]:
+    return set(_env_example_defaults())
+
+
+def _readme_rag_defaults() -> dict[str, str]:
+    """Defaults from the README '### RAG variables' table only — the table is
+    scoped to services/ai, so matching the whole file would drag in unrelated
+    config rows added elsewhere in the README."""
+    readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    section = re.search(
+        r"^### RAG variables$(.*?)^(?:#|---)",
+        readme,
+        re.MULTILINE | re.DOTALL,
+    )
+    body = section.group(1) if section else ""
+    return dict(re.findall(
+        r"^\|\s*`([A-Z][A-Z0-9_]+)`\s*\|\s*`([^`]+)`\s*\|",
+        body,
+        re.MULTILINE,
+    ))
 
 
 def test_env_example_exists_and_is_populated():
@@ -215,9 +237,7 @@ def test_required_settings_are_documented_in_env_example():
 
 
 def test_readme_documents_the_rag_variables_that_exist():
-    """The README RAG table drifted from code before (SKIP_CHROMA_INDEX was
-    documented as `true` while the code defaulted to `false`). This asserts the
-    variables named in the table are ones the code actually reads."""
+    """Assert that variables named in the README are ones the code reads."""
     readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
     documented = set(re.findall(r"^\|\s*`([A-Z][A-Z0-9_]+)`\s*\|", readme, re.MULTILINE))
     assert documented, "No configuration variables found in the README table"
@@ -231,6 +251,44 @@ def test_readme_documents_the_rag_variables_that_exist():
             f"README documents `{name}` but no module reads it. Either the "
             f"variable was removed and the README is stale, or it is misspelled."
         )
+
+
+def test_unpatched_chromadb_is_not_installed():
+    """ChromaDB 0.4.17–1.5.9 has unpatched code-injection vulnerabilities."""
+    manifests = [
+        _SERVICES_AI / "pyproject.toml",
+        _SERVICES_AI / "uv.lock",
+        _REPO_ROOT / "workers" / "requirements.txt",
+    ]
+    for manifest in manifests:
+        assert "chromadb" not in manifest.read_text(encoding="utf-8").lower(), (
+            f"{manifest.relative_to(_REPO_ROOT)} reintroduced vulnerable ChromaDB"
+        )
+
+
+def test_documented_rag_defaults_match_env_example_and_code():
+    """Fail when a documented default drifts from the runnable configuration."""
+    documented = _readme_rag_defaults()
+    assert documented, "No defaults parsed from the README '### RAG variables' table"
+    env_defaults = _env_example_defaults()
+    sources = "\n".join(p.read_text(encoding="utf-8") for p in (_SERVICES_AI / "app").rglob("*.py"))
+
+    for name, documented_default in sorted(documented.items()):
+        assert name in env_defaults, f"{name} is documented but absent from .env.example"
+        assert env_defaults[name] == documented_default, (
+            f"{name}: README says {documented_default!r}, but .env.example uses "
+            f"{env_defaults[name]!r}"
+        )
+
+        literal_defaults = set(re.findall(
+            rf'os\.getenv\("{re.escape(name)}",\s*"([^"]*)"\)',
+            sources,
+        ))
+        if literal_defaults:
+            assert literal_defaults == {documented_default}, (
+                f"{name}: README says {documented_default!r}, but code defaults are "
+                f"{sorted(literal_defaults)!r}"
+            )
 
 
 def test_debug_mode_is_off_by_default():

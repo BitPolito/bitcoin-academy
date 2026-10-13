@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import TokenPayload, validate_access_token
-from app.core.token_blacklist import is_token_blacklisted
+from app.core.token_blacklist import is_token_blacklisted, is_token_family_revoked
 from app.db.models import UserRole
 
 
@@ -78,6 +78,8 @@ async def get_current_user(
     payload = validate_access_token(token)
     if payload is None:
         raise AuthenticationError("Invalid or expired token")
+    if payload.family_id and is_token_family_revoked(payload.family_id):
+        raise AuthenticationError("Token family has been revoked")
 
     return payload
 
@@ -103,6 +105,8 @@ async def get_current_user_optional(
     payload = validate_access_token(token)
     if payload is None:
         raise AuthenticationError("Invalid or expired token")
+    if payload.family_id and is_token_family_revoked(payload.family_id):
+        raise AuthenticationError("Token family has been revoked")
 
     return payload
 
@@ -214,6 +218,8 @@ class CurrentUser:
             if self.optional:
                 raise AuthenticationError("Invalid or expired token")
             raise AuthenticationError("Invalid or expired token")
+        if payload.family_id and is_token_family_revoked(payload.family_id):
+            raise AuthenticationError("Token family has been revoked")
 
         # Check role permissions if roles are specified
         if self.roles is not None:

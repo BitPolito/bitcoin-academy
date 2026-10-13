@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 # Keep third-party chatter out of the console unless LOG_LEVEL=DEBUG
 if _log_level > logging.DEBUG:
-    for _noisy in ("sqlalchemy.engine", "httpx", "httpcore", "chromadb", "fastembed", "hpack"):
+    for _noisy in ("sqlalchemy.engine", "httpx", "httpcore", "fastembed", "hpack"):
         logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 

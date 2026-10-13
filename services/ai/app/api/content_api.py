@@ -318,6 +318,10 @@ def patch_lesson(
         lesson.content = body.content
         lesson.content_hash = lesson_service.compute_content_hash(lesson)
 
+    from datetime import datetime, timezone
+    lesson.is_human_modified = True
+    lesson.human_modified_at = datetime.now(timezone.utc).isoformat()
+
     db.commit()
     db.refresh(lesson)
 

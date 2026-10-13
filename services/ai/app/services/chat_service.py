@@ -35,7 +35,7 @@ def _clean_answer(text: str) -> str:
     return text if text else "Risposta non disponibile."
 
 
-_QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "")
+_QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 # RAG_MAX_CONTEXT_TOKENS: rough token budget (words × 1.3) for context blocks.
 _MAX_CONTEXT_TOKENS = int(os.getenv("RAG_MAX_CONTEXT_TOKENS", "6000"))
 

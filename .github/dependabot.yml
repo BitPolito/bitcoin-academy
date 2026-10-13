@@ -1,0 +1,51 @@
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directory: /services/ai
+    target-branch: mvp-testing
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Rome
+    groups:
+      python-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /apps/web
+    target-branch: mvp-testing
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:15"
+      timezone: Europe/Rome
+    groups:
+      frontend-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /workers/qvac-service
+    target-branch: mvp-testing
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:30"
+      timezone: Europe/Rome
+    groups:
+      qvac-dependencies:
+        patterns: ["*"]
+
+  # Legacy parser manifest retained for the standalone worker prototype.
+  - package-ecosystem: pip
+    directory: /workers
+    target-branch: mvp-testing
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:45"
+      timezone: Europe/Rome
+    groups:
+      parser-worker-dependencies:
+        patterns: ["*"]
