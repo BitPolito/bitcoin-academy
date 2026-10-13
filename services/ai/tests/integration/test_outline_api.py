@@ -395,11 +395,11 @@ def test_get_generation_run_running_has_stage(client, db, auth_headers):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_outline_actions_require_reviewer(client, db, auth_headers):
+def test_outline_actions_require_reviewer(client, db, student_headers):
     course, _ = make_course_with_lessons(db)
     resp = client.post(
         f"/api/courses/{course.id}/outline/actions",
-        headers=auth_headers,
+        headers=student_headers,
         json={"action": "create_chapter", "title": "Manual"},
     )
     assert resp.status_code == 403
