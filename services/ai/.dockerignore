@@ -1,0 +1,26 @@
+# Local development artefacts must not reach the image: they bloat every
+# build context and layer, and .env would bake a local SECRET_KEY into it.
+
+# Environments and secrets
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+.python-version
+
+# Caches and build output
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+
+# Local runtime data (Compose mounts volumes for these)
+*.db
+uploads/
+qvac_ingest/
+chroma_db/

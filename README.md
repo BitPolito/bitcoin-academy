@@ -124,6 +124,10 @@ Production base only (no dev overrides):
 docker compose -f infra/docker-compose.yml up --build
 ```
 
+The production base does not publish the QVAC port: only the API reaches it, over the Compose
+network. The dev command above (with `docker-compose.override.yml`) maps it to `localhost:3001`,
+for example to run the backend natively against the QVAC container.
+
 ---
 
 ## Configuration
@@ -170,8 +174,8 @@ uv run pytest                       # all tests
 uv run pytest tests/unit/
 uv run pytest tests/integration/
 
-# RAG end-to-end suite
-uv run python tests/test_rag.py                            # 35 curated queries
+# RAG evaluation suite (the single authoritative retrieval benchmark)
+uv run python tests/test_rag.py                            # 76 curated queries
 uv run python tests/test_rag.py --query "What is Bitcoin?" # single query
 uv run python tests/test_rag.py --output results.json      # save JSON report
 
@@ -182,7 +186,7 @@ cd apps/web && npm test
 cd workers/qvac-service && npm test
 ```
 
-The RAG suite runs 35 queries across 7 categories (basic, chapter, conceptual, comparative, synthesis, adversarial, stress) through the full retrieval pipeline, scoring each PASS / WARN / FAIL by retrieval confidence. Results are saved as JSON for baseline comparisons.
+`services/ai/tests/test_rag.py` is the only supported way to evaluate retrieval quality. It runs 76 queries across 8 categories (basic, chapter, conceptual, comparative, synthesis, adversarial, stress, technical) through the full retrieval pipeline, scoring each PASS / WARN / FAIL by retrieval confidence (top citation score >= 0.35 is PASS; retrieval not used is FAIL). The `technical` queries live in `services/ai/tests/data/rag_golden_technical.json`, together with their ground truths and expected keywords. Results are saved as JSON: run the suite before and after a change with `--output before.json` / `--output after.json` and compare the summaries and per-category averages. It needs the QVAC service running and an indexed course.
 
 CI runs on every push and pull request to `master` via GitHub Actions (`.github/workflows/ci.yml`). See [`AGENTS.md`](AGENTS.md) for the contribution workflow.
 

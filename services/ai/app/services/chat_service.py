@@ -8,7 +8,7 @@ from typing import List
 
 import httpx
 
-from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk
+from app.rag.retriever import unified_retrieval
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +35,7 @@ def _clean_answer(text: str) -> str:
     return text if text else "Risposta non disponibile."
 
 
-_QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
-# RAG_RETRIEVE_K: total candidates fetched from dense + sparse pool.
-# RAG_TOP_K: chunks handed to the LLM after reranking (context window budget).
-_TOP_K_RETRIEVE = int(os.getenv("RAG_RETRIEVE_K", "20"))
-_TOP_K_GENERATE = int(os.getenv("RAG_TOP_K", "5"))
+_QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "")
 # RAG_MAX_CONTEXT_TOKENS: rough token budget (words × 1.3) for context blocks.
 _MAX_CONTEXT_TOKENS = int(os.getenv("RAG_MAX_CONTEXT_TOKENS", "6000"))
 
@@ -71,65 +67,21 @@ class ChatResult:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _qvac_dict_to_chunk(d: dict) -> EvidenceChunk:
-    """Convert a QVAC /retrieve response dict to an EvidenceChunk."""
-    return EvidenceChunk(
-        chunk_id=d.get("chunk_id", ""),
-        text=d.get("content", "") or d.get("text", ""),
-        score=float(d.get("score", 0.0)),
-        anchor=CitationAnchor(
-            doc_id=d.get("doc_id", ""),
-            doc_name=d.get("label", ""),
-            section=d.get("section") or None,
-            page=int(d["page"]) if d.get("page") else None,
-            slide=int(d["slide"]) if d.get("slide") else None,
-            chunk_id=d.get("chunk_id", ""),
-            chunk_type="paragraph",
-        ),
-    )
-
-
 async def _retrieve_and_rank(
     question: str,
     course_id: str,
     retrieval_query: str,
 ) -> tuple[list[dict], list[Citation]]:
-    """Dense + sparse retrieval, normalized fusion, rerank, MMR, parent expansion.
+    """Shared hybrid retrieval, then chat-specific compression and token budget.
 
-    Dense source: QVAC (GTE-Large embeddings).
-    Raises httpx.HTTPError when QVAC retrieval is unavailable.
+    Retrieval itself lives in app.rag.retriever so the study actions run the
+    same pipeline. Raises httpx.HTTPError only when every dense source fails.
     """
-    from app.services import hybrid_search, reranker, parent_expansion  # noqa: PLC0415
     from app.rag.compressor import compress_passages  # noqa: PLC0415
 
-    # ── Dense retrieval (QVAC) ───────────────────────────────────────────────
-    resp = await _client.post(
-        "/retrieve",
-        json={"question": retrieval_query, "workspace": course_id, "topK": _TOP_K_RETRIEVE},
+    context_chunks, reranked = await unified_retrieval(
+        question, course_id, retrieval_query, client=_client
     )
-    resp.raise_for_status()
-    dense_chunks = [
-        _qvac_dict_to_chunk(d)
-        for d in resp.json().get("chunks", [])
-        if d.get("chunk_id")
-    ]
-
-    # ── Sparse retrieval (BM25) + normalized hybrid fusion ───────────────────
-    bm25_hits = hybrid_search.bm25_search(question, course_id, top_k=_TOP_K_RETRIEVE)
-    if bm25_hits:
-        index_data = hybrid_search.load_bm25_index(course_id)
-        corpus = index_data[2] if index_data else {}
-        merged = hybrid_search.normalized_hybrid_fuse(
-            dense_chunks, bm25_hits, corpus, top_k=_TOP_K_RETRIEVE
-        )
-    else:
-        logger.debug("BM25 index absent for course '%s' — dense-only retrieval", course_id)
-        merged = dense_chunks[:_TOP_K_RETRIEVE]
-
-    # ── Rerank + MMR diversity + parent context expansion ────────────────────
-    reranked_all = reranker.rerank(question, merged)
-    reranked = reranker.mmr_select(reranked_all, _TOP_K_GENERATE)
-    context_chunks = parent_expansion.expand_to_parents(reranked)
 
     # ── Context compression (opt-in via RAG_COMPRESS_CONTEXT=true) ───────────
     # Runs in executor to avoid blocking the event loop (QVAC /generate calls).

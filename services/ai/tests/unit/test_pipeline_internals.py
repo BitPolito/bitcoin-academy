@@ -373,7 +373,7 @@ def test_jsonl_export_writes_one_valid_object_per_line(tmp_path, monkeypatch):
     ]
     path = pipeline._write_jsonl(chunks, "doc-123")
 
-    lines = [ln for ln in path.read_text().splitlines() if ln.strip()]
+    lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
     assert len(lines) == 2
     for line in lines:
         json.loads(line)  # raises if the export is not valid JSONL
@@ -383,7 +383,7 @@ def test_jsonl_export_handles_an_empty_chunk_list(tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline, "QVAC_INGEST_DIR", tmp_path)
     path = pipeline._write_jsonl([], "doc-empty")
     assert path.exists()
-    assert [ln for ln in path.read_text().splitlines() if ln.strip()] == []
+    assert [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()] == []
 
 
 def test_module_aliases_are_registered_without_error():

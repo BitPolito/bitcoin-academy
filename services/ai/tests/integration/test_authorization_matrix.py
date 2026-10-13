@@ -33,11 +33,6 @@ PUBLIC_ENDPOINTS: set[tuple[str, str]] = {
     # Badge *definitions* only — a static catalogue. The per-user variant
     # (/api/badges/user) is protected and is covered by the matrix below.
     ("GET", "/api/badges"),
-    # Deliberately public on the course-builder line: the endpoint is documented
-    # "student-safe, no correct answers" and test_chapter_test_api asserts it
-    # does not require auth. It still exposes the question text of any chapter
-    # test to anonymous callers — worth revisiting, but not changed here.
-    ("GET", "/api/chapters/{chapter_id}/test"),
 }
 
 # Placeholder values substituted into path parameters.

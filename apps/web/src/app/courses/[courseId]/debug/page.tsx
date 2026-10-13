@@ -28,9 +28,12 @@ export default function DebugPage() {
   const [querying, setQuerying] = useState(false);
 
   const loadHealth = useCallback(async () => {
+    // Wait for the session: without a token the request can only fail with 401.
+    if (!accessToken) return;
     try {
       const h = await getPipelineHealth(accessToken);
       setHealth(h);
+      setHealthError(null);
     } catch (err) {
       setHealthError(err instanceof Error ? err.message : 'Failed to load health');
     }

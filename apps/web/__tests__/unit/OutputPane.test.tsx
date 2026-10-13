@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom';
+import { StrictMode } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { OutputPane } from '../../src/components/study/OutputPane';
@@ -14,8 +15,16 @@ jest.mock('../../src/lib/services/chat', () => ({
   submitFeedback: jest.fn(),
 }));
 
+// Mock the study service so study actions never hit the network
+jest.mock('../../src/lib/services/study', () => ({
+  sendStudyAction: jest.fn(),
+  sendStudyActionStream: jest.fn(),
+}));
+
 import { sendChatMessageStream } from '../../src/lib/services/chat';
+import { sendStudyActionStream } from '../../src/lib/services/study';
 const mockSend = sendChatMessageStream as jest.MockedFunction<typeof sendChatMessageStream>;
+const mockStudyStream = sendStudyActionStream as jest.MockedFunction<typeof sendStudyActionStream>;
 
 describe('OutputPane', () => {
   const defaultProps = { courseId: 'course-123', accessToken: 'tok' };
@@ -248,6 +257,42 @@ describe('OutputPane', () => {
       await waitFor(() => {
         expect(screen.getByText(/network error/i)).toBeInTheDocument();
       });
+    });
+  });
+  describe('streaming study actions', () => {
+    it('renders the streamed answer under React StrictMode', async () => {
+      // StrictMode invokes state updaters twice in development. An updater with
+      // side effects dropped every token and showed "No response received.".
+      mockStudyStream.mockImplementation(async (_course, _action, _query, onToken, onCitations) => {
+        onToken('Hello');
+        onToken(' world');
+        onCitations([]);
+      });
+
+      const { container } = render(
+        <StrictMode>
+          <OutputPane {...defaultProps} />
+        </StrictMode>
+      );
+      fireEvent.click(screen.getAllByRole('button', { name: /explain/i })[0]);
+
+      await waitFor(() => expect(mockStudyStream).toHaveBeenCalled());
+      await waitFor(() => expect(screen.queryByLabelText(/loading response/i)).not.toBeInTheDocument());
+      expect(container).toHaveTextContent(/Hello\s*world/);
+      expect(container).not.toHaveTextContent(/no response received/i);
+    });
+
+    it('reports an empty stream as no response', async () => {
+      mockStudyStream.mockImplementation(async () => {});
+
+      render(
+        <StrictMode>
+          <OutputPane {...defaultProps} />
+        </StrictMode>
+      );
+      fireEvent.click(screen.getAllByRole('button', { name: /explain/i })[0]);
+
+      expect(await screen.findByText(/no response received/i)).toBeInTheDocument();
     });
   });
 });

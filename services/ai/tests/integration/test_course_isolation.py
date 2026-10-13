@@ -31,8 +31,9 @@ def _auth_header(user) -> dict:
 
 
 def _qvac_response(sources: list) -> MagicMock:
+    # Serves both QVAC /retrieve ("chunks") and /generate ("answer").
     resp = MagicMock()
-    resp.json.return_value = {"answer": "generated answer", "sources": sources}
+    resp.json.return_value = {"answer": "generated answer", "chunks": sources}
     resp.raise_for_status.return_value = None
     return resp
 
@@ -40,7 +41,7 @@ def _qvac_response(sources: list) -> MagicMock:
 def _source(chunk_id: str, doc_id: str, text: str) -> dict:
     return {
         "chunk_id": chunk_id,
-        "snippet": text,
+        "content": text,
         "score": 0.9,
         "doc_id": doc_id,
         "label": f"{doc_id}.pdf",

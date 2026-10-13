@@ -37,27 +37,22 @@ scripts/, tests/      Evaluation tooling and cross-service test assets
 
 ### 3.0 Branch model
 
-The repository deliberately keeps three long-lived branches while the MVP line is integrated:
+Two long-lived branches, and nothing else:
 
-| Branch | Purpose | What merges into it |
-|---|---|---|
-| `master` | Default, release-ready branch. It must remain deployable. | Reviewed release PRs from `mvp-testing`, plus urgent fixes branched from `master`. |
-| `mvp` | Stable MVP checkpoint used to compare and recover the pre-integration line. | Reconciliation merges only; do not target feature PRs here. |
-| `mvp-testing` | Active MVP integration and validation branch. | Short-lived feature, fix, test, and documentation branches based on `mvp-testing`. |
+| Branch | Role |
+|---|---|
+| `master` | Default branch. Protected. Only ever updated through a merged pull request. |
+| `mvp-testing` | The active development line, where the MVP is built and tested. |
 
-Normal MVP work branches from `mvp-testing` and opens a PR back to `mvp-testing`. Once the full
-quality gate is green and the integration is reviewable, `mvp-testing` opens a release PR to
-`master` (for example, #170). Work intended as an urgent production fix branches from `master`,
-targets `master`, and is then merged back into `mvp-testing` so the fix is not lost.
+`master` receives reviewed, gated work. `mvp-testing` periodically receives `master` — that
+direction only — so it is tested with the current gate and fixes in place. Work travels back toward
+`master` in reviewable slices, not as one large merge.
 
-`mvp` is not a general PR target. It remains available as the stable MVP checkpoint until the
-current integration finishes. After each MVP release reaches `master`, reconcile both long-lived
-MVP branches from `master`: merge `master` into `mvp-testing`, run the full gate there, then update
-`mvp` from the same reviewed release point. At that point all three branches share the released
-history before the next MVP iteration begins.
+CI runs on both. Feature branches are short-lived: created from the branch they target, merged, and
+deleted immediately. A branch that outlives its pull request is drift waiting to happen.
 
-No pull request may target another long-lived branch unless this section is updated first. Before
-opening a PR, verify its base branch in GitHub; changing the local upstream is not sufficient.
+> The former `mvp` branch was deleted: it contained no commits that `mvp-testing` did not already
+> have, so keeping it only invited work to land on a stale line.
 
 ### 3.1 Pick up work
 
@@ -198,7 +193,10 @@ reach across layers — no database queries in controllers.
 
 **RAG changes.** Retrieval, ranking, and evidence assembly must stay deterministic and inspectable.
 Any change to retrieval quality should be measured against the RAG evaluation suite before and
-after, and the numbers included in the PR description.
+after, and the numbers included in the PR description. The suite is
+`cd services/ai && uv run python tests/test_rag.py --output <file>.json`, the only supported
+retrieval benchmark. Paste the SUMMARY block (pass/warn/fail counts, average top score, per-category
+table) from a run on the base branch and one on your branch.
 
 **The evidence pack is a contract.** Changes to its shape affect generation, citation rendering,
 and the debug surface. Treat it as a public interface.

@@ -1,5 +1,5 @@
 """Course repository - data access for course aggregate."""
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -7,6 +7,66 @@ from sqlalchemy.orm import Session
 from app.db.models import Chapter, Course, Lesson, Section
 
 _DEFAULT_SECTION_TITLE = "User Courses"
+
+
+def delete_lessons_cascade(db: Session, lesson_ids: List[str]) -> None:
+    """Delete lessons and everything that references them.
+
+    A lesson may own one or more Quiz rows (created during content generation);
+    Quiz.lesson_id has no ON DELETE, so deleting the lesson first violates the
+    FK on Postgres and orphans rows on SQLite. Order: attempt answers → attempts
+    → option choices → questions → quizzes → lesson progress → lessons.
+    Does NOT commit — the caller owns the transaction boundary.
+    """
+    from app.db.models import (
+        AttemptAnswer,
+        OptionChoice,
+        Question,
+        Quiz,
+        QuizAttempt,
+        UserLessonProgress,
+    )
+
+    if not lesson_ids:
+        return
+
+    quiz_ids = [
+        row.id for row in db.query(Quiz.id).filter(Quiz.lesson_id.in_(lesson_ids)).all()
+    ]
+    if quiz_ids:
+        question_ids = [
+            row.id
+            for row in db.query(Question.id).filter(Question.quiz_id.in_(quiz_ids)).all()
+        ]
+        attempt_ids = [
+            row.id
+            for row in db.query(QuizAttempt.id)
+            .filter(QuizAttempt.quiz_id.in_(quiz_ids))
+            .all()
+        ]
+        if attempt_ids:
+            db.query(AttemptAnswer).filter(
+                AttemptAnswer.attempt_id.in_(attempt_ids)
+            ).delete(synchronize_session=False)
+            db.query(QuizAttempt).filter(QuizAttempt.id.in_(attempt_ids)).delete(
+                synchronize_session=False
+            )
+        if question_ids:
+            db.query(OptionChoice).filter(
+                OptionChoice.question_id.in_(question_ids)
+            ).delete(synchronize_session=False)
+            db.query(Question).filter(Question.id.in_(question_ids)).delete(
+                synchronize_session=False
+            )
+        db.query(Quiz).filter(Quiz.id.in_(quiz_ids)).delete(synchronize_session=False)
+
+    db.query(UserLessonProgress).filter(
+        UserLessonProgress.lesson_id.in_(lesson_ids)
+    ).delete(synchronize_session=False)
+    db.query(Lesson).filter(Lesson.id.in_(lesson_ids)).delete(
+        synchronize_session=False
+    )
+    db.flush()
 
 
 def _get_or_create_default_section(db: Session) -> str:
@@ -49,14 +109,21 @@ def get_lesson_by_id(db: Session, lesson_id: str) -> Optional[Lesson]:
     return db.query(Lesson).filter(Lesson.id == lesson_id).first()
 
 
+_UNSET: Any = object()
+
+
 def update_course(
-    db: Session, course_id: str, title: str, description: Optional[str] = None
+    db: Session, course_id: str, title: Any = _UNSET, description: Any = _UNSET
 ) -> Optional[Course]:
+    """Partial update: only fields explicitly passed by the caller are written,
+    so a PATCH that omits ``description`` no longer clears it."""
     course = get_course_by_id(db, course_id)
     if course is None:
         return None
-    course.title = title
-    course.description = description
+    if title is not _UNSET and title is not None:
+        course.title = title
+    if description is not _UNSET:
+        course.description = description
     db.commit()
     db.refresh(course)
     return course

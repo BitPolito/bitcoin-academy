@@ -107,10 +107,14 @@ evidence-pack assembly, and preservation of source anchors.
 deduplication, action-specific boosting, cross-encoder reranking, MMR diversification, token-aware
 truncation, parent expansion, and contextual compression.
 
-**Gap.** These are not applied uniformly. The full hybrid pipeline (dense + BM25 sparse retrieval,
-normalised fusion, reranking, MMR) currently runs in the conversational path, while the study
-actions use dense-only retrieval with a small candidate pool — meaning the reranker reorders few
-candidates and no sparse retrieval contributes. Consolidating the two paths is planned work.
+Both the study actions and the conversational path run one shared pipeline
+(`app/rag/retriever.py`): dense QVAC retrieval (ChromaDB fallback) and BM25 sparse retrieval over a
+`RAG_RETRIEVE_K` candidate pool, normalised fusion, cross-encoder reranking, MMR down to `RAG_TOP_K`,
+and parent expansion. Action-specific boosting and two-hop retrieval stay in the study layer;
+compression and the context token budget stay in the chat layer.
+
+**Gap.** The quality improvement for the study actions has not yet been measured with the RAG
+evaluation suite (`services/ai/tests/test_rag.py`); no before/after numbers are recorded.
 
 ---
 
@@ -134,7 +138,9 @@ concept explanations, section summaries, open questions, quiz questions, and ora
 
 **Implementation.** All five output types are supported, plus derivations and comparisons. Prompts
 instruct the model to answer using only the provided context and to state explicitly when the
-answer is absent from it.
+answer is absent from it. When retrieval returns no evidence for an action that requires it, no
+generation runs: the action answers "No relevant content found." with no citations, and that
+result is not cached, so material uploaded later can answer the same request.
 
 ---
 
@@ -262,7 +268,20 @@ The system must authenticate users and protect its endpoints.
 
 **Implementation.** JWT-based authentication with refresh, a token blacklist for revocation,
 account lockout after repeated failures, `admin`/`student` roles, rate limiting, security headers
-and audit middleware. Development accounts are seeded automatically.
+and audit middleware. Development accounts are seeded automatically, and seeding refuses to run
+when `ENVIRONMENT=production`.
+
+Endpoint protection is asserted structurally rather than by convention:
+`tests/integration/test_authorization_matrix.py` derives the endpoint list from the live OpenAPI
+schema, so an endpoint added without authentication fails the build. Endpoints that are deliberately
+public are listed explicitly in `PUBLIC_ENDPOINTS`, which makes publishing one a visible decision.
+
+Two defects in this area were found and fixed by that suite: sixteen endpoints across the courses
+and documents APIs declared no authentication at all, and logout blacklisted a refresh token whose
+`jti` the refresh endpoint never checked — so a revoked token kept minting access tokens until it
+expired on its own.
+
+**Not yet implemented.** Refresh token rotation with reuse detection.
 
 ---
 
