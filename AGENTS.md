@@ -194,7 +194,7 @@ reach across layers — no database queries in controllers.
 **RAG changes.** Retrieval, ranking, and evidence assembly must stay deterministic and inspectable.
 Any change to retrieval quality should be measured against the RAG evaluation suite before and
 after, and the numbers included in the PR description. The suite is
-`cd services/ai && uv run python tests/test_rag.py --output <file>.json`, the only supported
+`cd services/ai && uv run python tests/test_rag.py --metrics-only --output <file>.json` (technical set on the open corpus, see the README), the only supported
 retrieval benchmark. Paste the SUMMARY block (pass/warn/fail counts, average top score, per-category
 table) from a run on the base branch and one on your branch.
 
