@@ -6,7 +6,7 @@
  */
 import { describe, it, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -197,5 +197,19 @@ describe("ingestFromJsonl", () => {
         return true;
       }
     );
+  });
+
+  // --- ingest directory ---
+
+  it("creates a missing ingest directory instead of failing with ENOENT", async () => {
+    // Locally QVAC_INGEST_DIR used to default to /qvac_ingest, which does not
+    // exist: every ingest embedded the chunks and then failed writing metadata.
+    const source = join(tmpdir(), `qvac-ingest-src-${Date.now()}.jsonl`);
+    writeFileSync(source, JSON.stringify(PARA));
+    rmSync(TMP, { recursive: true, force: true });
+
+    await ingestFromJsonl(source, "WS_NEW_DIR");
+
+    assert.ok(existsSync(join(TMP, "WS_NEW_DIR_meta.json")));
   });
 });
