@@ -12,7 +12,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@qvac/sdk": "^0.9.1"
+    "@qvac/sdk": "^0.21.0"
   },
   "optionalDependencies": {
     "bare-runtime-darwin-arm64": "^1.28.5",
