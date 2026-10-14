@@ -175,9 +175,9 @@ uv run pytest tests/unit/
 uv run pytest tests/integration/
 
 # RAG evaluation suite (the single authoritative retrieval benchmark)
-uv run python tests/test_rag.py                            # 76 curated queries
-uv run python tests/test_rag.py --query "What is Bitcoin?" # single query
-uv run python tests/test_rag.py --output results.json      # save JSON report
+uv run python ../../scripts/fetch_rag_corpus.py               # open corpus -> tests/data/corpus/ (git-ignored)
+uv run python tests/test_rag.py --metrics-only --output after.json   # technical set (41 queries)
+uv run python tests/test_rag.py --query "What is a UTXO?"           # single query
 
 # Frontend
 cd apps/web && npm test
@@ -186,7 +186,7 @@ cd apps/web && npm test
 cd workers/qvac-service && npm test
 ```
 
-`services/ai/tests/test_rag.py` is the only supported way to evaluate retrieval quality. It runs 76 queries across 8 categories (basic, chapter, conceptual, comparative, synthesis, adversarial, stress, technical) through the full retrieval pipeline, scoring each PASS / WARN / FAIL by retrieval confidence (top citation score >= 0.35 is PASS; retrieval not used is FAIL). The `technical` queries live in `services/ai/tests/data/rag_golden_technical.json`, together with their ground truths and expected keywords. Results are saved as JSON: run the suite before and after a change with `--output before.json` / `--output after.json` and compare the summaries and per-category averages. It needs the QVAC service running and an indexed course.
+`services/ai/tests/test_rag.py` is the only supported way to evaluate retrieval quality. It scores each query PASS / WARN / FAIL by retrieval confidence (top citation score >= 0.35 is PASS; retrieval not used is FAIL). Two query sets: `--set technical` (default, 41 protocol queries from `tests/data/rag_golden_technical.json`) runs against *Mastering Bitcoin* 3rd edition (CC BY-SA 4.0), downloaded and checksum-verified by `scripts/fetch_rag_corpus.py`. Upload `tests/data/corpus/mastering-bitcoin-3e.docx` to a course and run with QVAC on. `--set bitcoin-standard` (35 queries) needs *The Bitcoin Standard*, a copyrighted book: it is local-only and must never be committed. Use `--metrics-only` for any report you commit or share, since it omits answers and corpus snippets. The committed baseline is `tests/data/rag_baseline_technical.json`: run the suite on your branch and compare the summary and per-query `top_score` against it.
 
 CI runs on every push and pull request to `master` via GitHub Actions (`.github/workflows/ci.yml`). See [`AGENTS.md`](AGENTS.md) for the contribution workflow.
 
