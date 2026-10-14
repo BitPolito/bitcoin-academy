@@ -81,6 +81,11 @@ Stop-Port 3001
 
 # -- create log directory ------------------------------------------------------
 
+# QVAC and the backend must share one ingest directory. Without this, QVAC
+# falls back to /qvac_ingest (the Docker path) and every dense-index ingest fails.
+if (-not $env:QVAC_INGEST_DIR) { $env:QVAC_INGEST_DIR = "$Root\services\ai\qvac_ingest" }
+New-Item -ItemType Directory -Force -Path $env:QVAC_INGEST_DIR | Out-Null
+
 $LogDir = "$Root\.logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 

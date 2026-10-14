@@ -114,6 +114,12 @@ log "Starting backend   → http://localhost:8000  (log: .logs/backend.log)"
 ) > "$LOG_DIR/backend.log" 2>&1 &
 PIDS+=($!)
 
+# QVAC and the backend must share one ingest directory (JSONL, BM25 index,
+# workspace metadata). Without this, QVAC falls back to /qvac_ingest (the Docker
+# path), which does not exist locally, and every dense-index ingest fails.
+export QVAC_INGEST_DIR="${QVAC_INGEST_DIR:-$ROOT/services/ai/qvac_ingest}"
+mkdir -p "$QVAC_INGEST_DIR"
+
 # ── 3. QVAC service ───────────────────────────────────────────────────────────
 
 log "Starting QVAC      → http://localhost:3001  (log: .logs/qvac.log)"

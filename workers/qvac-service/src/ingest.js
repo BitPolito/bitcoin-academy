@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import path from "path";
 import { ragIngest, ragDeleteWorkspace } from "@qvac/sdk";
 import { getEmbeddingModelId } from "./models.js";
@@ -20,6 +20,9 @@ function loadMeta(workspace) {
 }
 
 function saveMeta(workspace, meta) {
+  // Create the directory on first use: a missing directory made every ingest
+  // fail with ENOENT after the documents had already been embedded.
+  mkdirSync(INGEST_DIR, { recursive: true });
   writeFileSync(metaPath(workspace), JSON.stringify(meta), "utf-8");
 }
 
