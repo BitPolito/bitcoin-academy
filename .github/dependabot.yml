@@ -1,9 +1,13 @@
 version: 2
 
+# Updates target master (the default branch). Minor and patch updates are
+# grouped per component; each major update gets its own PR so a breaking
+# upgrade (framework, ORM, SDK) can be evaluated and migrated on its own
+# instead of blocking every safe bump in the same group.
+
 updates:
   - package-ecosystem: pip
     directory: /services/ai
-    target-branch: mvp-testing
     schedule:
       interval: weekly
       day: monday
@@ -12,10 +16,10 @@ updates:
     groups:
       python-dependencies:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: npm
     directory: /apps/web
-    target-branch: mvp-testing
     schedule:
       interval: weekly
       day: monday
@@ -24,10 +28,10 @@ updates:
     groups:
       frontend-dependencies:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: npm
     directory: /workers/qvac-service
-    target-branch: mvp-testing
     schedule:
       interval: weekly
       day: monday
@@ -36,11 +40,11 @@ updates:
     groups:
       qvac-dependencies:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   # Legacy parser manifest retained for the standalone worker prototype.
   - package-ecosystem: pip
     directory: /workers
-    target-branch: mvp-testing
     schedule:
       interval: weekly
       day: monday
@@ -49,3 +53,4 @@ updates:
     groups:
       parser-worker-dependencies:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
