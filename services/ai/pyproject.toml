@@ -32,7 +32,7 @@ dependencies = [
     "email-validator>=2.0.0",
     # Auth & security
     "PyJWT>=2.13.0",
-    "bcrypt==4.1.1",
+    "bcrypt==5.0.0",
     "zxcvbn==4.4.28",
     "bleach>=6.4.0",
     "slowapi==0.1.9",
