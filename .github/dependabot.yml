@@ -1,56 +1,61 @@
 version: 2
 
-# Updates target master (the default branch). Minor and patch updates are
-# grouped per component; each major update gets its own PR so a breaking
-# upgrade (framework, ORM, SDK) can be evaluated and migrated on its own
-# instead of blocking every safe bump in the same group.
+# Version updates are deliberately quiet: once a month, minor and patch only,
+# grouped per dependency tree, with at most one open PR per tree. Major
+# upgrades are planned and migrated by hand (#224 frontend, #225 backend).
+# Vulnerability alerts are separate (repository settings) and keep covering
+# every tree, including the legacy workers/ manifest, in the Security tab.
 
 updates:
   - package-ecosystem: pip
     directory: /services/ai
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "06:00"
       timezone: Europe/Rome
+    open-pull-requests-limit: 1
     groups:
       python-dependencies:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # SQLAlchemy 2.1 is a minor release but switches the default Postgres
+      # driver to psycopg 3; migrate it in #225.
+      - dependency-name: sqlalchemy
+        versions: [">=2.1"]
 
   - package-ecosystem: npm
     directory: /apps/web
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "06:15"
       timezone: Europe/Rome
+    open-pull-requests-limit: 1
     groups:
       frontend-dependencies:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /workers/qvac-service
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "06:30"
       timezone: Europe/Rome
+    open-pull-requests-limit: 1
     groups:
       qvac-dependencies:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-
-  # Legacy parser manifest retained for the standalone worker prototype.
-  - package-ecosystem: pip
-    directory: /workers
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:45"
-      timezone: Europe/Rome
-    groups:
-      parser-worker-dependencies:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # 0.x minors can break, unit tests mock the SDK, and the lean worker
+      # (src/worker.slim.js) imports SDK entry points: upgrade by hand, with a
+      # live check.
+      - dependency-name: "@qvac/sdk"

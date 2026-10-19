@@ -29,6 +29,10 @@ trees. The Python lock contains none of the package versions identified by the
 open alerts. There are therefore no accepted critical or high risks requiring
 an issue comment.
 
-Dependabot is configured to open grouped weekly updates every Monday against
-`mvp-testing`, staggered by dependency tree to keep the resulting CI workload
-predictable.
+Dependabot version updates run monthly against `master`: minor and patch
+updates only, grouped per dependency tree (`services/ai`, `apps/web`,
+`workers/qvac-service`), with at most one open PR per tree. Major upgrades are
+planned by hand (#224, #225); `@qvac/sdk` is always upgraded by hand. The legacy
+`workers/` parser prototype gets no version updates. Vulnerability alerts (a
+repository setting, independent of `dependabot.yml`) still cover every tree in
+the Security tab; automatic security-update pull requests are currently off.
