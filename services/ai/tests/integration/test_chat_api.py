@@ -3,7 +3,10 @@
 The chat endpoint uses a module-level httpx.AsyncClient (_client) that makes
 two sequential calls: POST /retrieve (dense retrieval) and POST /generate (LLM).
 All tests mock app.services.chat_service._client so no QVAC service is needed.
+HyDE and query rewriting use a separate client; tests/integration/conftest.py
+turns them off so a locally running QVAC service is never called for real.
 """
+
 import httpx
 from unittest.mock import AsyncMock, MagicMock, patch
 
