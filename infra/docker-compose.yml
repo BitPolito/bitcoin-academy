@@ -62,7 +62,10 @@ services:
       - QVAC_INGEST_DIR=/qvac_ingest
       - QVAC_LLM_ENABLED=${QVAC_LLM_ENABLED:-true}
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+      # node:22-slim has no wget (the old alpine image had busybox's); the image
+      # installs curl for this check. With wget the container never became
+      # healthy, so api and arq-worker, which wait on it, never started.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3001/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
