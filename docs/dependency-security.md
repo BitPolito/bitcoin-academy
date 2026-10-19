@@ -32,11 +32,13 @@ an issue comment.
 Dependabot version updates run monthly against `master`: minor and patch
 updates only, grouped per dependency tree (`services/ai`, `apps/web`,
 `workers/qvac-service`), with at most one open PR per tree. Major upgrades are
-planned by hand (#224, #225); `@qvac/sdk` is always upgraded by hand. The legacy
-`workers/` parser prototype gets no version updates. Vulnerability alerts and
-automatic security-update pull requests (enabled in the repository settings)
-cover every tree: a vulnerable dependency gets a fix PR as soon as an advisory
-is published, whatever the monthly schedule. `dependabot.yml` groups those
-fixes into one PR per tree (`security-fixes`, `applies-to: security-updates`).
-Ignore rules without an update type also apply to security updates, so an
-advisory on `@qvac/sdk` shows up as an alert only and is fixed by hand.
+planned by hand (#224, #225); `@qvac/sdk` and the `bare-runtime-*` packages are
+always upgraded by hand, with a live QVAC check, because the unit tests mock
+the SDK. The legacy `workers/` parser prototype gets no version updates.
+Vulnerability alerts and automatic security-update pull requests (enabled in
+the repository settings) cover every tree: a vulnerable dependency gets a fix
+PR as soon as an advisory is published, whatever the monthly schedule.
+`dependabot.yml` groups those fixes into one PR per tree (`security-fixes`,
+`applies-to: security-updates`). Ignore rules without an update type also apply
+to security updates, so an advisory on `@qvac/sdk` or `bare-runtime-*` shows up
+as an alert only and is fixed by hand.
