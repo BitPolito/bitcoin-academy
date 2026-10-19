@@ -3,8 +3,10 @@ version: 2
 # Version updates are deliberately quiet: once a month, minor and patch only,
 # grouped per dependency tree, with at most one open PR per tree. Major
 # upgrades are planned and migrated by hand (#224 frontend, #225 backend).
-# Security updates are separate (repository settings): vulnerability alerts and
-# fix PRs keep covering every tree, including the legacy workers/ manifest.
+# Security updates are enabled in the repository settings and ignore the
+# monthly schedule: fixes for open advisories arrive as soon as they are
+# published, grouped into one PR per tree (applies-to: security-updates).
+# Alerts and fix PRs also cover the legacy workers/ manifest.
 
 updates:
   - package-ecosystem: pip
@@ -16,8 +18,12 @@ updates:
     open-pull-requests-limit: 1
     groups:
       python-dependencies:
+        applies-to: version-updates
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      security-fixes:
+        applies-to: security-updates
+        patterns: ["*"]
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
@@ -35,8 +41,12 @@ updates:
     open-pull-requests-limit: 1
     groups:
       frontend-dependencies:
+        applies-to: version-updates
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      security-fixes:
+        applies-to: security-updates
+        patterns: ["*"]
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
@@ -50,8 +60,12 @@ updates:
     open-pull-requests-limit: 1
     groups:
       qvac-dependencies:
+        applies-to: version-updates
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      security-fixes:
+        applies-to: security-updates
+        patterns: ["*"]
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
