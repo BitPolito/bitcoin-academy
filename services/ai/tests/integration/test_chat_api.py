@@ -3,8 +3,8 @@
 The chat endpoint uses a module-level httpx.AsyncClient (_client) that makes
 two sequential calls: POST /retrieve (dense retrieval) and POST /generate (LLM).
 All tests mock app.services.chat_service._client so no QVAC service is needed.
-HyDE and query rewriting use a separate client, so an autouse fixture turns
-them off; otherwise a locally running QVAC service would be called for real.
+HyDE and query rewriting use a separate client; tests/integration/conftest.py
+turns them off so a locally running QVAC service is never called for real.
 """
 
 import httpx
@@ -49,21 +49,9 @@ def _mock_chat_client(chunks=None, answer="Test answer.") -> MagicMock:
     return mock
 
 
-@pytest.fixture(autouse=True)
-def _disable_query_expansion(monkeypatch):
-    """Keep HyDE and query rewriting off so no test calls a real QVAC service.
-
-    Both flags are read once at import time, so patch the module attributes
-    rather than the environment. Without this, a QVAC service running on
-    localhost makes the /retrieve payload contain generated text instead of
-    the user's question.
-    """
-    monkeypatch.setattr("app.rag.query_rewriter._HYDE_ENABLED", False)
-    monkeypatch.setattr("app.rag.query_rewriter._REWRITE_ENABLED", False)
-
-
 # ---------------------------------------------------------------------------
 # Auth guard
+# ---------------------------------------------------------------------------
 
 @pytest.mark.integration
 def test_chat_requires_auth(client, db):
