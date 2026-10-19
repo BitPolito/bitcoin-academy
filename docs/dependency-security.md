@@ -33,6 +33,7 @@ Dependabot version updates run monthly against `master`: minor and patch
 updates only, grouped per dependency tree (`services/ai`, `apps/web`,
 `workers/qvac-service`), with at most one open PR per tree. Major upgrades are
 planned by hand (#224, #225); `@qvac/sdk` is always upgraded by hand. The legacy
-`workers/` parser prototype gets no version updates. Vulnerability alerts (a
-repository setting, independent of `dependabot.yml`) still cover every tree in
-the Security tab; automatic security-update pull requests are currently off.
+`workers/` parser prototype gets no version updates. Vulnerability alerts and
+automatic security-update pull requests (repository settings, independent of
+`dependabot.yml`) still cover every tree: a vulnerable dependency gets a fix PR
+as soon as an advisory is published, whatever the monthly schedule.

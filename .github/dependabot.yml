@@ -3,8 +3,8 @@ version: 2
 # Version updates are deliberately quiet: once a month, minor and patch only,
 # grouped per dependency tree, with at most one open PR per tree. Major
 # upgrades are planned and migrated by hand (#224 frontend, #225 backend).
-# Vulnerability alerts are separate (repository settings) and keep covering
-# every tree, including the legacy workers/ manifest, in the Security tab.
+# Security updates are separate (repository settings): vulnerability alerts and
+# fix PRs keep covering every tree, including the legacy workers/ manifest.
 
 updates:
   - package-ecosystem: pip
