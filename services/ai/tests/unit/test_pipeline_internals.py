@@ -373,7 +373,7 @@ def test_jsonl_export_writes_one_valid_object_per_line(tmp_path, monkeypatch):
     ]
     path = pipeline._write_jsonl(chunks, "doc-123")
 
-    lines = [ln for ln in path.read_text().splitlines() if ln.strip()]
+    lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
     assert len(lines) == 2
     for line in lines:
         json.loads(line)  # raises if the export is not valid JSONL
@@ -383,7 +383,7 @@ def test_jsonl_export_handles_an_empty_chunk_list(tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline, "QVAC_INGEST_DIR", tmp_path)
     path = pipeline._write_jsonl([], "doc-empty")
     assert path.exists()
-    assert [ln for ln in path.read_text().splitlines() if ln.strip()] == []
+    assert [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()] == []
 
 
 def test_module_aliases_are_registered_without_error():
@@ -401,3 +401,49 @@ def test_module_aliases_are_registered_without_error():
         "app.workers.pipeline — re-registration created a duplicate instead "
         "of reusing the existing one."
     )
+
+
+# ---------------------------------------------------------------------------
+# Embedding context cap (#228)
+# ---------------------------------------------------------------------------
+
+_HEX = "0000000000002917ed80650c6174aac8dfc46f5fe36480aaef682ff6cd83c3ca"
+
+
+def test_estimate_tokens_counts_hex_far_above_its_word_count():
+    """A 64-char hash is one "word" but dozens of embedding tokens."""
+    assert pipeline._estimate_tokens(_HEX) > 20
+    assert pipeline._estimate_tokens("Bitcoin is peer to peer cash") <= 8
+
+
+def test_hex_heavy_paragraph_children_fit_the_embedding_context():
+    """Word-based caps let hex dumps through: QVAC rejected a 147-word chunk
+    of ~770 tokens and the whole document lost its dense index."""
+    text = " ".join(
+        f"The block {i} has hash {_HEX} and the transaction {_HEX[::-1]} spends it."
+        for i in range(40)
+    )
+    _parents, children, _sections = pipeline.build_parent_child_chunks(
+        [{"page": 1, "text": text}], "doc1"
+    )
+
+    assert children
+    assert all(
+        pipeline._estimate_tokens(c["text"]) <= pipeline._CHILD_MAX_TOKENS for c in children
+    )
+
+
+def test_oversized_code_block_is_split_to_fit_the_embedding_context():
+    """Tables, formulas and code blocks became a single child as large as their parent."""
+    code = "\n".join(f'  "txid_{i}": "{_HEX}",' for i in range(60))
+    text = "Intro paragraph about raw transactions.\n\n```\n{\n" + code + "\n}\n```\n"
+    _parents, children, _sections = pipeline.build_parent_child_chunks(
+        [{"page": 1, "text": text}], "doc1"
+    )
+
+    code_children = [c for c in children if c["chunk_type"] == "code"]
+    assert len(code_children) > 1
+    assert all(
+        pipeline._estimate_tokens(c["text"]) <= pipeline._CHILD_MAX_TOKENS for c in children
+    )
+    assert len({c["id"] for c in children}) == len(children)

@@ -22,6 +22,7 @@ from app.db.models import (
     GenerationRun,
     GenerationRunStatus,
     Lesson,
+    UserRole,
 )
 from app.core.config import create_access_token
 from tests.conftest import make_course_with_lessons, make_user
@@ -94,8 +95,16 @@ def _make_draft_chapter(db, course_id, title="Draft Chapter", order_index=0):
 
 @pytest.fixture
 def auth_headers(db) -> dict:
-    """These endpoints require authentication."""
-    user = make_user(db, role=UserRole.INSTRUCTOR)
+    """Outline generate/patch are instructor/admin only; the GET reads work for
+    any authenticated user, so an instructor token covers every case here."""
+    user = make_user(db, UserRole.INSTRUCTOR)
+    role = getattr(user.role, "value", user.role)
+    return {"Authorization": f"Bearer {create_access_token(user.id, user.email, role)}"}
+
+
+@pytest.fixture
+def student_headers(db) -> dict:
+    user = make_user(db, UserRole.STUDENT)
     role = getattr(user.role, "value", user.role)
     return {"Authorization": f"Bearer {create_access_token(user.id, user.email, role)}"}
 
@@ -223,6 +232,43 @@ def test_generate_outline_requires_confirmation_before_replacing_human_edits(
             json={"doc_ids": [document.id], "confirm_human_overwrite": True},
         )
     assert accepted.status_code == 202
+
+
+@pytest.mark.integration
+def test_generate_outline_forbidden_for_student(client, db, student_headers):
+    course, _ = make_course_with_lessons(db)
+    _make_ready_doc(db, course.id)
+    resp = client.post(
+        f"/api/courses/{course.id}/outline/generate", json={}, headers=student_headers
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.integration
+def test_patch_outline_forbidden_for_student(client, db, student_headers):
+    course, _ = make_course_with_lessons(db)
+    chapter, _ = _make_draft_chapter(db, course.id)
+    resp = client.patch(
+        f"/api/courses/{course.id}/outline",
+        headers=student_headers,
+        json={"chapters": [{"id": chapter.id, "delete": True, "lessons": []}]},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.integration
+def test_generate_outline_rejects_doc_ids_from_another_course(client, db, auth_headers):
+    course, _ = make_course_with_lessons(db)
+    _make_ready_doc(db, course.id)
+    other_course, _ = make_course_with_lessons(db)
+    foreign_doc = _make_ready_doc(db, other_course.id)
+
+    resp = client.post(
+        f"/api/courses/{course.id}/outline/generate",
+        json={"doc_ids": [foreign_doc.id]},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------
@@ -441,7 +487,11 @@ def test_reorder_and_move_lesson_preserve_content_quiz_and_sources(client, db, r
     lessons[0].source_refs_json = json.dumps(["source-1"])
     quiz = Quiz(id=str(uuid.uuid4()), scope=QuizScope.LESSON, lesson_id=lessons[0].id, title="Quiz")
     target = Chapter(id=str(uuid.uuid4()), course_id=course.id, title="Target", order_index=1, status="draft")
-    db.add_all([quiz, target])
+    target_lesson = Lesson(
+        id=str(uuid.uuid4()), chapter=target, title="Existing target lesson",
+        content="Existing.", order_index=0, status="draft",
+    )
+    db.add_all([quiz, target, target_lesson])
     db.commit()
 
     reordered = client.post(
@@ -461,6 +511,82 @@ def test_reorder_and_move_lesson_preserve_content_quiz_and_sources(client, db, r
     assert lesson.content == "Content."
     assert lesson.source_refs_json == json.dumps(["source-1"])
     assert db.query(Quiz).filter_by(id=quiz.id, lesson_id=lesson.id).one()
+    source_order = db.query(Lesson.order_index).filter(
+        Lesson.chapter_id == source.id
+    ).order_by(Lesson.order_index).all()
+    target_order = db.query(Lesson.order_index).filter(
+        Lesson.chapter_id == target.id
+    ).order_by(Lesson.order_index).all()
+    assert [row.order_index for row in source_order] == [0]
+    assert [row.order_index for row in target_order] == [0, 1]
+    assert source.is_human_modified is True
+    assert target.is_human_modified is True
+
+
+@pytest.mark.integration
+def test_move_lesson_rejects_its_current_chapter(client, db, reviewer_headers):
+    course, lessons = make_course_with_lessons(db)
+    chapter = lessons[0].chapter
+    chapter.status = "draft"
+    db.commit()
+
+    response = client.post(
+        f"/api/courses/{course.id}/outline/actions",
+        headers=reviewer_headers,
+        json={
+            "action": "move_lesson",
+            "lesson_id": lessons[0].id,
+            "target_chapter_id": chapter.id,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.integration
+def test_reorder_rejects_duplicate_ids(client, db, reviewer_headers):
+    course, lessons = make_course_with_lessons(db)
+    source = lessons[0].chapter
+    source.status = "draft"
+    target, _ = _make_draft_chapter(db, course.id, "Target", 1)
+
+    chapters_response = client.post(
+        f"/api/courses/{course.id}/outline/actions",
+        headers=reviewer_headers,
+        json={
+            "action": "reorder_chapters",
+            "ordered_ids": [source.id, target.id, target.id],
+        },
+    )
+    lessons_response = client.post(
+        f"/api/courses/{course.id}/outline/actions",
+        headers=reviewer_headers,
+        json={
+            "action": "reorder_lessons",
+            "chapter_id": source.id,
+            "ordered_ids": [lessons[0].id, lessons[1].id, lessons[1].id],
+        },
+    )
+
+    assert chapters_response.status_code == 422
+    assert lessons_response.status_code == 422
+
+
+@pytest.mark.integration
+def test_delete_lesson_marks_parent_chapter_as_human_modified(client, db, reviewer_headers):
+    course, _ = make_course_with_lessons(db)
+    chapter, lesson = _make_draft_chapter(db, course.id)
+
+    response = client.post(
+        f"/api/courses/{course.id}/outline/actions",
+        headers=reviewer_headers,
+        json={"action": "delete_lesson", "lesson_id": lesson.id},
+    )
+
+    assert response.status_code == 200
+    db.refresh(chapter)
+    assert chapter.is_human_modified is True
+    assert chapter.human_modified_at
 
 
 @pytest.mark.integration
@@ -485,6 +611,32 @@ def test_merge_and_split_chapters_move_existing_lessons(client, db, reviewer_hea
     assert split.status_code == 200
     assert [chapter["title"] for chapter in split.json()["chapters"]] == ["Target", "Split"]
     assert split.json()["chapters"][1]["lessons"][0]["id"] == lessons[1].id
+
+
+@pytest.mark.integration
+def test_split_inserts_new_chapter_immediately_after_source(client, db, reviewer_headers):
+    course, lessons = make_course_with_lessons(db)
+    source = lessons[0].chapter
+    source.status = "draft"
+    trailing, _ = _make_draft_chapter(db, course.id, "Trailing", 1)
+
+    response = client.post(
+        f"/api/courses/{course.id}/outline/actions",
+        headers=reviewer_headers,
+        json={
+            "action": "split_chapter",
+            "chapter_id": source.id,
+            "title": "Split",
+            "lesson_ids": [lessons[1].id],
+        },
+    )
+
+    assert response.status_code == 200
+    assert [chapter["title"] for chapter in response.json()["chapters"]] == [
+        source.title,
+        "Split",
+        trailing.title,
+    ]
 
 
 @pytest.mark.integration

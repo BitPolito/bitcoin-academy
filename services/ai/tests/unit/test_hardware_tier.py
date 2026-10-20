@@ -1,4 +1,5 @@
 """Unit tests for app/services/hardware_tier.py — Fase 0."""
+import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -97,9 +98,13 @@ def test_detect_nvidia_vram_gb_survives_non_numeric_output():
 
 
 def test_detect_total_ram_gb_returns_none_not_zero_when_undetectable():
-    with patch.dict("sys.modules", {"psutil": None}), \
-         patch.object(hardware_tier.os, "sysconf", side_effect=AttributeError("no sysconf")):
-        assert hardware_tier._detect_total_ram_gb() is None
+    with patch.dict("sys.modules", {"psutil": None}):
+        if hasattr(hardware_tier.os, "sysconf"):
+            with patch.object(hardware_tier.os, "sysconf", side_effect=AttributeError("no sysconf")):
+                assert hardware_tier._detect_total_ram_gb() is None
+        else:
+            # On Windows, os.sysconf doesn't exist, so if psutil fails, it naturally returns None.
+            assert hardware_tier._detect_total_ram_gb() is None
 
 
 def test_detect_tier_reprobes_after_ttl_expires():

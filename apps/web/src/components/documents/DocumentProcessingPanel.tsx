@@ -31,6 +31,8 @@ export function DocumentProcessingPanel({
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    // Wait for the session: without a token the request can only fail with 401.
+    if (!accessToken) return;
     try {
       setError(null);
       const data = await getDocumentDetailView(documentId, accessToken);

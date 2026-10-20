@@ -1,12 +1,12 @@
 """Database session management."""
 from contextlib import contextmanager
-from typing import Generator
+from typing import Generator, Optional
 
-from sqlalchemy import create_engine
+from sqlalchemy import Engine, create_engine, inspect
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
-from app.db.models import Badge
+from app.db.models import Badge, Base
 
 # Create engine
 _pool_kwargs: dict = {}
@@ -52,16 +52,29 @@ def _seed_badges(db: Session) -> None:
     db.commit()
 
 
-def init_db() -> None:
+def init_db(bind: Optional[Engine] = None) -> None:
     """Run pending Alembic migrations, then seed static data."""
     from pathlib import Path  # noqa: PLC0415
     from alembic.config import Config  # noqa: PLC0415
     from alembic import command  # noqa: PLC0415
 
+    target = bind if bind is not None else engine
     alembic_cfg = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
-    command.upgrade(alembic_cfg, "head")
+    # Keep the application's logging: alembic.ini's fileConfig() would
+    # otherwise disable every logger created before it, hiding startup errors.
+    alembic_cfg.attributes["configure_logger"] = False
+    with target.begin() as connection:
+        alembic_cfg.attributes["connection"] = connection
+        if not inspect(connection).get_table_names():
+            # A brand-new database. 0001 builds the *current* models, so later
+            # revisions would collide with tables it already created: build the
+            # schema once and record it as up to date instead.
+            Base.metadata.create_all(connection)
+            command.stamp(alembic_cfg, "head")
+        else:
+            command.upgrade(alembic_cfg, "head")
 
-    db = SessionLocal()
+    db = Session(bind=target)
     try:
         _seed_badges(db)
     finally:

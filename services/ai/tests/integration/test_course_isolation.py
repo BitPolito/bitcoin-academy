@@ -16,6 +16,7 @@ import httpx
 import pytest
 
 from app.core.config import create_access_token
+from app.core.errors import ExternalServiceError
 from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk
 from app.schemas.study_schemas import StudyAction
 from app.services import evidence_pack_service, study_service
@@ -31,8 +32,9 @@ def _auth_header(user) -> dict:
 
 
 def _qvac_response(sources: list) -> MagicMock:
+    # Serves both QVAC /retrieve ("chunks") and /generate ("answer").
     resp = MagicMock()
-    resp.json.return_value = {"answer": "generated answer", "sources": sources}
+    resp.json.return_value = {"answer": "generated answer", "chunks": sources}
     resp.raise_for_status.return_value = None
     return resp
 
@@ -40,7 +42,7 @@ def _qvac_response(sources: list) -> MagicMock:
 def _source(chunk_id: str, doc_id: str, text: str) -> dict:
     return {
         "chunk_id": chunk_id,
-        "snippet": text,
+        "content": text,
         "score": 0.9,
         "doc_id": doc_id,
         "label": f"{doc_id}.pdf",
@@ -184,21 +186,19 @@ async def test_cache_key_separates_actions_for_the_same_question():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_retrieval_failure_returns_an_empty_pack_not_an_exception():
-    """QVAC being down is an expected local-first condition. The dispatcher must
-    degrade to an empty pack rather than propagating a transport error."""
+async def test_retrieval_failure_reports_service_unavailability():
+    """A failed search must not look like a successful search with no matches."""
     with patch("httpx.AsyncClient.post", new=AsyncMock(side_effect=httpx.ConnectError("refused"))), \
+         patch("app.rag.retriever._chroma_retrieve", return_value=[]), \
          patch("app.services.cache_service.get_cached", return_value=None), \
          patch("app.services.cache_service.set_cached", side_effect=lambda *a, **k: None), \
          patch("app.rag.query_rewriter.expand_query", new=AsyncMock(side_effect=lambda q: q)):
 
-        result = await study_service.dispatch(
-            question="What is Bitcoin?", course_id=COURSE_A, action=StudyAction.RETRIEVE
-        )
-
-    assert result.citations == []
-    assert result.retrieval_used is False
-    assert result.answer, "An answer string must still be returned for the UI to render"
+        with pytest.raises(ExternalServiceError) as error:
+            await study_service.dispatch(
+                question="What is Bitcoin?", course_id=COURSE_A, action=StudyAction.RETRIEVE
+            )
+    assert error.value.code == "RETRIEVAL_UNAVAILABLE"
 
 
 @pytest.mark.asyncio

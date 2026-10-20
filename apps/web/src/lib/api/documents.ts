@@ -1,4 +1,4 @@
-import { apiFetch, ApiError } from '@/lib/api';
+import { apiFetch, ApiError, errorMessageFromBody } from '@/lib/api';
 
 const _API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
@@ -57,6 +57,29 @@ export async function fetchDocumentPreview(
   return apiFetch<ApiDocumentPreview>(`/documents/${documentId}/preview`, {
     accessToken,
   });
+}
+
+/** Fetch bytes with auth; an iframe cannot attach the session's bearer token. */
+export async function fetchDocumentPdf(
+  documentId: string,
+  accessToken: string,
+  signal?: AbortSignal
+): Promise<Blob> {
+  const response = await fetch(`${_API_BASE}/documents/${encodeURIComponent(documentId)}/file`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal,
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new ApiError(
+      response.status,
+      errorMessageFromBody(body) ?? `Could not load PDF (${response.status}).`
+    );
+  }
+  const pdf = await response.blob();
+  if (pdf.type !== 'application/pdf') throw new Error('The source is not a PDF.');
+  return pdf;
 }
 
 export async function uploadDocument(

@@ -1,12 +1,19 @@
-"""RAG test suite for The Bitcoin Standard.
+"""RAG evaluation suite.
+
+Two query sets:
+- technical (default): 41 protocol queries, evaluated against the open corpus
+  "Mastering Bitcoin" 3rd edition (CC BY-SA 4.0), fetched by
+  scripts/fetch_rag_corpus.py. This is the set used for baselines and CI.
+- bitcoin-standard: 35 queries about "The Bitcoin Standard". The book is
+  copyrighted: it is never committed, so this set runs locally only.
 
 Usage:
-    uv run python tests/test_rag.py
-    uv run python tests/test_rag.py --output results.json
-    uv run python tests/test_rag.py --course <course_id>
+    uv run python tests/test_rag.py                                  # technical set
+    uv run python tests/test_rag.py --set bitcoin-standard --course <id>
+    uv run python tests/test_rag.py --metrics-only --output before.json
     uv run python tests/test_rag.py --query "What is Bitcoin?"
 
-Runs 35 curated queries through the full retrieval pipeline and prints a
+Runs 76 curated queries (35 book-specific + 41 technical) through the full retrieval pipeline and prints a
 color-coded report. Saves full JSON results to --output (default: rag_test_results.json).
 """
 import argparse
@@ -36,7 +43,7 @@ except ImportError:
     pass
 
 # ---------------------------------------------------------------------------
-# Queries — 35 total, 7 categories
+# Queries — 76 total, 8 categories (35 book-specific + 41 technical)
 # ---------------------------------------------------------------------------
 QUERIES: list[tuple[str, str]] = [
     # (category, query_text)
@@ -83,6 +90,29 @@ QUERIES: list[tuple[str, str]] = [
     ("stress",      "What does the book say about the blockchain compared with Bitcoin?"),
     ("stress",      "How does the book explain Bitcoin's global settlement properties?"),
 ]
+
+# Technical golden queries, merged from the retired tests/rag/test_queries.json
+# and tests/eval/test_rag_quality.py. The JSON file also keeps each query's
+# ground truth and expected keywords for future answer-level metrics.
+_GOLDEN_TECHNICAL = Path(__file__).resolve().parent / "data" / "rag_golden_technical.json"
+BITCOIN_STANDARD_QUERIES = list(QUERIES)
+TECHNICAL_QUERIES = [
+    ("technical", q["query"])
+    for q in json.loads(_GOLDEN_TECHNICAL.read_text(encoding="utf-8"))["queries"]
+]
+QUERIES.extend(TECHNICAL_QUERIES)
+
+QUERY_SETS: dict[str, list[tuple[str, str]]] = {
+    "technical": TECHNICAL_QUERIES,
+    "bitcoin-standard": BITCOIN_STANDARD_QUERIES,
+    "all": QUERIES,
+}
+
+# Document filename pattern used to find each set's course when --course is omitted.
+_COURSE_FILENAME = {
+    "technical": "%mastering-bitcoin%",
+    "bitcoin-standard": "%bitcoin-standard%",
+}
 
 # Sections we expect to see for specific query categories
 _CHAPTER_EXPECTED: dict[str, list[str]] = {
@@ -292,7 +322,7 @@ def _print_summary(results: list[QueryResult], out_path: str) -> None:
         by_cat[r.category].append(r)
     print(f"\n  {'Category':<12}  {'Pass':>4}  {'Warn':>4}  {'Fail':>4}  {'AvgScore':>8}  {'AvgLat':>6}")
     print(f"  {'─'*12}  {'─'*4}  {'─'*4}  {'─'*4}  {'─'*8}  {'─'*6}")
-    for cat in ["basic", "chapter", "conceptual", "comparative", "synthesis", "adversarial", "stress"]:
+    for cat in ["basic", "chapter", "conceptual", "comparative", "synthesis", "adversarial", "stress", "technical"]:
         rows = by_cat.get(cat, [])
         if not rows:
             continue
@@ -308,8 +338,13 @@ def _print_summary(results: list[QueryResult], out_path: str) -> None:
 # ---------------------------------------------------------------------------
 # JSON serialisation
 # ---------------------------------------------------------------------------
-def _to_dict(r: QueryResult) -> dict:
-    return {
+def _to_dict(r: QueryResult, metrics_only: bool = False) -> dict:
+    """Serialise one result. With metrics_only, drop the answer and every
+    citation snippet: committed baselines must not store corpus text."""
+    citations = [asdict(c) for c in r.citations]
+    if metrics_only:
+        citations = [{k: v for k, v in c.items() if k != "snippet"} for c in citations]
+    data = {
         "idx": r.idx,
         "category": r.category,
         "query": r.query,
@@ -319,30 +354,34 @@ def _to_dict(r: QueryResult) -> dict:
         "num_citations": len(r.citations),
         "unique_sections": r.unique_sections,
         "elapsed_s": r.elapsed_s,
-        "answer": r.answer,
-        "citations": [asdict(c) for c in r.citations],
+        "citations": citations,
         "error": r.error,
     }
+    if not metrics_only:
+        data["answer"] = r.answer
+    return data
 
 
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
-def _discover_course_id() -> str:
-    """Try to find the Bitcoin Standard course ID from the DB."""
-    try:
+def _discover_course_id(query_set: str) -> str:
+    """Find the course holding the query set's corpus, by document filename."""
+    pattern = _COURSE_FILENAME.get(query_set)
+    if pattern:
         from app.db.models import CourseDocument
         from app.db.session import SessionLocal
         db = SessionLocal()
-        doc = db.query(CourseDocument).filter(
-            CourseDocument.filename.like("%bitcoin%")
-        ).first()
-        db.close()
+        try:
+            doc = db.query(CourseDocument).filter(CourseDocument.filename.like(pattern)).first()
+        finally:
+            db.close()
         if doc:
             return doc.course_id
-    except Exception:
-        pass
-    return "6a792091-884f-4e40-ba0b-b6d06376c196"
+    raise SystemExit(
+        f"No course found for the '{query_set}' set: upload its corpus "
+        f"(filename like {pattern!r}) or pass --course <course_id>."
+    )
 
 
 def main() -> None:
@@ -350,15 +389,24 @@ def main() -> None:
     parser.add_argument("--course", default=None, help="Course ID (auto-detected if omitted)")
     parser.add_argument("--output", default="rag_test_results.json", help="JSON output file")
     parser.add_argument("--query", default=None, help="Run a single custom query and exit")
+    parser.add_argument(
+        "--set", dest="query_set", choices=sorted(QUERY_SETS), default="technical",
+        help="Query set to run (default: technical, the open-corpus set)",
+    )
+    parser.add_argument(
+        "--metrics-only", action="store_true",
+        help="Omit answers and citation snippets from the JSON (required for committed baselines)",
+    )
     args = parser.parse_args()
+    queries = QUERY_SETS[args.query_set]
 
-    course_id = args.course or _discover_course_id()
+    course_id = args.course or _discover_course_id(args.query_set)
 
     sep = "═" * 68
     print(BOLD(sep))
     print(BOLD("  Bitcoin Academy — RAG Test Suite"))
     print(f"  Course : {course_id}")
-    print(f"  Queries: {len(QUERIES)}")
+    print(f"  Set    : {args.query_set} ({len(queries)} queries)")
     print(BOLD(sep))
 
     if args.query:
@@ -368,7 +416,7 @@ def main() -> None:
         print()
         return
 
-    results = asyncio.run(run_all(QUERIES, course_id))
+    results = asyncio.run(run_all(queries, course_id))
 
     # Save JSON
     out_path = args.output
@@ -376,8 +424,10 @@ def main() -> None:
         json.dump(
             {
                 "course_id": course_id,
+                "query_set": args.query_set,
+                "metrics_only": args.metrics_only,
                 "total": len(results),
-                "results": [_to_dict(r) for r in results],
+                "results": [_to_dict(r, metrics_only=args.metrics_only) for r in results],
             },
             f,
             ensure_ascii=False,

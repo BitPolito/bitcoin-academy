@@ -7,7 +7,15 @@ SQLite note: StaticPool forces all connections to reuse the same underlying
 connection, which makes the in-memory database visible across threads (needed
 because FastAPI runs endpoints in a thread pool).
 """
+import os
 import uuid
+
+# The suite must never reach a real QVAC service. Several tests assert the
+# fallback taken when QVAC is unreachable, and a QVAC started locally (start.sh,
+# or the URL in services/ai/.env) changed their results (#208). Point every
+# module-level client at a closed port before the app is imported; load_dotenv
+# does not override variables that are already set.
+os.environ["QVAC_SERVICE_URL"] = "http://127.0.0.1:9"
 
 import pytest
 from fastapi.testclient import TestClient

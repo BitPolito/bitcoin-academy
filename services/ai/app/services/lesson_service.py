@@ -506,24 +506,20 @@ def publish_course(course_id: str, db: Session) -> Dict[str, int]:
             skipped_chapters += 1
             continue
 
-        publishable = [ls for ls in lessons if ls.status == "published"]
-        # Publication is all-or-nothing at chapter level.  A draft lesson is
-        # just as unreviewed as one explicitly marked ``needs_review``; letting
-        # a chapter through with a mixture of published and draft lessons makes
-        # the student-facing outline look complete while silently omitting part
-        # of it.
+        # A chapter publishes only when EVERY lesson is already "published" and
+        # none is stale. Anything else — "needs_review", still "draft" with empty
+        # content because it was never processed, or regenerated from changed
+        # sources since review — blocks the chapter; otherwise students would
+        # open a published chapter onto a blank or unreviewed lesson body.
         blocking = [ls for ls in lessons if ls.status != "published" or ls.is_stale]
 
         if blocking:
             skipped_chapters += 1
             continue
 
-        if publishable:
-            for ls in publishable:
-                ls.status = "published"
-                published_lessons += 1
-            chapter.status = "published"
-            published_chapters += 1
+        published_lessons += len(lessons)
+        chapter.status = "published"
+        published_chapters += 1
 
     db.commit()
     return {

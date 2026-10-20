@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import NotFoundError, ValidationError_
 from app.db.models import (
     Chapter,
+    CourseDocument,
     DocumentStatus,
     GenerationRun,
     GenerationRunStatus,
@@ -24,6 +25,8 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.middleware.auth import CurrentUser, get_current_user
+
+_require_reviewer = CurrentUser(roles=[UserRole.ADMIN, UserRole.INSTRUCTOR])
 from app.schemas.outline_schemas import (
     ChapterDraftSchema,
     GenerateOutlineBody,
@@ -33,6 +36,7 @@ from app.schemas.outline_schemas import (
     OutlineResponse,
     PatchOutlineBody,
 )
+from app.repositories import course_repo
 from app.services import course_service
 
 router = APIRouter(prefix="/api", tags=["Outline"])
@@ -137,7 +141,24 @@ async def generate_outline(
 
     # Resolve doc_ids: explicit list or all READY docs in the course
     if body.doc_ids:
-        doc_ids = body.doc_ids
+        # Only accept document IDs that actually belong to this course —
+        # otherwise a caller could pull another course's documents into
+        # this course's generated outline.
+        owned = {
+            row.id
+            for row in db.query(CourseDocument.id)
+            .filter(
+                CourseDocument.id.in_(body.doc_ids),
+                CourseDocument.course_id == course_id,
+            )
+            .all()
+        }
+        unknown = [d for d in body.doc_ids if d not in owned]
+        if unknown:
+            raise ValidationError_(
+                f"Documents not found in this course: {', '.join(unknown)}"
+            )
+        doc_ids = list(body.doc_ids)
     else:
         from app.services.document_service import list_documents
         doc_ids = [
@@ -238,7 +259,7 @@ def patch_outline(
     body: PatchOutlineBody,
     course_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    _current_user: CurrentUser = Depends(_require_reviewer),
 ):
     course = course_service.get_course(db, course_id)
     if course is None:
@@ -254,8 +275,13 @@ def patch_outline(
             continue
 
         if ch_patch.delete:
-            for ls in db.query(Lesson).filter(Lesson.chapter_id == chapter.id).all():
-                db.delete(ls)
+            lesson_ids = [
+                row.id
+                for row in db.query(Lesson.id)
+                .filter(Lesson.chapter_id == chapter.id)
+                .all()
+            ]
+            course_repo.delete_lessons_cascade(db, lesson_ids)
             db.delete(chapter)
             db.flush()
             continue
@@ -276,8 +302,7 @@ def patch_outline(
             if lesson is None:
                 continue
             if ls_patch.delete:
-                db.delete(lesson)
-                db.flush()
+                course_repo.delete_lessons_cascade(db, [lesson.id])
                 continue
             if ls_patch.title is not None:
                 lesson.title = ls_patch.title

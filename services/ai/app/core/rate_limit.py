@@ -3,19 +3,20 @@
 Import from here to ensure a single Limiter is used across the application.
 Avoids creating multiple independent rate limit counters.
 
-Key function: uses the authenticated user's sub/user_id claim when a valid
-Bearer token is present, so each user has an independent quota regardless of
-shared IPs (classrooms, VPNs, NAT). Falls back to remote IP for unauthenticated
-requests.  The JWT is decoded without signature verification here because the
-auth middleware has already validated it upstream; we only need the subject claim
-as a stable bucket key.
+Key function: uses the authenticated user's sub/user_id claim when a valid,
+*signature-verified* Bearer token is present, so each user has an independent
+quota regardless of shared IPs (classrooms, VPNs, NAT). Falls back to remote IP
+for unauthenticated or invalid-token requests — a forged/unsigned token must not
+be able to mint fresh rate-limit buckets or exhaust another user's quota, and
+this key function runs before any route-level auth dependency.
 """
 import logging
 
-import jwt
 from fastapi import Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+
+from app.core.config import decode_token
 
 logger = logging.getLogger(__name__)
 
@@ -23,17 +24,11 @@ logger = logging.getLogger(__name__)
 def _get_user_or_ip(request: Request) -> str:
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
-        try:
-            payload = jwt.decode(
-                auth[7:],
-                options={"verify_signature": False},
-                algorithms=["HS256"],
-            )
+        payload = decode_token(auth[7:])
+        if payload:
             uid = payload.get("sub") or payload.get("user_id")
             if uid:
                 return f"user:{uid}"
-        except Exception:
-            pass
     return get_remote_address(request)
 
 

@@ -121,7 +121,7 @@ export default function CoursesPage() {
   }
 
   async function handleCreate(title: string, description?: string) {
-    const created = await createCourse(title, description);
+    const created = await createCourse(title, description, session?.user?.accessToken);
     setCourses((prev) => [...prev, created]);
     router.push(`/courses/${created.id}`);
   }

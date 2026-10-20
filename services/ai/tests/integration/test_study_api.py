@@ -5,14 +5,22 @@ needs to be running.  The three properties verified per the issue spec are:
 
 1. Correct action dispatch (action echoed in response, retrieval called with
    the right workspace/question).
-2. Citations present in the response when QVAC returns sources.
-3. Graceful fallback when QVAC is unavailable (200, no citations, answer set).
+2. Citations present in the response when QVAC returns chunks.
+3. Retrieval failures return a service error instead of an empty result.
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.core.config import create_access_token
 from tests.conftest import make_course_with_lessons, make_user
+
+
+@pytest.fixture(autouse=True)
+def isolate_query_expansion_and_dense_fallback(monkeypatch):
+    # QVAC is mocked below; keep expansion and fallback independent of local services.
+    monkeypatch.setattr("app.rag.query_rewriter._HYDE_ENABLED", False)
+    monkeypatch.setattr("app.rag.query_rewriter._REWRITE_ENABLED", False)
+    monkeypatch.setattr("app.rag.retriever._chroma_retrieve", lambda *args: [])
 
 
 # ---------------------------------------------------------------------------
@@ -24,9 +32,10 @@ def _auth(user_id: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _qvac_resp(answer: str = "Bitcoin is a decentralised currency.", sources: list | None = None) -> MagicMock:
+def _qvac_resp(answer: str = "Bitcoin is a decentralised currency.", chunks: list | None = None) -> MagicMock:
+    # Serves both QVAC /retrieve ("chunks") and /generate ("answer").
     resp = MagicMock()
-    resp.json.return_value = {"answer": answer, "sources": sources or []}
+    resp.json.return_value = {"answer": answer, "chunks": chunks or []}
     resp.raise_for_status.return_value = None
     return resp
 
@@ -34,10 +43,10 @@ def _qvac_resp(answer: str = "Bitcoin is a decentralised currency.", sources: li
 def _qvac_with_sources() -> MagicMock:
     return _qvac_resp(
         answer="Bitcoin uses proof-of-work to achieve consensus.",
-        sources=[
+        chunks=[
             {
                 "chunk_id": "c1",
-                "snippet": "Bitcoin uses proof-of-work.",
+                "content": "Bitcoin uses proof-of-work.",
                 "score": 0.92,
                 "doc_id": "doc-abc",
                 "label": "bitcoin_intro.pdf",
@@ -47,7 +56,7 @@ def _qvac_with_sources() -> MagicMock:
             },
             {
                 "chunk_id": "c2",
-                "snippet": "Miners compete to find a valid hash.",
+                "content": "Miners compete to find a valid hash.",
                 "score": 0.85,
                 "doc_id": "doc-abc",
                 "label": "bitcoin_intro.pdf",
@@ -60,7 +69,7 @@ def _qvac_with_sources() -> MagicMock:
 
 
 def _qvac_empty() -> MagicMock:
-    return _qvac_resp(answer="No relevant content found.", sources=[])
+    return _qvac_resp(answer="No relevant content found.", chunks=[])
 
 
 def _study_payload(action: str = "explain", query: str = "What is Bitcoin?") -> dict:
@@ -191,6 +200,29 @@ def test_study_dispatches_with_correct_question(client, db):
 
 
 @pytest.mark.integration
+def test_study_uses_the_hybrid_pipeline_candidate_pool(client, db):
+    """Study actions retrieve via QVAC /retrieve with the RAG_RETRIEVE_K pool,
+    the same hybrid pipeline as chat, not the QVAC /query top-k shortcut."""
+    from app.rag import retriever
+
+    user = make_user(db)
+    course, _ = make_course_with_lessons(db)
+
+    mock_post = AsyncMock(return_value=_qvac_with_sources())
+    with patch("app.services.study_service._qvac_client.post", mock_post):
+        client.post(
+            f"/api/courses/{course.id}/study",
+            json=_study_payload("retrieve", "What is proof-of-work?"),
+            headers=_auth(user.id),
+        )
+
+    args, kwargs = mock_post.call_args_list[0]
+    assert args[0] == "/retrieve"
+    assert kwargs["json"]["topK"] == retriever._TOP_K_RETRIEVE
+    assert all(call.args[0] != "/query" for call in mock_post.call_args_list)
+
+
+@pytest.mark.integration
 def test_study_retrieve_action_skips_generation(client, db):
     """retrieve action is retrieve-only: no LLM call, answer comes from passages."""
     user = make_user(db)
@@ -310,8 +342,8 @@ def test_study_no_citations_when_empty_corpus(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_study_qvac_down_returns_200(client, db):
-    """When QVAC refuses connections, the endpoint must still return 200."""
+def test_study_qvac_down_returns_503(client, db):
+    """Without a usable fallback, connection failure is a service error."""
     import httpx as _httpx
 
     user = make_user(db)
@@ -328,11 +360,11 @@ def test_study_qvac_down_returns_200(client, db):
             headers=_auth(user.id),
         )
 
-    assert resp.status_code == 200
+    assert resp.status_code == 503
 
 
 @pytest.mark.integration
-def test_study_qvac_down_no_citations(client, db):
+def test_study_qvac_down_is_not_an_empty_result(client, db):
     import httpx as _httpx
 
     user = make_user(db)
@@ -350,13 +382,13 @@ def test_study_qvac_down_no_citations(client, db):
         )
 
     data = resp.json()
-    assert data["citations"] == []
-    assert data["retrieval_used"] is False
+    assert data["error"]["code"] == "RETRIEVAL_UNAVAILABLE"
+    assert "answer" not in data
 
 
 @pytest.mark.integration
-def test_study_qvac_down_answer_is_set(client, db):
-    """Fallback must produce a non-empty answer string."""
+def test_study_qvac_down_message_is_actionable(client, db):
+    """The UI receives a safe service message with retry guidance."""
     import httpx as _httpx
 
     user = make_user(db)
@@ -373,11 +405,11 @@ def test_study_qvac_down_answer_is_set(client, db):
             headers=_auth(user.id),
         )
 
-    assert len(resp.json()["answer"]) > 0
+    assert "Please try again" in resp.json()["error"]["message"]
 
 
 @pytest.mark.integration
-def test_study_qvac_timeout_returns_200(client, db):
+def test_study_qvac_timeout_is_reported_separately(client, db):
     import httpx as _httpx
 
     user = make_user(db)
@@ -394,8 +426,8 @@ def test_study_qvac_timeout_returns_200(client, db):
             headers=_auth(user.id),
         )
 
-    assert resp.status_code == 200
-    assert resp.json()["retrieval_used"] is False
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "RETRIEVAL_TIMEOUT"
 
 
 # ---------------------------------------------------------------------------

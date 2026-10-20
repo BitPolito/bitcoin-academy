@@ -28,11 +28,13 @@ _SSE_KEEPALIVE_INTERVAL = 15.0
 @router.post(
     "/courses/{course_id}/study",
     response_model=StudyDispatchResponse,
+    responses={503: {"description": "Course search unavailable, timed out, or failed"}},
     summary="Run a study action on course material",
     description=(
         "Retrieves relevant passages and applies the requested study action "
         "(explain, summarize, retrieve, open_questions, quiz, oral, derive, compare). "
-        "Falls back gracefully when the QVAC service or LLM is unavailable."
+        "An empty search returns 200 with no citations. Retrieval failure returns "
+        "503 with an error code and message; generation failure falls back to source passages."
     ),
 )
 @limiter.limit("20/minute")
@@ -76,6 +78,8 @@ async def study(
         "After the last token, a citations sentinel is emitted:\n"
         "  'data: \"\\x00CITATIONS\\x00<json-array>\"\\n\\n'\n"
         "followed by 'data: [DONE]\\n\\n'.\n"
+        "Retrieval failure emits a '[ERROR] <message>' frame and then [DONE], "
+        "without answer tokens or citations.\n"
         "SSE comment lines (': keepalive') are sent every 15 s during retrieval to\n"
         "prevent proxy timeouts. QUIZ and ORAL are buffered internally."
     ),
@@ -98,22 +102,40 @@ async def study_stream(
             action=body.action,
             rag_only=body.rag_only,
         )
+        # The next-token task is created once and awaited across keepalive ticks.
+        # We must NOT wrap gen.__anext__() in asyncio.wait_for: a timeout there
+        # cancels the in-flight step, which finishes the async generator and
+        # ends the stream empty — exactly on the slow retrievals the keepalive
+        # exists to cover. Instead we poll the same pending task with a timeout.
+        pending: "asyncio.Future | None" = None
         try:
             while True:
-                try:
-                    chunk = await asyncio.wait_for(
-                        gen.__anext__(), timeout=_SSE_KEEPALIVE_INTERVAL
-                    )
-                    yield f"data: {_sse_encode(chunk)}\n\n"
-                except asyncio.TimeoutError:
-                    # No token yet — send SSE comment to keep TCP connection alive.
+                if pending is None:
+                    pending = asyncio.ensure_future(gen.__anext__())
+                done, _ = await asyncio.wait(
+                    {pending}, timeout=_SSE_KEEPALIVE_INTERVAL
+                )
+                if not done:
+                    # No token yet — send SSE comment to keep the connection alive.
                     # Browsers and SSE clients silently ignore comment lines.
                     yield ": keepalive\n\n"
+                    continue
+                try:
+                    chunk = pending.result()
                 except StopAsyncIteration:
                     break
+                finally:
+                    pending = None
+                yield f"data: {_sse_encode(chunk)}\n\n"
         except Exception as exc:
             yield f"data: {_sse_encode('[ERROR] ' + str(exc))}\n\n"
         finally:
+            if pending is not None:
+                pending.cancel()
+                try:
+                    await pending
+                except (asyncio.CancelledError, StopAsyncIteration, Exception):
+                    pass
             await gen.aclose()
         yield "data: [DONE]\n\n"
 
