@@ -1,0 +1,104 @@
+name: RAG Evaluation Suite
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+jobs:
+  rag-benchmark:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'rag')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "services/ai/uv.lock"
+
+      - name: Cache QVAC Embedding Model
+        uses: actions/cache@v4
+        id: qvac-cache
+        with:
+          path: .qvac-cache
+          key: qvac-models-${{ hashFiles('workers/qvac-service/package-lock.json') }}
+          restore-keys: |
+            qvac-models-
+
+      - name: Build QVAC Image
+        run: docker build -t bitcoin-academy-qvac:ci ./workers/qvac-service
+
+      - name: Boot QVAC (Retrieval-Only Mode)
+        run: |
+          mkdir -p .qvac-cache
+          mkdir -p qvac_ingest
+          
+          docker run -d --name qvac-rag \
+            -p 3001:3001 \
+            -e QVAC_LLM_ENABLED=false \
+            -v ${{ github.workspace }}/qvac_ingest:/qvac_ingest \
+            -v ${{ github.workspace }}/.qvac-cache:/root/.qvac \
+            bitcoin-academy-qvac:ci
+            
+          # Wait for healthcheck (includes model initialization/download)
+          for i in {1..60}; do
+            if curl -fsS http://localhost:3001/health; then
+              echo -e "\nQVAC ready"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Fetch Open Corpus (Mastering Bitcoin)
+        working-directory: services/ai
+        run: |
+          uv sync
+          uv run python ../../scripts/fetch_rag_corpus.py --out tests/data/corpus
+
+      - name: Initialize Backend and Ingest
+        working-directory: services/ai
+        run: |
+          cp .env.example .env
+          
+          # Initialize SQLite database
+          uv run python -m app.db.init_db
+          
+          # Boot Uvicorn in the background pointing to the shared ingest volume
+          export QVAC_INGEST_DIR=${{ github.workspace }}/qvac_ingest
+          uv run uvicorn app.main:app --port 8000 &
+          
+          # Wait for API health
+          for i in {1..15}; do
+            if curl -fsS http://localhost:8000/health; then break; fi
+            sleep 2
+          done
+          
+          # Upload the corpus using the CI integration tool
+          uv run python upload.py tests/data/corpus/mastering-bitcoin-3e.docx
+
+      - name: Run test_rag.py Baseline Evaluation
+        working-directory: services/ai
+        run: |
+          COURSE_ID=$(cat tests/data/corpus/course_id.txt)
+          echo "Evaluating Course: $COURSE_ID"
+          
+          uv run python tests/test_rag.py \
+            --set technical \
+            --course $COURSE_ID \
+            --metrics-only \
+            --output rag_report_technical.json
+
+      - name: Upload Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rag-evaluation-report
+          path: services/ai/rag_report_technical.json
+          retention-days: 14
