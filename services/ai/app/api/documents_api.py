@@ -57,8 +57,11 @@ def list_documents(
     db: Session = Depends(get_db),
     _current_user: CurrentUser = Depends(get_current_user),
 ):
+    after: tuple[str, str] | None = None
     try:
-        after = decode_cursor(cursor, 2) if cursor else None
+        if cursor:
+            created_at, doc_id = decode_cursor(cursor, 2)
+            after = (created_at, doc_id)
     except ValueError as exc:
         raise ValidationError_(message=str(exc), details={"cursor": cursor}) from exc
     items, next_cursor = document_service.list_documents_page(
