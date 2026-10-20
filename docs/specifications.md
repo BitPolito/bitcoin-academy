@@ -280,6 +280,10 @@ account lockout after repeated failures, `admin`/`student` roles, rate limiting,
 and audit middleware. Development accounts are seeded automatically, and seeding refuses to run
 when `ENVIRONMENT=production`.
 
+CORS permits `PATCH` requests from configured frontend origins so course, outline
+and lesson edits can pass browser preflight checks. The editing endpoints still
+require authentication and the appropriate instructor/admin role.
+
 Endpoint protection is asserted structurally rather than by convention:
 `tests/integration/test_authorization_matrix.py` derives the endpoint list from the live OpenAPI
 schema, so an endpoint added without authentication fails the build. Endpoints that are deliberately
