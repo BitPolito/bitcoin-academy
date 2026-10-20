@@ -6,13 +6,21 @@ needs to be running.  The three properties verified per the issue spec are:
 1. Correct action dispatch (action echoed in response, retrieval called with
    the right workspace/question).
 2. Citations present in the response when QVAC returns chunks.
-3. Graceful fallback when QVAC is unavailable (200, no citations, answer set).
+3. Retrieval failures return a service error instead of an empty result.
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.core.config import create_access_token
 from tests.conftest import make_course_with_lessons, make_user
+
+
+@pytest.fixture(autouse=True)
+def isolate_query_expansion_and_dense_fallback(monkeypatch):
+    # QVAC is mocked below; keep expansion and fallback independent of local services.
+    monkeypatch.setattr("app.rag.query_rewriter._HYDE_ENABLED", False)
+    monkeypatch.setattr("app.rag.query_rewriter._REWRITE_ENABLED", False)
+    monkeypatch.setattr("app.rag.retriever._chroma_retrieve", lambda *args: [])
 
 
 # ---------------------------------------------------------------------------
@@ -334,8 +342,8 @@ def test_study_no_citations_when_empty_corpus(client, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.integration
-def test_study_qvac_down_returns_200(client, db):
-    """When QVAC refuses connections, the endpoint must still return 200."""
+def test_study_qvac_down_returns_503(client, db):
+    """Without a usable fallback, connection failure is a service error."""
     import httpx as _httpx
 
     user = make_user(db)
@@ -352,11 +360,11 @@ def test_study_qvac_down_returns_200(client, db):
             headers=_auth(user.id),
         )
 
-    assert resp.status_code == 200
+    assert resp.status_code == 503
 
 
 @pytest.mark.integration
-def test_study_qvac_down_no_citations(client, db):
+def test_study_qvac_down_is_not_an_empty_result(client, db):
     import httpx as _httpx
 
     user = make_user(db)
@@ -374,13 +382,13 @@ def test_study_qvac_down_no_citations(client, db):
         )
 
     data = resp.json()
-    assert data["citations"] == []
-    assert data["retrieval_used"] is False
+    assert data["error"]["code"] == "RETRIEVAL_UNAVAILABLE"
+    assert "answer" not in data
 
 
 @pytest.mark.integration
-def test_study_qvac_down_answer_is_set(client, db):
-    """Fallback must produce a non-empty answer string."""
+def test_study_qvac_down_message_is_actionable(client, db):
+    """The UI receives a safe service message with retry guidance."""
     import httpx as _httpx
 
     user = make_user(db)
@@ -397,11 +405,11 @@ def test_study_qvac_down_answer_is_set(client, db):
             headers=_auth(user.id),
         )
 
-    assert len(resp.json()["answer"]) > 0
+    assert "Please try again" in resp.json()["error"]["message"]
 
 
 @pytest.mark.integration
-def test_study_qvac_timeout_returns_200(client, db):
+def test_study_qvac_timeout_is_reported_separately(client, db):
     import httpx as _httpx
 
     user = make_user(db)
@@ -418,8 +426,8 @@ def test_study_qvac_timeout_returns_200(client, db):
             headers=_auth(user.id),
         )
 
-    assert resp.status_code == 200
-    assert resp.json()["retrieval_used"] is False
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "RETRIEVAL_TIMEOUT"
 
 
 # ---------------------------------------------------------------------------

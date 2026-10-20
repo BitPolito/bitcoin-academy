@@ -22,7 +22,7 @@ jest.mock('../../src/lib/services/study', () => ({
 }));
 
 import { sendChatMessageStream } from '../../src/lib/services/chat';
-import { sendStudyActionStream } from '../../src/lib/services/study';
+import { sendStudyAction, sendStudyActionStream } from '../../src/lib/services/study';
 const mockSend = sendChatMessageStream as jest.MockedFunction<typeof sendChatMessageStream>;
 const mockStudyStream = sendStudyActionStream as jest.MockedFunction<typeof sendStudyActionStream>;
 
@@ -246,6 +246,25 @@ describe('OutputPane', () => {
   });
 
   describe('error handling', () => {
+    it.each(['explain', 'quiz'] as const)(
+      'shows a retrieval service failure for %s without claiming no passages matched',
+      async (action) => {
+        const message = 'The course search service is unavailable. Please try again shortly.';
+        jest.mocked(sendStudyAction).mockRejectedValue(new Error(message));
+        mockStudyStream.mockRejectedValue(new Error(message));
+        const onActionResult = jest.fn();
+
+        render(<OutputPane {...defaultProps} onActionResult={onActionResult} />);
+        fireEvent.click(screen.getAllByRole('button', { name: new RegExp(action, 'i') })[0]);
+
+        expect(await screen.findByText(`Error: ${message}`)).toBeInTheDocument();
+        expect(screen.queryByText(/no passages from this course matched/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/no response received/i)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/loading response/i)).not.toBeInTheDocument();
+        expect(onActionResult).not.toHaveBeenCalled();
+      },
+    );
+
     it('shows an error message in the thread when the API call fails', async () => {
       mockSend.mockRejectedValue(new Error('Network error'));
 

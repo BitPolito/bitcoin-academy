@@ -10,7 +10,7 @@
  * The reader is faked rather than mocked at the fetch level alone, so the
  * chunk-boundary handling is genuinely exercised.
  */
-import { sendStudyActionStream } from '@/lib/services/study';
+import { sendStudyAction, sendStudyActionStream } from '@/lib/services/study';
 
 const CITATIONS_SENTINEL = '\x00CITATIONS\x00';
 
@@ -60,6 +60,36 @@ async function collect(chunks: string[]) {
 }
 
 describe('sendStudyActionStream', () => {
+  it('surfaces a retrieval failure frame as an error rather than answer text', async () => {
+    const message = 'The course search service took too long to respond. Please try again.';
+    mockFetch.mockResolvedValue(streamingResponse([sse(`[ERROR] ${message}`), 'data: [DONE]\n']));
+    const onToken = jest.fn();
+    const onCitations = jest.fn();
+    await expect(
+      sendStudyActionStream('c1', 'explain', 'Bitcoin', onToken, onCitations),
+    ).rejects.toThrow(message);
+    expect(onToken).not.toHaveBeenCalled();
+    expect(onCitations).not.toHaveBeenCalled();
+  });
+
+  it('preserves a successful empty search as answer text', async () => {
+    const result = await collect([
+      sse('No relevant content found.'),
+      sse(CITATIONS_SENTINEL + '[]'),
+      'data: [DONE]\n',
+    ]);
+    expect(result).toEqual({ tokens: ['No relevant content found.'], citations: [] });
+  });
+
+  it('surfaces the standard service error envelope for buffered actions', async () => {
+    const message = 'The course search service is unavailable. Please try again shortly.';
+    mockFetch.mockResolvedValue({
+      ok: false, status: 503,
+      json: async () => ({ error: { code: 'RETRIEVAL_UNAVAILABLE', message } }),
+    });
+    await expect(sendStudyAction('c1', 'quiz', 'Bitcoin')).rejects.toThrow(message);
+  });
+
   it('delivers each token in order', async () => {
     const { tokens } = await collect([sse('Bitcoin '), sse('uses '), sse('PoW.'), 'data: [DONE]\n']);
 
