@@ -17,6 +17,7 @@ from typing import AsyncGenerator, List, Optional
 
 import httpx
 
+from app.core.errors import ExternalServiceError
 from app.schemas.evidence_pack import EvidenceChunk, EvidencePack
 from app.schemas.study_schemas import (
     MIN_STUDY_QUERY_LENGTH,
@@ -277,7 +278,8 @@ async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple
 
     The retrieval query may be rewritten or HyDE-expanded before hitting QVAC;
     the original *question* is preserved for generation prompts and citations.
-    Returns an empty pack when every dense source is unavailable.
+    Raises ExternalServiceError when retrieval fails. An empty pack means the
+    search completed successfully but found no relevant passages.
     """
     from app.rag.query_rewriter import expand_query
     retrieval_query = await expand_query(question)
@@ -287,8 +289,17 @@ async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple
             question, course_id, retrieval_query, client=_qvac_client
         )
     except (httpx.HTTPError, ValueError, KeyError) as exc:
-        logger.warning("Retrieval failed (%s) — returning empty pack", exc)
-        return "", _empty_pack(question, action)
+        logger.warning("Study retrieval failed: %s", exc)
+        if isinstance(exc, httpx.TimeoutException):
+            message = "The course search service took too long to respond. Please try again."
+            code = "RETRIEVAL_TIMEOUT"
+        elif isinstance(exc, httpx.HTTPError):
+            message = "The course search service is unavailable. Please try again shortly."
+            code = "RETRIEVAL_UNAVAILABLE"
+        else:
+            message = "The course search service could not complete the search. Please try again."
+            code = "RETRIEVAL_FAILED"
+        raise ExternalServiceError(message=message, code=code) from exc
 
     if not context_chunks:
         logger.info("Retrieval returned 0 chunks for course '%s'", course_id)
@@ -329,9 +340,12 @@ async def _retrieve_multi(
 
     merged: dict[str, EvidenceChunk] = {}
     raw_answers: list[str] = []
+    retrieval_errors: list[ExternalServiceError] = []
     for res in results:
         if isinstance(res, BaseException):
             logger.warning("Two-hop sub-retrieval failed: %s", res)
+            if isinstance(res, ExternalServiceError):
+                retrieval_errors.append(res)
             continue
         raw_ans, pack = res
         if raw_ans:
@@ -342,7 +356,12 @@ async def _retrieve_multi(
 
     if not merged:
         logger.info("Two-hop produced no chunks — falling back to single retrieval")
-        return await _retrieve(question, course_id, action)
+        result = await _retrieve(question, course_id, action)
+        # An empty final search does not erase a failed sub-query. Useful
+        # evidence from either path still preserves the existing fallback.
+        if not result[1].chunks and retrieval_errors:
+            raise retrieval_errors[0]
+        return result
 
     logger.debug(
         "Two-hop retrieval for '%s': %d unique chunks from %d sub-queries",

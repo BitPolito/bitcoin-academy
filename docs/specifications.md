@@ -142,6 +142,15 @@ answer is absent from it. When retrieval returns no evidence for an action that 
 generation runs: the action answers "No relevant content found." with no citations, and that
 result is not cached, so material uploaded later can answer the same request.
 
+Retrieval failure is distinct from a successful search with no matches. If
+retrieval fails after attempting the QVAC/ChromaDB fallback path, buffered Study requests return
+HTTP 503 using the standard error envelope, with `RETRIEVAL_UNAVAILABLE`,
+`RETRIEVAL_TIMEOUT`, or `RETRIEVAL_FAILED`. Streaming requests emit an `[ERROR]`
+frame followed by `[DONE]`. The Study UI displays the service error and retry
+guidance instead of claiming that no course passages matched. Neither failure
+path generates an answer or caches the failure. Useful fallback evidence is
+still accepted; retrieval, ranking, and evidence-pack structure are unchanged.
+
 ---
 
 ### 11. Source linking and citation visibility — ✅ Implemented
