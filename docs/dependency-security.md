@@ -29,6 +29,26 @@ trees. The Python lock contains none of the package versions identified by the
 open alerts. There are therefore no accepted critical or high risks requiring
 an issue comment.
 
+## Follow-up, 19 October 2026
+
+Enabling security-update pull requests opened six Dependabot PRs (#249-#254).
+They were consolidated into one branch, with urllib3 added because Dependabot
+had not proposed it.
+
+| Tree | Classification | Reachability | Resolution |
+|---|---|---|---|
+| `services/ai` | PyJWT: 1 critical, 5 high, 8 medium | Runtime, direct, reachable by authentication | Raised to `>=2.15.0`; lock resolved to 2.15.1. |
+| `services/ai` | urllib3: 2 high, 1 medium | Runtime, transitive (HTTP clients) | Lock refresh to 2.8.0. |
+| `services/ai` | Mako: 1 medium | Runtime, transitive through Alembic; the advisory is Windows-only | Lock refresh to 1.4.3. |
+| `apps/web` | Next.js: 2 medium; sharp: 1 high | Runtime, direct (sharp through Next's image optimiser) | Next raised to `^15.5.28`, which brings sharp 0.35.5. |
+| `apps/web` | source-map-js: 1 high; brace-expansion: 1 medium | Build and development transitives | Lock refresh to 1.2.2 and 1.1.21. |
+
+Accepted, development-only: `npm audit` still flags braces (high, no patched
+release), postcss-selector-parser and sprintf-js (medium). They are reached only
+through Jest, ESLint and the Tailwind 3 build, whose inputs are the repository's
+own configuration and sources, never user data, and none of them ships in the
+production image. The fixes need Jest 30 and Tailwind 4 (#224).
+
 Dependabot version updates run monthly against `master`: minor and patch
 updates only, grouped per dependency tree (`services/ai`, `apps/web`,
 `workers/qvac-service`), with at most one open PR per tree. Major upgrades are
