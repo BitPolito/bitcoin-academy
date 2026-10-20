@@ -69,7 +69,7 @@ describe('course builder API wrappers', () => {
     expect(init.headers).toEqual(expect.objectContaining({ Authorization: 'Bearer tok' }));
   });
 
-  it('generateOutline POSTs an empty body', async () => {
+  it('generateOutline POSTs the human-overwrite confirmation', async () => {
     mockJson({ run_id: 'r1', status: 'queued' });
 
     await expect(generateOutline('c1', 'tok')).resolves.toEqual({ run_id: 'r1', status: 'queued' });
@@ -77,13 +77,13 @@ describe('course builder API wrappers', () => {
     const [url, init] = lastCall();
     expect(url).toContain('/courses/c1/outline/generate');
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body as string)).toEqual({});
+    expect(JSON.parse(init.body as string)).toEqual({ confirm_human_overwrite: false });
   });
 
   it('generateContent sends lesson_ids only when provided', async () => {
     mockJson({ run_id: 'r1', status: 'queued', draft_lessons: 2 });
     await generateContent('c1', ['l1', 'l2'], 'tok');
-    expect(JSON.parse(lastCall()[1].body as string)).toEqual({ lesson_ids: ['l1', 'l2'] });
+    expect(JSON.parse(lastCall()[1].body as string)).toEqual({ lesson_ids: ['l1', 'l2'], confirm_human_overwrite: false });
 
     mockJson({ run_id: 'r2', status: 'queued', draft_lessons: 0 });
     await generateContent('c1', undefined, 'tok');
