@@ -153,6 +153,14 @@ must be able to inspect and navigate back to the relevant source location.
 objects carrying document, page, slide and section. The UI renders citation cards and a source pane
 that navigates to the originating passage.
 
+Original uploads are retained after ingestion until their document or course is
+deleted. PDF previews fetch the source with the signed-in user's bearer token and
+display a temporary browser object URL, preserving the requested page. Object URLs
+are released when the preview closes or changes documents. Missing originals
+(including files deleted by older ingestion versions) require re-uploading the
+document; the viewer shows the error and offers a retry. API framing protections
+remain enabled, and original-file responses disable caching.
+
 ---
 
 ### 12. Study action routing — ✅ Implemented

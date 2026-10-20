@@ -5,14 +5,8 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { getDocumentPreviewView } from '@/lib/api/documents';
+import { PdfPreview } from '@/components/documents/PdfPreview';
 import type { DocumentPreviewView, ApiPreviewChunk } from '@/lib/api/types';
-
-// Browser-accessible API base (NEXT_PUBLIC only — never the server-internal URL).
-const BROWSER_API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  (process.env.NEXT_PUBLIC_API_URL
-    ? `${process.env.NEXT_PUBLIC_API_URL}/api`
-    : 'http://localhost:8000/api');
 
 type ViewMode = 'chunks' | 'pdf';
 
@@ -38,22 +32,6 @@ function Spinner() {
     <div className="h-[calc(100vh-48px)] flex items-center justify-center">
       <div className="w-5 h-5 rounded-full border-2 border-blue-dark border-t-transparent animate-spin" />
     </div>
-  );
-}
-
-// ── PDF pane ──────────────────────────────────────────────────────────────────
-
-function PdfPane({ documentId, page }: { documentId: string; page: number }) {
-  // Append #page=N for browsers that support it (Chrome, Firefox, Safari).
-  const src = `${BROWSER_API_BASE}/documents/${documentId}/file#page=${page}`;
-  return (
-    <iframe
-      key={src}
-      src={src}
-      title="PDF viewer"
-      className="w-full h-full"
-      style={{ border: 'none' }}
-    />
   );
 }
 
@@ -420,7 +398,7 @@ function PreviewContent() {
       {/* Body */}
       {viewMode === 'pdf' ? (
         <div className="flex-1 min-h-0">
-          <PdfPane documentId={documentId} page={pageParam} />
+          <PdfPreview documentId={documentId} page={pageParam} accessToken={accessToken} />
         </div>
       ) : (
         <div className="flex-1 min-h-0 grid grid-cols-12 bg-white dark:bg-blue-dark/20">
