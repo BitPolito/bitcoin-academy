@@ -9,7 +9,9 @@ version: 2
 # Alerts and fix PRs also cover the legacy workers/ manifest.
 
 updates:
-  - package-ecosystem: pip
+  # uv, not pip: the pip updater only edits pyproject.toml and leaves uv.lock
+  # stale.
+  - package-ecosystem: uv
     directory: /services/ai
     schedule:
       interval: monthly
@@ -73,3 +75,5 @@ updates:
       # (src/worker.slim.js) imports SDK entry points: upgrade by hand, with a
       # live check.
       - dependency-name: "@qvac/sdk"
+      # The Bare runtime executes the QVAC worker; same reasoning as the SDK.
+      - dependency-name: "bare-runtime-*"
