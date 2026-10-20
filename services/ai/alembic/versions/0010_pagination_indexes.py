@@ -1,13 +1,13 @@
 """add indexes for cursor-paginated listings
 
-Revision ID: 0007
-Revises: 0006
+Revision ID: 0010
+Revises: 0009
 Create Date: 2026-09-03
 """
 from alembic import op
 
-revision = "0007"
-down_revision = "0006"
+revision = "0010"
+down_revision = "0009"
 branch_labels = None
 depends_on = None
 
