@@ -17,7 +17,10 @@ config = context.config
 # never contains credentials.
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
-if config.config_file_name is not None:
+# Configure logging only for the Alembic CLI. When the application runs
+# migrations it sets configure_logger=False: fileConfig() would otherwise
+# disable every application logger created before it.
+if config.config_file_name is not None and config.attributes.get("configure_logger", True):
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
@@ -35,16 +38,26 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _run_with_connection(connection) -> None:
+    context.configure(connection=connection, target_metadata=target_metadata)
+    with context.begin_transaction():
+        context.run_migrations()
+
+
 def run_migrations_online() -> None:
+    # The application passes its own connection (app.db.session.init_db).
+    connection = config.attributes.get("connection")
+    if connection is not None:
+        _run_with_connection(connection)
+        return
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
-        with context.begin_transaction():
-            context.run_migrations()
+        _run_with_connection(connection)
 
 
 if context.is_offline_mode():

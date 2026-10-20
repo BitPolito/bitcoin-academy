@@ -1,24 +1,20 @@
 FROM python:3.11-slim
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /uvx /bin/
-
 WORKDIR /app
 
-# Keep the managed environment outside /app: the development Compose override
-# bind-mounts the source tree there and must not hide the installed environment.
-ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
-    UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    PATH="/opt/venv/bin:$PATH"
-
-# Install third-party packages in a cacheable layer, strictly from uv.lock.
-COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --locked --no-install-project
-
-# Install the project only after its package exists, then copy runtime assets.
+# pyproject declares `packages = ["app"]` and `readme = "README.md"`, so both must
+# exist before the install: with only pyproject.toml present, setuptools fails
+# with "package directory 'app' does not exist" and the image cannot be built.
+COPY pyproject.toml README.md ./
 COPY app ./app
-RUN uv sync --locked
+# sentence-transformers (the CrossEncoder fallback reranker) depends on torch, and
+# PyPI's Linux torch wheels bundle CUDA: ~3 GB of NVIDIA libraries the service
+# never uses. Install the CPU-only build first so `pip install .` reuses it.
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch
+RUN pip install --no-cache-dir .
 
 COPY . .
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# Initialise the database once before the workers start: each worker's
+# lifespan would otherwise race the others on migrations and seeding.
+CMD ["sh", "-c", "python -m app.db.migrate && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"]

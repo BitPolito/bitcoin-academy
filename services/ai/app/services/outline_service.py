@@ -344,14 +344,19 @@ def _persist_outline(
 ) -> None:
     """Delete existing draft chapters for this course, write new draft outline."""
     # Remove previous draft output (published chapters are untouched)
+    from app.repositories.course_repo import delete_lessons_cascade
+
     draft_chapters = (
         db.query(Chapter)
         .filter(Chapter.course_id == course_id, Chapter.status == "draft")
         .all()
     )
     for ch in draft_chapters:
-        for ls in db.query(Lesson).filter(Lesson.chapter_id == ch.id).all():
-            db.delete(ls)
+        lesson_ids = [
+            row.id
+            for row in db.query(Lesson.id).filter(Lesson.chapter_id == ch.id).all()
+        ]
+        delete_lessons_cascade(db, lesson_ids)
         db.delete(ch)
     db.flush()
 

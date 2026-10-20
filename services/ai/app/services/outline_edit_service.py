@@ -105,7 +105,10 @@ def apply_action(db: Session, course_id: str, body: OutlineActionBody) -> None:
         _mark(lesson)
     elif action == "reorder_chapters":
         chapter_rows = _chapters(db, course_id)
-        if set(body.ordered_ids) != {row.id for row in chapter_rows}:
+        if (
+            len(body.ordered_ids) != len(chapter_rows)
+            or set(body.ordered_ids) != {row.id for row in chapter_rows}
+        ):
             raise ValidationError_("ordered_ids must contain every chapter exactly once.")
         chapters_by_id = {row.id: row for row in chapter_rows}
         for index, row_id in enumerate(body.ordered_ids):
@@ -114,7 +117,10 @@ def apply_action(db: Session, course_id: str, body: OutlineActionBody) -> None:
     elif action == "reorder_lessons":
         chapter = _chapter(db, course_id, body.chapter_id)
         lesson_rows = db.query(Lesson).filter(Lesson.chapter_id == chapter.id).all()
-        if set(body.ordered_ids) != {row.id for row in lesson_rows}:
+        if (
+            len(body.ordered_ids) != len(lesson_rows)
+            or set(body.ordered_ids) != {row.id for row in lesson_rows}
+        ):
             raise ValidationError_("ordered_ids must contain every lesson in the chapter exactly once.")
         lessons_by_id = {row.id: row for row in lesson_rows}
         for index, row_id in enumerate(body.ordered_ids):
@@ -123,13 +129,21 @@ def apply_action(db: Session, course_id: str, body: OutlineActionBody) -> None:
         _mark(chapter)
     elif action == "move_lesson":
         lesson = _lesson(db, course_id, body.lesson_id)
-        source_id = lesson.chapter_id
+        source = _chapter(db, course_id, lesson.chapter_id)
         target = _chapter(db, course_id, body.target_chapter_id)
+        if source.id == target.id:
+            raise ValidationError_("Target chapter must be different.")
+        # Count before changing the relationship: a query after assignment can
+        # autoflush and include the moved lesson, leaving a gap in order_index.
+        target_index = db.query(Lesson).filter(Lesson.chapter_id == target.id).count()
         lesson.chapter = target
-        lesson.order_index = db.query(Lesson).filter(Lesson.chapter_id == target.id).count()
+        lesson.order_index = target_index
         _mark(lesson)
+        _mark(source)
         _mark(target)
-        _normalize_lessons(db, source_id)
+        db.flush()
+        _normalize_lessons(db, source.id)
+        _normalize_lessons(db, target.id)
     elif action == "merge_chapters":
         source = _chapter(db, course_id, body.chapter_id)
         target = _chapter(db, course_id, body.target_chapter_id)
@@ -150,6 +164,9 @@ def apply_action(db: Session, course_id: str, body: OutlineActionBody) -> None:
         selected = [row for row in source.lessons if row.id in set(body.lesson_ids)]
         if not selected or len(selected) == len(source.lessons):
             raise ValidationError_("Select some, but not all, lessons to split into a new chapter.")
+        for chapter in _chapters(db, course_id):
+            if chapter.order_index > source.order_index:
+                chapter.order_index += 1
         new = Chapter(id=str(uuid.uuid4()), course_id=course_id, title=body.title or f"{source.title} (split)",
                       description=body.description, status="draft", order_index=source.order_index + 1)
         _mark(source)
@@ -164,10 +181,11 @@ def apply_action(db: Session, course_id: str, body: OutlineActionBody) -> None:
         _normalize_chapters(db, course_id)
     elif action == "delete_lesson":
         lesson = _lesson(db, course_id, body.lesson_id)
-        chapter_id = lesson.chapter_id
+        chapter = _chapter(db, course_id, lesson.chapter_id)
         _delete_lessons(db, [lesson.id])
         db.flush()
-        _normalize_lessons(db, chapter_id)
+        _normalize_lessons(db, chapter.id)
+        _mark(chapter)
     elif action == "delete_chapter":
         chapter = _chapter(db, course_id, body.chapter_id)
         if chapter.lessons and not body.delete_lessons and not body.target_chapter_id:

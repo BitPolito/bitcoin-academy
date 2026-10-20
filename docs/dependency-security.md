@@ -29,6 +29,36 @@ trees. The Python lock contains none of the package versions identified by the
 open alerts. There are therefore no accepted critical or high risks requiring
 an issue comment.
 
-Dependabot is configured to open grouped weekly updates every Monday against
-`mvp-testing`, staggered by dependency tree to keep the resulting CI workload
-predictable.
+## Follow-up, 19 October 2026
+
+Enabling security-update pull requests opened six Dependabot PRs (#249-#254).
+They were consolidated into one branch, with urllib3 added because Dependabot
+had not proposed it.
+
+| Tree | Classification | Reachability | Resolution |
+|---|---|---|---|
+| `services/ai` | PyJWT: 1 critical, 5 high, 8 medium | Runtime, direct, reachable by authentication | Raised to `>=2.15.0`; lock resolved to 2.15.1. |
+| `services/ai` | urllib3: 2 high, 1 medium | Runtime, transitive (HTTP clients) | Lock refresh to 2.8.0. |
+| `services/ai` | Mako: 1 medium | Runtime, transitive through Alembic; the advisory is Windows-only | Lock refresh to 1.4.3. |
+| `apps/web` | Next.js: 2 medium; sharp: 1 high | Runtime, direct (sharp through Next's image optimiser) | Next raised to `^15.5.28`, which brings sharp 0.35.5. |
+| `apps/web` | source-map-js: 1 high; brace-expansion: 1 medium | Build and development transitives | Lock refresh to 1.2.2 and 1.1.21. |
+
+Accepted, development-only: `npm audit` still flags braces (high, no patched
+release), postcss-selector-parser and sprintf-js (medium). They are reached only
+through Jest, ESLint and the Tailwind 3 build, whose inputs are the repository's
+own configuration and sources, never user data, and none of them ships in the
+production image. The fixes need Jest 30 and Tailwind 4 (#224).
+
+Dependabot version updates run monthly against `master`: minor and patch
+updates only, grouped per dependency tree (`services/ai`, `apps/web`,
+`workers/qvac-service`), with at most one open PR per tree. Major upgrades are
+planned by hand (#224, #225); `@qvac/sdk` and the `bare-runtime-*` packages are
+always upgraded by hand, with a live QVAC check, because the unit tests mock
+the SDK. The legacy `workers/` parser prototype gets no version updates.
+Vulnerability alerts and automatic security-update pull requests (enabled in
+the repository settings) cover every tree: a vulnerable dependency gets a fix
+PR as soon as an advisory is published, whatever the monthly schedule.
+`dependabot.yml` groups those fixes into one PR per tree (`security-fixes`,
+`applies-to: security-updates`). Ignore rules without an update type also apply
+to security updates, so an advisory on `@qvac/sdk` or `bare-runtime-*` shows up
+as an alert only and is fixed by hand.

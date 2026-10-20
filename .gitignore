@@ -107,8 +107,6 @@ tmp/
 temp/
 
 # Docker
-.dockerignore
-!services/ai/.dockerignore
 docker-compose.local.yml
 
 # IDE config
@@ -169,3 +167,6 @@ services/ai/rag_test_results*.json
 htmlcov/
 coverage.xml
 .coverage
+
+# Open RAG evaluation corpus, downloaded by scripts/fetch_rag_corpus.py (never committed)
+services/ai/tests/data/corpus/

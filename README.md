@@ -124,6 +124,10 @@ Production base only (no dev overrides):
 docker compose -f infra/docker-compose.yml up --build
 ```
 
+The production base does not publish the QVAC port: only the API reaches it, over the Compose
+network. The dev command above (with `docker-compose.override.yml`) maps it to `localhost:3001`,
+for example to run the backend natively against the QVAC container.
+
 ---
 
 ## Configuration
@@ -171,10 +175,10 @@ uv run --no-sync pytest             # all tests
 uv run --no-sync pytest tests/unit/
 uv run --no-sync pytest tests/integration/
 
-# RAG end-to-end suite
-uv run --no-sync python tests/test_rag.py                            # 35 curated queries
-uv run --no-sync python tests/test_rag.py --query "What is Bitcoin?" # single query
-uv run --no-sync python tests/test_rag.py --output results.json      # save JSON report
+# RAG evaluation suite (the single authoritative retrieval benchmark)
+uv run --no-sync python ../../scripts/fetch_rag_corpus.py               # open corpus -> tests/data/corpus/ (git-ignored)
+uv run --no-sync python tests/test_rag.py --metrics-only --output after.json   # technical set (41 queries)
+uv run --no-sync python tests/test_rag.py --query "What is a UTXO?"           # single query
 
 # Frontend
 cd apps/web && npm test
@@ -183,13 +187,14 @@ cd apps/web && npm test
 cd workers/qvac-service && npm test
 ```
 
-The RAG suite runs 35 queries across 7 categories (basic, chapter, conceptual, comparative, synthesis, adversarial, stress) through the full retrieval pipeline, scoring each PASS / WARN / FAIL by retrieval confidence. Results are saved as JSON for baseline comparisons.
+`services/ai/tests/test_rag.py` is the only supported way to evaluate retrieval quality. It scores each query PASS / WARN / FAIL by retrieval confidence (top citation score >= 0.35 is PASS; retrieval not used is FAIL). Two query sets: `--set technical` (default, 41 protocol queries from `tests/data/rag_golden_technical.json`) runs against *Mastering Bitcoin* 3rd edition (CC BY-SA 4.0), downloaded and checksum-verified by `scripts/fetch_rag_corpus.py`. Upload `tests/data/corpus/mastering-bitcoin-3e.docx` to a course and run with QVAC on. `--set bitcoin-standard` (35 queries) needs *The Bitcoin Standard*, a copyrighted book: it is local-only and must never be committed. Use `--metrics-only` for any report you commit or share, since it omits answers and corpus snippets. The committed baseline is `tests/data/rag_baseline_technical.json`: run the suite on your branch and compare the summary and per-query `top_score` against it.
 
 CI runs on every push and pull request to `master` via GitHub Actions (`.github/workflows/ci.yml`). See [`AGENTS.md`](AGENTS.md) for the contribution workflow.
 
 Python dependency changes are explicit: edit `pyproject.toml`, run `uv lock`, review and commit
-the resulting `uv.lock`, then run `uv sync --locked --extra dev`. CI and Docker reject a stale
-lockfile instead of resolving dependencies implicitly.
+the resulting `uv.lock`, then run `uv sync --locked --extra dev`. CI rejects a stale lockfile
+instead of resolving dependencies implicitly. The backend image still installs with pip and the
+CPU-only torch build, because `uv.lock` resolves the CUDA wheels on Linux (#175).
 
 ---
 

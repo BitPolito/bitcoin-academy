@@ -207,12 +207,18 @@ def get_document_file(
 
     file_path = UPLOADS_DIR / doc.course_id / f"{doc.id}_{doc.filename}"
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Original file not found on disk.")
+        raise HTTPException(
+            status_code=404,
+            detail="Original file is unavailable. Re-upload the document to view its source.",
+        )
 
     return FileResponse(
         path=str(file_path),
         media_type=doc.mime_type or "application/octet-stream",
-        headers={"Content-Disposition": f'inline; filename="{doc.filename}"'},
+        headers={
+            "Content-Disposition": f'inline; filename="{doc.filename}"',
+            "Cache-Control": "private, no-store",
+        },
     )
 
 

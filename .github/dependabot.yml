@@ -1,51 +1,79 @@
 version: 2
 
+# Version updates are deliberately quiet: once a month, minor and patch only,
+# grouped per dependency tree, with at most one open PR per tree. Major
+# upgrades are planned and migrated by hand (#224 frontend, #225 backend).
+# Security updates are enabled in the repository settings and ignore the
+# monthly schedule: fixes for open advisories arrive as soon as they are
+# published, grouped into one PR per tree (applies-to: security-updates).
+# Alerts and fix PRs also cover the legacy workers/ manifest.
+
 updates:
-  - package-ecosystem: pip
+  # uv, not pip: the pip updater only edits pyproject.toml and leaves uv.lock
+  # stale.
+  - package-ecosystem: uv
     directory: /services/ai
-    target-branch: mvp-testing
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "06:00"
       timezone: Europe/Rome
+    open-pull-requests-limit: 1
     groups:
       python-dependencies:
+        applies-to: version-updates
         patterns: ["*"]
+        update-types: ["minor", "patch"]
+      security-fixes:
+        applies-to: security-updates
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # SQLAlchemy 2.1 is a minor release but switches the default Postgres
+      # driver to psycopg 3; migrate it in #225.
+      - dependency-name: sqlalchemy
+        versions: [">=2.1"]
 
   - package-ecosystem: npm
     directory: /apps/web
-    target-branch: mvp-testing
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "06:15"
       timezone: Europe/Rome
+    open-pull-requests-limit: 1
     groups:
       frontend-dependencies:
+        applies-to: version-updates
         patterns: ["*"]
+        update-types: ["minor", "patch"]
+      security-fixes:
+        applies-to: security-updates
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /workers/qvac-service
-    target-branch: mvp-testing
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "06:30"
       timezone: Europe/Rome
+    open-pull-requests-limit: 1
     groups:
       qvac-dependencies:
+        applies-to: version-updates
         patterns: ["*"]
-
-  # Legacy parser manifest retained for the standalone worker prototype.
-  - package-ecosystem: pip
-    directory: /workers
-    target-branch: mvp-testing
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:45"
-      timezone: Europe/Rome
-    groups:
-      parser-worker-dependencies:
+        update-types: ["minor", "patch"]
+      security-fixes:
+        applies-to: security-updates
         patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # 0.x minors can break, unit tests mock the SDK, and the lean worker
+      # (src/worker.slim.js) imports SDK entry points: upgrade by hand, with a
+      # live check.
+      - dependency-name: "@qvac/sdk"
+      # The Bare runtime executes the QVAC worker; same reasoning as the SDK.
+      - dependency-name: "bare-runtime-*"

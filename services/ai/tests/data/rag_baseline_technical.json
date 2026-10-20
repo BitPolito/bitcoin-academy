@@ -1,0 +1,3435 @@
+{
+  "corpus": "Mastering Bitcoin 3rd ed. (CC BY-SA 4.0), scripts/fetch_rag_corpus.py @ 6d1c26e",
+  "measured_on": "master @ 862077e (after #184), QVAC GTE-Large FP16, QVAC_LLM_ENABLED=false",
+  "query_set": "technical",
+  "metrics_only": true,
+  "total": 41,
+  "results": [
+    {
+      "idx": 1,
+      "category": "technical",
+      "query": "What is a UTXO and how does it differ from an account balance?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8111,
+      "num_citations": 10,
+      "unique_sections": [
+        "Mempools and Orphan Pools",
+        "Using an Extended Public Key on a Web Store",
+        "Data Recording Output (OP_RETURN)",
+        "Signature Hash Types (SIGHASH)",
+        "Golomb-Rice Coded Sets (GCS)",
+        "Bitcoin Security",
+        "Exchanging \"Inventory\"",
+        "Full Nodes",
+        "Single-Use Seals"
+      ],
+      "elapsed_s": 2.62,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Mempools and Orphan Pools",
+          "page": 1,
+          "score": 0.8111
+        },
+        {
+          "label": "p. 1",
+          "section": "Using an Extended Public Key on a Web Store",
+          "page": 1,
+          "score": 0.4018
+        },
+        {
+          "label": "p. 1",
+          "section": "Data Recording Output (OP_RETURN)",
+          "page": 1,
+          "score": 0.4
+        },
+        {
+          "label": "p. 1",
+          "section": "Signature Hash Types (SIGHASH)",
+          "page": 1,
+          "score": 0.4049
+        },
+        {
+          "label": "p. 1",
+          "section": "Golomb-Rice Coded Sets (GCS)",
+          "page": 1,
+          "score": 0.3982
+        },
+        {
+          "label": "p. 1",
+          "section": "Bitcoin Security",
+          "page": 1,
+          "score": 0.419
+        },
+        {
+          "label": "p. 1",
+          "section": "Exchanging \"Inventory\"",
+          "page": 1,
+          "score": 0.4009
+        },
+        {
+          "label": "p. 1",
+          "section": "Using an Extended Public Key on a Web Store",
+          "page": 1,
+          "score": 0.4125
+        },
+        {
+          "label": "p. 1",
+          "section": "Full Nodes",
+          "page": 1,
+          "score": 0.3993
+        },
+        {
+          "label": "p. 1",
+          "section": "Single-Use Seals",
+          "page": 1,
+          "score": 0.4012
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 2,
+      "category": "technical",
+      "query": "How does Bitcoin mining work?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8743,
+      "num_citations": 10,
+      "unique_sections": [
+        "Mining and Consensus",
+        "Mining Pools",
+        "Mining and the Hash Lottery",
+        "Fees and Fee Rates",
+        "Retargeting to Adjust Difficulty",
+        "Validating a New Block",
+        "Mining the Block",
+        "Decentralized Consensus"
+      ],
+      "elapsed_s": 0.7,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.4703
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining Pools",
+          "page": 1,
+          "score": 0.8743
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and the Hash Lottery",
+          "page": 1,
+          "score": 0.4566
+        },
+        {
+          "label": "p. 1",
+          "section": "Fees and Fee Rates",
+          "page": 1,
+          "score": 0.4351
+        },
+        {
+          "label": "p. 1",
+          "section": "Retargeting to Adjust Difficulty",
+          "page": 1,
+          "score": 0.4398
+        },
+        {
+          "label": "p. 1",
+          "section": "Validating a New Block",
+          "page": 1,
+          "score": 0.4636
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining Pools",
+          "page": 1,
+          "score": 0.7765
+        },
+        {
+          "label": "p. 1",
+          "section": "Retargeting to Adjust Difficulty",
+          "page": 1,
+          "score": 0.4432
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining the Block",
+          "page": 1,
+          "score": 0.4338
+        },
+        {
+          "label": "p. 1",
+          "section": "Decentralized Consensus",
+          "page": 1,
+          "score": 0.7726
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 3,
+      "category": "technical",
+      "query": "What is the Merkle tree and why is it used in Bitcoin?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8958,
+      "num_citations": 10,
+      "unique_sections": [
+        "Merkle Trees",
+        "The Extra Nonce Solution",
+        "Merkle Trees and Lightweight Clients",
+        "A Serialized Bitcoin Transaction",
+        "Physical Bitcoin Storage",
+        "BIP39 Recovery Codes",
+        "The Root of Trust",
+        "Taproot Assets",
+        "Building Blocks (Primitives)"
+      ],
+      "elapsed_s": 1.03,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Merkle Trees",
+          "page": 1,
+          "score": 0.8958
+        },
+        {
+          "label": "p. 1",
+          "section": "The Extra Nonce Solution",
+          "page": 1,
+          "score": 0.7834
+        },
+        {
+          "label": "p. 1",
+          "section": "Merkle Trees and Lightweight Clients",
+          "page": 1,
+          "score": 0.8461
+        },
+        {
+          "label": "p. 1",
+          "section": "Merkle Trees",
+          "page": 1,
+          "score": 0.8254
+        },
+        {
+          "label": "p. 1",
+          "section": "A Serialized Bitcoin Transaction",
+          "page": 1,
+          "score": 0.4303
+        },
+        {
+          "label": "p. 1",
+          "section": "Physical Bitcoin Storage",
+          "page": 1,
+          "score": 0.431
+        },
+        {
+          "label": "p. 1",
+          "section": "BIP39 Recovery Codes",
+          "page": 1,
+          "score": 0.4329
+        },
+        {
+          "label": "p. 1",
+          "section": "The Root of Trust",
+          "page": 1,
+          "score": 0.431
+        },
+        {
+          "label": "p. 1",
+          "section": "Taproot Assets",
+          "page": 1,
+          "score": 0.4335
+        },
+        {
+          "label": "p. 1",
+          "section": "Building Blocks (Primitives)",
+          "page": 1,
+          "score": 0.4323
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 4,
+      "category": "technical",
+      "query": "Compare SegWit and Taproot upgrades",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.755,
+      "num_citations": 10,
+      "unique_sections": [
+        "Upgrading to Segregated Witness",
+        "Serialization of Schnorr Signatures",
+        "Soft Forks",
+        "Taproot Assets",
+        "Compact Block Relay",
+        "The Coinbase Transaction",
+        "Segregated Witness's New Signing Algorithm",
+        "Segregated Witness Output and Transaction Examples"
+      ],
+      "elapsed_s": 1.02,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Upgrading to Segregated Witness",
+          "page": 1,
+          "score": 0.4482
+        },
+        {
+          "label": "p. 1",
+          "section": "Serialization of Schnorr Signatures",
+          "page": 1,
+          "score": 0.755
+        },
+        {
+          "label": "p. 1",
+          "section": "Soft Forks",
+          "page": 1,
+          "score": 0.6592
+        },
+        {
+          "label": "p. 1",
+          "section": "Taproot Assets",
+          "page": 1,
+          "score": 0.4
+        },
+        {
+          "label": "p. 1",
+          "section": "Upgrading to Segregated Witness",
+          "page": 1,
+          "score": 0.4238
+        },
+        {
+          "label": "p. 1",
+          "section": "Compact Block Relay",
+          "page": 1,
+          "score": 0.3969
+        },
+        {
+          "label": "p. 1",
+          "section": "The Coinbase Transaction",
+          "page": 1,
+          "score": 0.3921
+        },
+        {
+          "label": "p. 1",
+          "section": "Segregated Witness's New Signing Algorithm",
+          "page": 1,
+          "score": 0.4043
+        },
+        {
+          "label": "p. 1",
+          "section": "Segregated Witness Output and Transaction Examples",
+          "page": 1,
+          "score": 0.3974
+        },
+        {
+          "label": "p. 1",
+          "section": "Upgrading to Segregated Witness",
+          "page": 1,
+          "score": 0.3942
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 5,
+      "category": "technical",
+      "query": "Why does Bitcoin have a 21 million coin limit?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8606,
+      "num_citations": 10,
+      "unique_sections": [
+        "Bitcoin Economics and Currency Creation",
+        "Building Blocks (Primitives)",
+        "Independent Verification of Transactions",
+        "Amount",
+        "A Serialized Bitcoin Transaction",
+        "Running a Bitcoin Core Node",
+        "Developing Bitcoin Systems Securely",
+        "The Genesis Block",
+        "Median Time Past (MTP)",
+        "Testnet: Bitcoin's Testing Playground"
+      ],
+      "elapsed_s": 1.05,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Bitcoin Economics and Currency Creation",
+          "page": 1,
+          "score": 0.8606
+        },
+        {
+          "label": "p. 1",
+          "section": "Building Blocks (Primitives)",
+          "page": 1,
+          "score": 0.8087
+        },
+        {
+          "label": "p. 1",
+          "section": "Independent Verification of Transactions",
+          "page": 1,
+          "score": 0.7082
+        },
+        {
+          "label": "p. 1",
+          "section": "Amount",
+          "page": 1,
+          "score": 0.8281
+        },
+        {
+          "label": "p. 1",
+          "section": "A Serialized Bitcoin Transaction",
+          "page": 1,
+          "score": 0.4353
+        },
+        {
+          "label": "p. 1",
+          "section": "Running a Bitcoin Core Node",
+          "page": 1,
+          "score": 0.4214
+        },
+        {
+          "label": "p. 1",
+          "section": "Developing Bitcoin Systems Securely",
+          "page": 1,
+          "score": 0.4196
+        },
+        {
+          "label": "p. 1",
+          "section": "The Genesis Block",
+          "page": 1,
+          "score": 0.4218
+        },
+        {
+          "label": "p. 1",
+          "section": "Median Time Past (MTP)",
+          "page": 1,
+          "score": 0.4206
+        },
+        {
+          "label": "p. 1",
+          "section": "Testnet: Bitcoin's Testing Playground",
+          "page": 1,
+          "score": 0.4182
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 6,
+      "category": "technical",
+      "query": "What is the Lightning Network?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.9022,
+      "num_citations": 10,
+      "unique_sections": [
+        "Routed Payment Channels (Lightning Network)",
+        "Lightning Network Benefits",
+        "Lightning Network Transport and Pathfinding",
+        "Configuring the Bitcoin Core Node",
+        "A Serialized Bitcoin Transaction",
+        "Compressed Public Keys",
+        "Single-Use Seals",
+        "Compact Block Relay",
+        "Taproot Assets",
+        "Bitcoin's Test Blockchains"
+      ],
+      "elapsed_s": 1.28,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Routed Payment Channels (Lightning Network)",
+          "page": 1,
+          "score": 0.9022
+        },
+        {
+          "label": "p. 1",
+          "section": "Lightning Network Benefits",
+          "page": 1,
+          "score": 0.465
+        },
+        {
+          "label": "p. 1",
+          "section": "Lightning Network Transport and Pathfinding",
+          "page": 1,
+          "score": 0.859
+        },
+        {
+          "label": "p. 1",
+          "section": "Configuring the Bitcoin Core Node",
+          "page": 1,
+          "score": 0.4128
+        },
+        {
+          "label": "p. 1",
+          "section": "A Serialized Bitcoin Transaction",
+          "page": 1,
+          "score": 0.4131
+        },
+        {
+          "label": "p. 1",
+          "section": "Compressed Public Keys",
+          "page": 1,
+          "score": 0.4065
+        },
+        {
+          "label": "p. 1",
+          "section": "Single-Use Seals",
+          "page": 1,
+          "score": 0.4064
+        },
+        {
+          "label": "p. 1",
+          "section": "Compact Block Relay",
+          "page": 1,
+          "score": 0.4142
+        },
+        {
+          "label": "p. 1",
+          "section": "Taproot Assets",
+          "page": 1,
+          "score": 0.4236
+        },
+        {
+          "label": "p. 1",
+          "section": "Bitcoin's Test Blockchains",
+          "page": 1,
+          "score": 0.4097
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 7,
+      "category": "technical",
+      "query": "How does a Bitcoin transaction get confirmed?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8145,
+      "num_citations": 10,
+      "unique_sections": [
+        "Independent Verification of Transactions",
+        "Getting Your First Bitcoin",
+        "A Serialized Bitcoin Transaction",
+        "Decentralized Consensus",
+        "Bitcoin Transactions",
+        "Validating a New Block",
+        "Outpoint",
+        "Mining and Consensus"
+      ],
+      "elapsed_s": 1.18,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Independent Verification of Transactions",
+          "page": 1,
+          "score": 0.4522
+        },
+        {
+          "label": "p. 1",
+          "section": "Getting Your First Bitcoin",
+          "page": 1,
+          "score": 0.4596
+        },
+        {
+          "label": "p. 1",
+          "section": "A Serialized Bitcoin Transaction",
+          "page": 1,
+          "score": 0.4908
+        },
+        {
+          "label": "p. 1",
+          "section": "Decentralized Consensus",
+          "page": 1,
+          "score": 0.4463
+        },
+        {
+          "label": "p. 1",
+          "section": "Bitcoin Transactions",
+          "page": 1,
+          "score": 0.4622
+        },
+        {
+          "label": "p. 1",
+          "section": "Validating a New Block",
+          "page": 1,
+          "score": 0.8145
+        },
+        {
+          "label": "p. 1",
+          "section": "Outpoint",
+          "page": 1,
+          "score": 0.4518
+        },
+        {
+          "label": "p. 1",
+          "section": "Independent Verification of Transactions",
+          "page": 1,
+          "score": 0.46
+        },
+        {
+          "label": "p. 1",
+          "section": "Decentralized Consensus",
+          "page": 1,
+          "score": 0.4557
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.4603
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 8,
+      "category": "technical",
+      "query": "What is a blockchain fork?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8688,
+      "num_citations": 10,
+      "unique_sections": [
+        "The Blockchain",
+        "Assembling and Selecting Chains of Blocks",
+        "Hard Forks",
+        "Structure of a Block",
+        "Payment Channels and State Channels"
+      ],
+      "elapsed_s": 1.0,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "The Blockchain",
+          "page": 1,
+          "score": 0.8688
+        },
+        {
+          "label": "p. 1",
+          "section": "Assembling and Selecting Chains of Blocks",
+          "page": 1,
+          "score": 0.4585
+        },
+        {
+          "label": "p. 1",
+          "section": "Hard Forks",
+          "page": 1,
+          "score": 0.734
+        },
+        {
+          "label": "p. 1",
+          "section": "The Blockchain",
+          "page": 1,
+          "score": 0.4705
+        },
+        {
+          "label": "p. 1",
+          "section": "Hard Forks",
+          "page": 1,
+          "score": 0.7185
+        },
+        {
+          "label": "p. 1",
+          "section": "Hard Forks",
+          "page": 1,
+          "score": 0.4559
+        },
+        {
+          "label": "p. 1",
+          "section": "Structure of a Block",
+          "page": 1,
+          "score": 0.4622
+        },
+        {
+          "label": "p. 1",
+          "section": "Assembling and Selecting Chains of Blocks",
+          "page": 1,
+          "score": 0.4543
+        },
+        {
+          "label": "p. 1",
+          "section": "Payment Channels and State Channels",
+          "page": 1,
+          "score": 0.4553
+        },
+        {
+          "label": "p. 1",
+          "section": "Hard Forks",
+          "page": 1,
+          "score": 0.4524
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 9,
+      "category": "technical",
+      "query": "What is the difference between a full node and a light node?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.456,
+      "num_citations": 10,
+      "unique_sections": [
+        "Full Nodes",
+        "Lightweight Clients",
+        "Using Compact Block Filters",
+        "Testnet: Bitcoin's Testing Playground",
+        "Configuring the Bitcoin Core Node",
+        "Lightning Network Benefits",
+        "Running a Bitcoin Core Node",
+        "Mining Pools"
+      ],
+      "elapsed_s": 0.91,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Full Nodes",
+          "page": 1,
+          "score": 0.4463
+        },
+        {
+          "label": "p. 1",
+          "section": "Lightweight Clients",
+          "page": 1,
+          "score": 0.456
+        },
+        {
+          "label": "p. 1",
+          "section": "Lightweight Clients",
+          "page": 1,
+          "score": 0.4501
+        },
+        {
+          "label": "p. 1",
+          "section": "Using Compact Block Filters",
+          "page": 1,
+          "score": 0.4385
+        },
+        {
+          "label": "p. 1",
+          "section": "Testnet: Bitcoin's Testing Playground",
+          "page": 1,
+          "score": 0.4197
+        },
+        {
+          "label": "p. 1",
+          "section": "Configuring the Bitcoin Core Node",
+          "page": 1,
+          "score": 0.4204
+        },
+        {
+          "label": "p. 1",
+          "section": "Lightning Network Benefits",
+          "page": 1,
+          "score": 0.4159
+        },
+        {
+          "label": "p. 1",
+          "section": "Full Nodes",
+          "page": 1,
+          "score": 0.438
+        },
+        {
+          "label": "p. 1",
+          "section": "Running a Bitcoin Core Node",
+          "page": 1,
+          "score": 0.4186
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining Pools",
+          "page": 1,
+          "score": 0.4142
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 10,
+      "category": "technical",
+      "query": "How does the difficulty adjustment algorithm work?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8499,
+      "num_citations": 10,
+      "unique_sections": [
+        "Retargeting to Adjust Difficulty",
+        "Hard Forks",
+        "Conditional Clauses with VERIFY Opcodes",
+        "Asymmetric Revocable Commitments",
+        "Lightning Network Transport and Pathfinding",
+        "Reducing Bandwidth with Lossy Encoding",
+        "Mining Nodes"
+      ],
+      "elapsed_s": 1.22,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Retargeting to Adjust Difficulty",
+          "page": 1,
+          "score": 0.8499
+        },
+        {
+          "label": "p. 1",
+          "section": "Retargeting to Adjust Difficulty",
+          "page": 1,
+          "score": 0.7825
+        },
+        {
+          "label": "p. 1",
+          "section": "Hard Forks",
+          "page": 1,
+          "score": 0.6749
+        },
+        {
+          "label": "p. 1",
+          "section": "Conditional Clauses with VERIFY Opcodes",
+          "page": 1,
+          "score": 0.3976
+        },
+        {
+          "label": "p. 1",
+          "section": "Asymmetric Revocable Commitments",
+          "page": 1,
+          "score": 0.3831
+        },
+        {
+          "label": "p. 1",
+          "section": "Lightning Network Transport and Pathfinding",
+          "page": 1,
+          "score": 0.3887
+        },
+        {
+          "label": "p. 1",
+          "section": "Retargeting to Adjust Difficulty",
+          "page": 1,
+          "score": 0.6849
+        },
+        {
+          "label": "p. 1",
+          "section": "Reducing Bandwidth with Lossy Encoding",
+          "page": 1,
+          "score": 0.4023
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining Nodes",
+          "page": 1,
+          "score": 0.3823
+        },
+        {
+          "label": "p. 1",
+          "section": "Hard Forks",
+          "page": 1,
+          "score": 0.3985
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 11,
+      "category": "technical",
+      "query": "What is a digital signature in Bitcoin?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8958,
+      "num_citations": 10,
+      "unique_sections": [
+        "Creating a Digital Signature",
+        "Building Blocks (Primitives)",
+        "Hardware Signing Devices",
+        "Serialization of Schnorr Signatures",
+        "Scriptless Multisignatures and Threshold Signatures",
+        "Taproot",
+        "Scripted Multisignatures",
+        "Hashrate Attacks",
+        "RGB",
+        "Coinbase Reward and Fees"
+      ],
+      "elapsed_s": 0.79,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Creating a Digital Signature",
+          "page": 1,
+          "score": 0.8958
+        },
+        {
+          "label": "p. 1",
+          "section": "Building Blocks (Primitives)",
+          "page": 1,
+          "score": 0.7542
+        },
+        {
+          "label": "p. 1",
+          "section": "Hardware Signing Devices",
+          "page": 1,
+          "score": 0.4583
+        },
+        {
+          "label": "p. 1",
+          "section": "Serialization of Schnorr Signatures",
+          "page": 1,
+          "score": 0.4399
+        },
+        {
+          "label": "p. 1",
+          "section": "Scriptless Multisignatures and Threshold Signatures",
+          "page": 1,
+          "score": 0.4359
+        },
+        {
+          "label": "p. 1",
+          "section": "Taproot",
+          "page": 1,
+          "score": 0.4372
+        },
+        {
+          "label": "p. 1",
+          "section": "Scripted Multisignatures",
+          "page": 1,
+          "score": 0.4384
+        },
+        {
+          "label": "p. 1",
+          "section": "Hashrate Attacks",
+          "page": 1,
+          "score": 0.4352
+        },
+        {
+          "label": "p. 1",
+          "section": "RGB",
+          "page": 1,
+          "score": 0.4489
+        },
+        {
+          "label": "p. 1",
+          "section": "Coinbase Reward and Fees",
+          "page": 1,
+          "score": 0.7897
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 12,
+      "category": "technical",
+      "query": "Why is double spending a problem and how does Bitcoin solve it?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.7592,
+      "num_citations": 10,
+      "unique_sections": [
+        "Mining and Consensus",
+        "Hashrate Attacks",
+        "Building Blocks (Primitives)",
+        "Who Pays the Transaction Fee?",
+        "User Security Best Practices",
+        "Public Keys",
+        "Making Change"
+      ],
+      "elapsed_s": 0.64,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.7592
+        },
+        {
+          "label": "p. 1",
+          "section": "Hashrate Attacks",
+          "page": 1,
+          "score": 0.415
+        },
+        {
+          "label": "p. 1",
+          "section": "Building Blocks (Primitives)",
+          "page": 1,
+          "score": 0.4153
+        },
+        {
+          "label": "p. 1",
+          "section": "Who Pays the Transaction Fee?",
+          "page": 1,
+          "score": 0.4418
+        },
+        {
+          "label": "p. 1",
+          "section": "Hashrate Attacks",
+          "page": 1,
+          "score": 0.418
+        },
+        {
+          "label": "p. 1",
+          "section": "Hashrate Attacks",
+          "page": 1,
+          "score": 0.4183
+        },
+        {
+          "label": "p. 1",
+          "section": "User Security Best Practices",
+          "page": 1,
+          "score": 0.4283
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.6938
+        },
+        {
+          "label": "p. 1",
+          "section": "Public Keys",
+          "page": 1,
+          "score": 0.726
+        },
+        {
+          "label": "p. 1",
+          "section": "Making Change",
+          "page": 1,
+          "score": 0.4146
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 13,
+      "category": "technical",
+      "query": "What is Script in Bitcoin transactions?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8343,
+      "num_citations": 10,
+      "unique_sections": [
+        "Transaction Scripts and Script Language",
+        "Building Blocks (Primitives)",
+        "Script Construction",
+        "Output Scripts",
+        "Using Flow Control in Scripts",
+        "Conditional Clauses with VERIFY Opcodes"
+      ],
+      "elapsed_s": 0.8,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Transaction Scripts and Script Language",
+          "page": 1,
+          "score": 0.4899
+        },
+        {
+          "label": "p. 1",
+          "section": "Building Blocks (Primitives)",
+          "page": 1,
+          "score": 0.4573
+        },
+        {
+          "label": "p. 1",
+          "section": "Script Construction",
+          "page": 1,
+          "score": 0.4598
+        },
+        {
+          "label": "p. 1",
+          "section": "Output Scripts",
+          "page": 1,
+          "score": 0.4744
+        },
+        {
+          "label": "p. 1",
+          "section": "Using Flow Control in Scripts",
+          "page": 1,
+          "score": 0.4817
+        },
+        {
+          "label": "p. 1",
+          "section": "Conditional Clauses with VERIFY Opcodes",
+          "page": 1,
+          "score": 0.4902
+        },
+        {
+          "label": "p. 1",
+          "section": "Script Construction",
+          "page": 1,
+          "score": 0.4688
+        },
+        {
+          "label": "p. 1",
+          "section": "Transaction Scripts and Script Language",
+          "page": 1,
+          "score": 0.4794
+        },
+        {
+          "label": "p. 1",
+          "section": "Script Construction",
+          "page": 1,
+          "score": 0.7969
+        },
+        {
+          "label": "p. 1",
+          "section": "Script Construction",
+          "page": 1,
+          "score": 0.8343
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 14,
+      "category": "technical",
+      "query": "When did the first Bitcoin halving occur and what was its effect?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8545,
+      "num_citations": 10,
+      "unique_sections": [
+        "Bitcoin Economics and Currency Creation",
+        "The Genesis Block",
+        "Mining and Consensus",
+        "Getting Your First Bitcoin",
+        "Consensus Software Development",
+        "Coinbase Reward and Fees",
+        "Weight and Vbytes",
+        "Structure of the Coinbase Transaction",
+        "User Security Best Practices",
+        "Hashrate Attacks"
+      ],
+      "elapsed_s": 0.97,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Bitcoin Economics and Currency Creation",
+          "page": 1,
+          "score": 0.8545
+        },
+        {
+          "label": "p. 1",
+          "section": "The Genesis Block",
+          "page": 1,
+          "score": 0.4127
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.5984
+        },
+        {
+          "label": "p. 1",
+          "section": "Getting Your First Bitcoin",
+          "page": 1,
+          "score": 0.4048
+        },
+        {
+          "label": "p. 1",
+          "section": "Consensus Software Development",
+          "page": 1,
+          "score": 0.4019
+        },
+        {
+          "label": "p. 1",
+          "section": "Coinbase Reward and Fees",
+          "page": 1,
+          "score": 0.4179
+        },
+        {
+          "label": "p. 1",
+          "section": "Weight and Vbytes",
+          "page": 1,
+          "score": 0.414
+        },
+        {
+          "label": "p. 1",
+          "section": "Structure of the Coinbase Transaction",
+          "page": 1,
+          "score": 0.4141
+        },
+        {
+          "label": "p. 1",
+          "section": "User Security Best Practices",
+          "page": 1,
+          "score": 0.4027
+        },
+        {
+          "label": "p. 1",
+          "section": "Hashrate Attacks",
+          "page": 1,
+          "score": 0.4124
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 15,
+      "category": "technical",
+      "query": "How are Bitcoin addresses generated from public keys?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.7486,
+      "num_citations": 10,
+      "unique_sections": [
+        "Bitcoin Addresses",
+        "Public Keys",
+        "Legacy Pay to Script Hash (P2SH)",
+        "Multisig and Governance",
+        "Vanity Addresses",
+        "Using an Extended Public Key on a Web Store",
+        "Private Keys",
+        "Public Child Key Derivation",
+        "Security Principles"
+      ],
+      "elapsed_s": 0.79,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Bitcoin Addresses",
+          "page": 1,
+          "score": 0.7486
+        },
+        {
+          "label": "p. 1",
+          "section": "Public Keys",
+          "page": 1,
+          "score": 0.4481
+        },
+        {
+          "label": "p. 1",
+          "section": "Legacy Pay to Script Hash (P2SH)",
+          "page": 1,
+          "score": 0.4435
+        },
+        {
+          "label": "p. 1",
+          "section": "Multisig and Governance",
+          "page": 1,
+          "score": 0.6545
+        },
+        {
+          "label": "p. 1",
+          "section": "Vanity Addresses",
+          "page": 1,
+          "score": 0.4445
+        },
+        {
+          "label": "p. 1",
+          "section": "Using an Extended Public Key on a Web Store",
+          "page": 1,
+          "score": 0.4446
+        },
+        {
+          "label": "p. 1",
+          "section": "Private Keys",
+          "page": 1,
+          "score": 0.4304
+        },
+        {
+          "label": "p. 1",
+          "section": "Public Child Key Derivation",
+          "page": 1,
+          "score": 0.4402
+        },
+        {
+          "label": "p. 1",
+          "section": "Security Principles",
+          "page": 1,
+          "score": 0.4222
+        },
+        {
+          "label": "p. 1",
+          "section": "Vanity Addresses",
+          "page": 1,
+          "score": 0.4393
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 16,
+      "category": "technical",
+      "query": "Bitcoin security",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8988,
+      "num_citations": 10,
+      "unique_sections": [
+        "Developing Bitcoin Systems Securely",
+        "Mining and Consensus",
+        "Bitcoin Addresses",
+        "Vanity Addresses",
+        "Hardware Signing Devices",
+        "Security Principles",
+        "The Root of Trust",
+        "Survivability"
+      ],
+      "elapsed_s": 0.68,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Developing Bitcoin Systems Securely",
+          "page": 1,
+          "score": 0.8865
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.8065
+        },
+        {
+          "label": "p. 1",
+          "section": "Bitcoin Addresses",
+          "page": 1,
+          "score": 0.5091
+        },
+        {
+          "label": "p. 1",
+          "section": "Vanity Addresses",
+          "page": 1,
+          "score": 0.4947
+        },
+        {
+          "label": "p. 1",
+          "section": "Hardware Signing Devices",
+          "page": 1,
+          "score": 0.8988
+        },
+        {
+          "label": "p. 1",
+          "section": "Security Principles",
+          "page": 1,
+          "score": 0.5138
+        },
+        {
+          "label": "p. 1",
+          "section": "The Root of Trust",
+          "page": 1,
+          "score": 0.7937
+        },
+        {
+          "label": "p. 1",
+          "section": "Survivability",
+          "page": 1,
+          "score": 0.5193
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.5073
+        },
+        {
+          "label": "p. 1",
+          "section": "Security Principles",
+          "page": 1,
+          "score": 0.8402
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 17,
+      "category": "technical",
+      "query": "What is the mempool?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.7948,
+      "num_citations": 10,
+      "unique_sections": [
+        "Mempools and Orphan Pools",
+        "Retargeting to Adjust Difficulty",
+        "Full Nodes",
+        "Revocation penalty output",
+        "Simple Payment Channel Example",
+        "Taproot",
+        "Output Scripts",
+        "The Extra Nonce Solution",
+        "Making Trustless Channels",
+        "Merklized Alternative Script Trees (MAST)"
+      ],
+      "elapsed_s": 0.71,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Mempools and Orphan Pools",
+          "page": 1,
+          "score": 0.4294
+        },
+        {
+          "label": "p. 1",
+          "section": "Retargeting to Adjust Difficulty",
+          "page": 1,
+          "score": 0.43
+        },
+        {
+          "label": "p. 1",
+          "section": "Full Nodes",
+          "page": 1,
+          "score": 0.4297
+        },
+        {
+          "label": "p. 1",
+          "section": "Revocation penalty output",
+          "page": 1,
+          "score": 0.445
+        },
+        {
+          "label": "p. 1",
+          "section": "Simple Payment Channel Example",
+          "page": 1,
+          "score": 0.7928
+        },
+        {
+          "label": "p. 1",
+          "section": "Taproot",
+          "page": 1,
+          "score": 0.4318
+        },
+        {
+          "label": "p. 1",
+          "section": "Output Scripts",
+          "page": 1,
+          "score": 0.4267
+        },
+        {
+          "label": "p. 1",
+          "section": "The Extra Nonce Solution",
+          "page": 1,
+          "score": 0.431
+        },
+        {
+          "label": "p. 1",
+          "section": "Making Trustless Channels",
+          "page": 1,
+          "score": 0.7948
+        },
+        {
+          "label": "p. 1",
+          "section": "Merklized Alternative Script Trees (MAST)",
+          "page": 1,
+          "score": 0.4325
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 18,
+      "category": "technical",
+      "query": "Compare Bitcoin and Ethereum consensus mechanisms",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8134,
+      "num_citations": 10,
+      "unique_sections": [
+        "Hashrate Attacks",
+        "Decentralized Consensus",
+        "Mining and Consensus",
+        "The Root of Trust",
+        "Median Time Past (MTP)",
+        "Consensus Software Development",
+        "Building Blocks (Primitives)"
+      ],
+      "elapsed_s": 0.71,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Hashrate Attacks",
+          "page": 1,
+          "score": 0.4363
+        },
+        {
+          "label": "p. 1",
+          "section": "Decentralized Consensus",
+          "page": 1,
+          "score": 0.684
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.432
+        },
+        {
+          "label": "p. 1",
+          "section": "The Root of Trust",
+          "page": 1,
+          "score": 0.4315
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.8134
+        },
+        {
+          "label": "p. 1",
+          "section": "Median Time Past (MTP)",
+          "page": 1,
+          "score": 0.4487
+        },
+        {
+          "label": "p. 1",
+          "section": "Hashrate Attacks",
+          "page": 1,
+          "score": 0.45
+        },
+        {
+          "label": "p. 1",
+          "section": "Decentralized Consensus",
+          "page": 1,
+          "score": 0.4403
+        },
+        {
+          "label": "p. 1",
+          "section": "Consensus Software Development",
+          "page": 1,
+          "score": 0.6961
+        },
+        {
+          "label": "p. 1",
+          "section": "Building Blocks (Primitives)",
+          "page": 1,
+          "score": 0.4361
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 19,
+      "category": "technical",
+      "query": "How does the Bitcoin P2P network propagate transactions?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8838,
+      "num_citations": 10,
+      "unique_sections": [
+        "Independent Verification of Transactions",
+        "Mining Pools",
+        "Lightning Network Transport and Pathfinding",
+        "Building Blocks (Primitives)",
+        "Mining Nodes",
+        "Decentralized Consensus",
+        "Mining and Consensus",
+        "Network Discovery"
+      ],
+      "elapsed_s": 0.77,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Independent Verification of Transactions",
+          "page": 1,
+          "score": 0.4666
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining Pools",
+          "page": 1,
+          "score": 0.4558
+        },
+        {
+          "label": "p. 1",
+          "section": "Lightning Network Transport and Pathfinding",
+          "page": 1,
+          "score": 0.8838
+        },
+        {
+          "label": "p. 1",
+          "section": "Building Blocks (Primitives)",
+          "page": 1,
+          "score": 0.4665
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining Nodes",
+          "page": 1,
+          "score": 0.4788
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining Pools",
+          "page": 1,
+          "score": 0.4495
+        },
+        {
+          "label": "p. 1",
+          "section": "Decentralized Consensus",
+          "page": 1,
+          "score": 0.6718
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining Pools",
+          "page": 1,
+          "score": 0.4462
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.452
+        },
+        {
+          "label": "p. 1",
+          "section": "Network Discovery",
+          "page": 1,
+          "score": 0.6466
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 20,
+      "category": "technical",
+      "query": "cryptographic hash properties",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.7687,
+      "num_citations": 10,
+      "unique_sections": [
+        "Proof-of-Work Algorithm",
+        "Merkle Trees",
+        "Mining the Block",
+        "Schnorr Signatures",
+        "Deterministic Key Generation",
+        "Mining and Consensus",
+        "Building Blocks (Primitives)",
+        "Hashrate Attacks",
+        "Target Representation"
+      ],
+      "elapsed_s": 0.67,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Proof-of-Work Algorithm",
+          "page": 1,
+          "score": 0.7088
+        },
+        {
+          "label": "p. 1",
+          "section": "Merkle Trees",
+          "page": 1,
+          "score": 0.7194
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining the Block",
+          "page": 1,
+          "score": 0.7687
+        },
+        {
+          "label": "p. 1",
+          "section": "Schnorr Signatures",
+          "page": 1,
+          "score": 0.4
+        },
+        {
+          "label": "p. 1",
+          "section": "Deterministic Key Generation",
+          "page": 1,
+          "score": 0.4477
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.6809
+        },
+        {
+          "label": "p. 1",
+          "section": "Building Blocks (Primitives)",
+          "page": 1,
+          "score": 0.3929
+        },
+        {
+          "label": "p. 1",
+          "section": "Proof-of-Work Algorithm",
+          "page": 1,
+          "score": 0.3942
+        },
+        {
+          "label": "p. 1",
+          "section": "Hashrate Attacks",
+          "page": 1,
+          "score": 0.3968
+        },
+        {
+          "label": "p. 1",
+          "section": "Target Representation",
+          "page": 1,
+          "score": 0.3965
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 21,
+      "category": "technical",
+      "query": "What is a UTXO?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.7974,
+      "num_citations": 10,
+      "unique_sections": [
+        "Amount",
+        "Retargeting to Adjust Difficulty",
+        "Simple Payment Channel Example",
+        "Schnorr Signatures",
+        "Signature Hash Types (SIGHASH)",
+        "Merklized Alternative Script Trees (MAST)",
+        "Merkle Trees and Lightweight Clients",
+        "Hash Time Lock Contracts (HTLC)",
+        "Taproot",
+        "Making Trustless Channels"
+      ],
+      "elapsed_s": 0.65,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Amount",
+          "page": 1,
+          "score": 0.4356
+        },
+        {
+          "label": "p. 1",
+          "section": "Retargeting to Adjust Difficulty",
+          "page": 1,
+          "score": 0.4326
+        },
+        {
+          "label": "p. 1",
+          "section": "Simple Payment Channel Example",
+          "page": 1,
+          "score": 0.7646
+        },
+        {
+          "label": "p. 1",
+          "section": "Schnorr Signatures",
+          "page": 1,
+          "score": 0.4267
+        },
+        {
+          "label": "p. 1",
+          "section": "Signature Hash Types (SIGHASH)",
+          "page": 1,
+          "score": 0.4272
+        },
+        {
+          "label": "p. 1",
+          "section": "Merklized Alternative Script Trees (MAST)",
+          "page": 1,
+          "score": 0.43
+        },
+        {
+          "label": "p. 1",
+          "section": "Merkle Trees and Lightweight Clients",
+          "page": 1,
+          "score": 0.4274
+        },
+        {
+          "label": "p. 1",
+          "section": "Hash Time Lock Contracts (HTLC)",
+          "page": 1,
+          "score": 0.4249
+        },
+        {
+          "label": "p. 1",
+          "section": "Taproot",
+          "page": 1,
+          "score": 0.4233
+        },
+        {
+          "label": "p. 1",
+          "section": "Making Trustless Channels",
+          "page": 1,
+          "score": 0.7974
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 22,
+      "category": "technical",
+      "query": "How is a Bitcoin address derived from a public key?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.7847,
+      "num_citations": 10,
+      "unique_sections": [
+        "Using an Extended Public Key on a Web Store",
+        "Private Keys",
+        "P2SH Addresses",
+        "Public Child Key Derivation",
+        "Public Keys",
+        "Decentralized Consensus",
+        "Vanity Addresses",
+        "Transaction Scripts and Script Language",
+        "Bitcoin Addresses",
+        "Legacy Pay to Script Hash (P2SH)"
+      ],
+      "elapsed_s": 1.08,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Using an Extended Public Key on a Web Store",
+          "page": 1,
+          "score": 0.4655
+        },
+        {
+          "label": "p. 1",
+          "section": "Private Keys",
+          "page": 1,
+          "score": 0.4448
+        },
+        {
+          "label": "p. 1",
+          "section": "P2SH Addresses",
+          "page": 1,
+          "score": 0.4505
+        },
+        {
+          "label": "p. 1",
+          "section": "Public Child Key Derivation",
+          "page": 1,
+          "score": 0.7524
+        },
+        {
+          "label": "p. 1",
+          "section": "Public Keys",
+          "page": 1,
+          "score": 0.4564
+        },
+        {
+          "label": "p. 1",
+          "section": "Decentralized Consensus",
+          "page": 1,
+          "score": 0.4453
+        },
+        {
+          "label": "p. 1",
+          "section": "Vanity Addresses",
+          "page": 1,
+          "score": 0.7847
+        },
+        {
+          "label": "p. 1",
+          "section": "Transaction Scripts and Script Language",
+          "page": 1,
+          "score": 0.439
+        },
+        {
+          "label": "p. 1",
+          "section": "Bitcoin Addresses",
+          "page": 1,
+          "score": 0.4538
+        },
+        {
+          "label": "p. 1",
+          "section": "Legacy Pay to Script Hash (P2SH)",
+          "page": 1,
+          "score": 0.4455
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 23,
+      "category": "technical",
+      "query": "What is the difference between SegWit and Taproot?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.4416,
+      "num_citations": 10,
+      "unique_sections": [
+        "Serialization of Schnorr Signatures",
+        "Tapscript",
+        "Mining and Consensus",
+        "Soft Forks",
+        "Upgrading to Segregated Witness",
+        "From Bitcoin to Bitcoin Core",
+        "Merklized Alternative Script Trees (MAST)",
+        "Compact Block Relay",
+        "The Coinbase Transaction"
+      ],
+      "elapsed_s": 0.86,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Serialization of Schnorr Signatures",
+          "page": 1,
+          "score": 0.4369
+        },
+        {
+          "label": "p. 1",
+          "section": "Tapscript",
+          "page": 1,
+          "score": 0.4223
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.4372
+        },
+        {
+          "label": "p. 1",
+          "section": "Soft Forks",
+          "page": 1,
+          "score": 0.4337
+        },
+        {
+          "label": "p. 1",
+          "section": "Soft Forks",
+          "page": 1,
+          "score": 0.4248
+        },
+        {
+          "label": "p. 1",
+          "section": "Upgrading to Segregated Witness",
+          "page": 1,
+          "score": 0.4416
+        },
+        {
+          "label": "p. 1",
+          "section": "From Bitcoin to Bitcoin Core",
+          "page": 1,
+          "score": 0.4187
+        },
+        {
+          "label": "p. 1",
+          "section": "Merklized Alternative Script Trees (MAST)",
+          "page": 1,
+          "score": 0.4198
+        },
+        {
+          "label": "p. 1",
+          "section": "Compact Block Relay",
+          "page": 1,
+          "score": 0.4279
+        },
+        {
+          "label": "p. 1",
+          "section": "The Coinbase Transaction",
+          "page": 1,
+          "score": 0.4203
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 24,
+      "category": "technical",
+      "query": "How are transaction fees calculated in Bitcoin?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8723,
+      "num_citations": 10,
+      "unique_sections": [
+        "Coinbase Reward and Fees",
+        "Building Blocks (Primitives)",
+        "Fees and Fee Rates",
+        "Transaction Fees",
+        "Mining and Consensus",
+        "Adding Fees to Transactions",
+        "Amount",
+        "Validating a New Block"
+      ],
+      "elapsed_s": 1.01,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Coinbase Reward and Fees",
+          "page": 1,
+          "score": 0.8723
+        },
+        {
+          "label": "p. 1",
+          "section": "Building Blocks (Primitives)",
+          "page": 1,
+          "score": 0.4367
+        },
+        {
+          "label": "p. 1",
+          "section": "Fees and Fee Rates",
+          "page": 1,
+          "score": 0.4461
+        },
+        {
+          "label": "p. 1",
+          "section": "Transaction Fees",
+          "page": 1,
+          "score": 0.814
+        },
+        {
+          "label": "p. 1",
+          "section": "Fees and Fee Rates",
+          "page": 1,
+          "score": 0.7481
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.7313
+        },
+        {
+          "label": "p. 1",
+          "section": "Adding Fees to Transactions",
+          "page": 1,
+          "score": 0.4656
+        },
+        {
+          "label": "p. 1",
+          "section": "Transaction Fees",
+          "page": 1,
+          "score": 0.4418
+        },
+        {
+          "label": "p. 1",
+          "section": "Amount",
+          "page": 1,
+          "score": 0.4466
+        },
+        {
+          "label": "p. 1",
+          "section": "Validating a New Block",
+          "page": 1,
+          "score": 0.47
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 25,
+      "category": "technical",
+      "query": "What is a coinbase transaction?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8848,
+      "num_citations": 10,
+      "unique_sections": [
+        "The Coinbase Transaction",
+        "The Genesis Block",
+        "Transaction Fees",
+        "Structure of the Coinbase Transaction",
+        "Coinbase Transactions",
+        "Constructing the Block Header",
+        "Outpoint",
+        "Coinbase Reward and Fees"
+      ],
+      "elapsed_s": 0.79,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "The Coinbase Transaction",
+          "page": 1,
+          "score": 0.8848
+        },
+        {
+          "label": "p. 1",
+          "section": "The Genesis Block",
+          "page": 1,
+          "score": 0.4478
+        },
+        {
+          "label": "p. 1",
+          "section": "Transaction Fees",
+          "page": 1,
+          "score": 0.4405
+        },
+        {
+          "label": "p. 1",
+          "section": "Structure of the Coinbase Transaction",
+          "page": 1,
+          "score": 0.7502
+        },
+        {
+          "label": "p. 1",
+          "section": "Coinbase Transactions",
+          "page": 1,
+          "score": 0.8532
+        },
+        {
+          "label": "p. 1",
+          "section": "Transaction Fees",
+          "page": 1,
+          "score": 0.8504
+        },
+        {
+          "label": "p. 1",
+          "section": "Structure of the Coinbase Transaction",
+          "page": 1,
+          "score": 0.8149
+        },
+        {
+          "label": "p. 1",
+          "section": "Constructing the Block Header",
+          "page": 1,
+          "score": 0.4528
+        },
+        {
+          "label": "p. 1",
+          "section": "Outpoint",
+          "page": 1,
+          "score": 0.4471
+        },
+        {
+          "label": "p. 1",
+          "section": "Coinbase Reward and Fees",
+          "page": 1,
+          "score": 0.7535
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 26,
+      "category": "technical",
+      "query": "What is Replace-By-Fee (RBF)?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.4274,
+      "num_citations": 10,
+      "unique_sections": [
+        "Sequence",
+        "Estimating Appropriate Fee Rates",
+        "Creating an HD Wallet from the Seed",
+        "Witness Structure",
+        "Lightning Network Transport and Pathfinding",
+        "Merklized Alternative Script Trees (MAST)",
+        "Making Trustless Channels",
+        "Refund after timeout.",
+        "Amount",
+        "Asymmetric Revocable Commitments"
+      ],
+      "elapsed_s": 0.8,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Sequence",
+          "page": 1,
+          "score": 0.3911
+        },
+        {
+          "label": "p. 1",
+          "section": "Estimating Appropriate Fee Rates",
+          "page": 1,
+          "score": 0.4
+        },
+        {
+          "label": "p. 1",
+          "section": "Creating an HD Wallet from the Seed",
+          "page": 1,
+          "score": 0.3789
+        },
+        {
+          "label": "p. 1",
+          "section": "Witness Structure",
+          "page": 1,
+          "score": 0.3872
+        },
+        {
+          "label": "p. 1",
+          "section": "Lightning Network Transport and Pathfinding",
+          "page": 1,
+          "score": 0.384
+        },
+        {
+          "label": "p. 1",
+          "section": "Merklized Alternative Script Trees (MAST)",
+          "page": 1,
+          "score": 0.4183
+        },
+        {
+          "label": "p. 1",
+          "section": "Making Trustless Channels",
+          "page": 1,
+          "score": 0.4274
+        },
+        {
+          "label": "p. 1",
+          "section": "Refund after timeout.",
+          "page": 1,
+          "score": 0.3709
+        },
+        {
+          "label": "p. 1",
+          "section": "Amount",
+          "page": 1,
+          "score": 0.3784
+        },
+        {
+          "label": "p. 1",
+          "section": "Asymmetric Revocable Commitments",
+          "page": 1,
+          "score": 0.3721
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 27,
+      "category": "technical",
+      "query": "What is a BIP-32 HD wallet?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8115,
+      "num_citations": 10,
+      "unique_sections": [
+        "Using an Extended Public Key on a Web Store",
+        "The Coinbase Transaction",
+        "Transactions",
+        "Routed Payment Channels (Lightning Network)",
+        "Serialization of ECDSA Signatures (DER)",
+        "Merkle Trees and Lightweight Clients",
+        "Amount",
+        "Creating an HD Wallet from the Seed"
+      ],
+      "elapsed_s": 1.0,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Using an Extended Public Key on a Web Store",
+          "page": 1,
+          "score": 0.7606
+        },
+        {
+          "label": "p. 1",
+          "section": "Using an Extended Public Key on a Web Store",
+          "page": 1,
+          "score": 0.4321
+        },
+        {
+          "label": "p. 1",
+          "section": "The Coinbase Transaction",
+          "page": 1,
+          "score": 0.4185
+        },
+        {
+          "label": "p. 1",
+          "section": "Transactions",
+          "page": 1,
+          "score": 0.4266
+        },
+        {
+          "label": "p. 1",
+          "section": "Routed Payment Channels (Lightning Network)",
+          "page": 1,
+          "score": 0.4187
+        },
+        {
+          "label": "p. 1",
+          "section": "Serialization of ECDSA Signatures (DER)",
+          "page": 1,
+          "score": 0.4241
+        },
+        {
+          "label": "p. 1",
+          "section": "Using an Extended Public Key on a Web Store",
+          "page": 1,
+          "score": 0.4315
+        },
+        {
+          "label": "p. 1",
+          "section": "Merkle Trees and Lightweight Clients",
+          "page": 1,
+          "score": 0.4221
+        },
+        {
+          "label": "p. 1",
+          "section": "Amount",
+          "page": 1,
+          "score": 0.4243
+        },
+        {
+          "label": "p. 1",
+          "section": "Creating an HD Wallet from the Seed",
+          "page": 1,
+          "score": 0.8115
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 28,
+      "category": "technical",
+      "query": "What is the purpose of a seed phrase (mnemonic)?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.74,
+      "num_citations": 10,
+      "unique_sections": [
+        "BIP39 Recovery Codes",
+        "Merklized Alternative Script Trees (MAST)",
+        "Scripted Multisignatures",
+        "Lightweight Clients",
+        "Vanity Addresses",
+        "Creating an HD Wallet from the Seed",
+        "Proof-of-Work Algorithm",
+        "Using an Extended Public Key on a Web Store"
+      ],
+      "elapsed_s": 0.89,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "BIP39 Recovery Codes",
+          "page": 1,
+          "score": 0.74
+        },
+        {
+          "label": "p. 1",
+          "section": "Merklized Alternative Script Trees (MAST)",
+          "page": 1,
+          "score": 0.4109
+        },
+        {
+          "label": "p. 1",
+          "section": "Scripted Multisignatures",
+          "page": 1,
+          "score": 0.4178
+        },
+        {
+          "label": "p. 1",
+          "section": "Lightweight Clients",
+          "page": 1,
+          "score": 0.4226
+        },
+        {
+          "label": "p. 1",
+          "section": "Vanity Addresses",
+          "page": 1,
+          "score": 0.4148
+        },
+        {
+          "label": "p. 1",
+          "section": "Creating an HD Wallet from the Seed",
+          "page": 1,
+          "score": 0.6729
+        },
+        {
+          "label": "p. 1",
+          "section": "Proof-of-Work Algorithm",
+          "page": 1,
+          "score": 0.7273
+        },
+        {
+          "label": "p. 1",
+          "section": "Using an Extended Public Key on a Web Store",
+          "page": 1,
+          "score": 0.4174
+        },
+        {
+          "label": "p. 1",
+          "section": "BIP39 Recovery Codes",
+          "page": 1,
+          "score": 0.4106
+        },
+        {
+          "label": "p. 1",
+          "section": "Creating an HD Wallet from the Seed",
+          "page": 1,
+          "score": 0.4162
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 29,
+      "category": "technical",
+      "query": "What is the difference between a hot wallet and a cold wallet?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8403,
+      "num_citations": 10,
+      "unique_sections": [
+        "Physical Bitcoin Storage",
+        "Adding Fees to Transactions",
+        "Using an Extended Public Key on a Web Store",
+        "Lightweight Clients",
+        "Signature Hash Types (SIGHASH)",
+        "BIP39 Recovery Codes",
+        "Creating an HD Wallet from the Seed",
+        "Creating a Digital Signature"
+      ],
+      "elapsed_s": 0.84,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Physical Bitcoin Storage",
+          "page": 1,
+          "score": 0.8403
+        },
+        {
+          "label": "p. 1",
+          "section": "Adding Fees to Transactions",
+          "page": 1,
+          "score": 0.7291
+        },
+        {
+          "label": "p. 1",
+          "section": "Using an Extended Public Key on a Web Store",
+          "page": 1,
+          "score": 0.4163
+        },
+        {
+          "label": "p. 1",
+          "section": "Lightweight Clients",
+          "page": 1,
+          "score": 0.4099
+        },
+        {
+          "label": "p. 1",
+          "section": "Signature Hash Types (SIGHASH)",
+          "page": 1,
+          "score": 0.4103
+        },
+        {
+          "label": "p. 1",
+          "section": "BIP39 Recovery Codes",
+          "page": 1,
+          "score": 0.414
+        },
+        {
+          "label": "p. 1",
+          "section": "Using an Extended Public Key on a Web Store",
+          "page": 1,
+          "score": 0.4161
+        },
+        {
+          "label": "p. 1",
+          "section": "Using an Extended Public Key on a Web Store",
+          "page": 1,
+          "score": 0.4227
+        },
+        {
+          "label": "p. 1",
+          "section": "Creating an HD Wallet from the Seed",
+          "page": 1,
+          "score": 0.4107
+        },
+        {
+          "label": "p. 1",
+          "section": "Creating a Digital Signature",
+          "page": 1,
+          "score": 0.418
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 30,
+      "category": "technical",
+      "query": "What was the Bitcoin genesis block?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.879,
+      "num_citations": 10,
+      "unique_sections": [
+        "The Genesis Block",
+        "The Root of Trust",
+        "Linking Blocks in the Blockchain",
+        "The Blockchain",
+        "Block Identifiers: Block Header Hash and Block Height",
+        "Building Blocks (Primitives)",
+        "Coinbase Reward and Fees",
+        "Mining and Consensus"
+      ],
+      "elapsed_s": 1.09,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "The Genesis Block",
+          "page": 1,
+          "score": 0.879
+        },
+        {
+          "label": "p. 1",
+          "section": "The Root of Trust",
+          "page": 1,
+          "score": 0.443
+        },
+        {
+          "label": "p. 1",
+          "section": "The Genesis Block",
+          "page": 1,
+          "score": 0.7597
+        },
+        {
+          "label": "p. 1",
+          "section": "Linking Blocks in the Blockchain",
+          "page": 1,
+          "score": 0.6696
+        },
+        {
+          "label": "p. 1",
+          "section": "The Blockchain",
+          "page": 1,
+          "score": 0.439
+        },
+        {
+          "label": "p. 1",
+          "section": "Block Identifiers: Block Header Hash and Block Height",
+          "page": 1,
+          "score": 0.6898
+        },
+        {
+          "label": "p. 1",
+          "section": "Building Blocks (Primitives)",
+          "page": 1,
+          "score": 0.439
+        },
+        {
+          "label": "p. 1",
+          "section": "Coinbase Reward and Fees",
+          "page": 1,
+          "score": 0.4745
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.436
+        },
+        {
+          "label": "p. 1",
+          "section": "The Genesis Block",
+          "page": 1,
+          "score": 0.7022
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 31,
+      "category": "technical",
+      "query": "What is a multisig transaction?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8427,
+      "num_citations": 10,
+      "unique_sections": [
+        "Pay to Script Hash",
+        "Applications from Building Blocks",
+        "Asymmetric Revocable Commitments",
+        "Schnorr-based Scriptless Multisignatures",
+        "Simple Payment Channel Example",
+        "Taproot",
+        "Scripted Multisignatures",
+        "Using Flow Control in Scripts"
+      ],
+      "elapsed_s": 0.81,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Pay to Script Hash",
+          "page": 1,
+          "score": 0.4541
+        },
+        {
+          "label": "p. 1",
+          "section": "Applications from Building Blocks",
+          "page": 1,
+          "score": 0.8111
+        },
+        {
+          "label": "p. 1",
+          "section": "Asymmetric Revocable Commitments",
+          "page": 1,
+          "score": 0.826
+        },
+        {
+          "label": "p. 1",
+          "section": "Schnorr-based Scriptless Multisignatures",
+          "page": 1,
+          "score": 0.4662
+        },
+        {
+          "label": "p. 1",
+          "section": "Simple Payment Channel Example",
+          "page": 1,
+          "score": 0.4647
+        },
+        {
+          "label": "p. 1",
+          "section": "Taproot",
+          "page": 1,
+          "score": 0.4657
+        },
+        {
+          "label": "p. 1",
+          "section": "Schnorr-based Scriptless Multisignatures",
+          "page": 1,
+          "score": 0.4431
+        },
+        {
+          "label": "p. 1",
+          "section": "Asymmetric Revocable Commitments",
+          "page": 1,
+          "score": 0.4404
+        },
+        {
+          "label": "p. 1",
+          "section": "Scripted Multisignatures",
+          "page": 1,
+          "score": 0.4517
+        },
+        {
+          "label": "p. 1",
+          "section": "Using Flow Control in Scripts",
+          "page": 1,
+          "score": 0.8427
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 32,
+      "category": "technical",
+      "query": "What is Taproot and why was it introduced?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8136,
+      "num_citations": 10,
+      "unique_sections": [
+        "Serialization of Schnorr Signatures",
+        "Soft Forks",
+        "Taproot Assets",
+        "Using Flow Control in Scripts",
+        "Compact Block Filters",
+        "The Extra Nonce Solution",
+        "Scripted Multisignatures",
+        "Pay to Script Hash",
+        "Tapscript"
+      ],
+      "elapsed_s": 0.82,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Serialization of Schnorr Signatures",
+          "page": 1,
+          "score": 0.7166
+        },
+        {
+          "label": "p. 1",
+          "section": "Soft Forks",
+          "page": 1,
+          "score": 0.8136
+        },
+        {
+          "label": "p. 1",
+          "section": "Taproot Assets",
+          "page": 1,
+          "score": 0.4
+        },
+        {
+          "label": "p. 1",
+          "section": "Using Flow Control in Scripts",
+          "page": 1,
+          "score": 0.4187
+        },
+        {
+          "label": "p. 1",
+          "section": "Compact Block Filters",
+          "page": 1,
+          "score": 0.4085
+        },
+        {
+          "label": "p. 1",
+          "section": "The Extra Nonce Solution",
+          "page": 1,
+          "score": 0.394
+        },
+        {
+          "label": "p. 1",
+          "section": "Scripted Multisignatures",
+          "page": 1,
+          "score": 0.412
+        },
+        {
+          "label": "p. 1",
+          "section": "Soft Forks",
+          "page": 1,
+          "score": 0.7232
+        },
+        {
+          "label": "p. 1",
+          "section": "Pay to Script Hash",
+          "page": 1,
+          "score": 0.3996
+        },
+        {
+          "label": "p. 1",
+          "section": "Tapscript",
+          "page": 1,
+          "score": 0.7037
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 33,
+      "category": "technical",
+      "query": "What is Simplified Payment Verification (SPV)?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.6026,
+      "num_citations": 10,
+      "unique_sections": [
+        "Lightweight Clients",
+        "Scripted Multisignatures",
+        "Adding Fees to Transactions",
+        "Merklized Alternative Script Trees (MAST)",
+        "Basic Lightning Network Example",
+        "Lightning Network Benefits",
+        "Signature Hash Types (SIGHASH)",
+        "Upgrading to Segregated Witness",
+        "What Data to Include in a Block Filter",
+        "Transaction Scripts and Script Language"
+      ],
+      "elapsed_s": 0.87,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Lightweight Clients",
+          "page": 1,
+          "score": 0.4
+        },
+        {
+          "label": "p. 1",
+          "section": "Scripted Multisignatures",
+          "page": 1,
+          "score": 0.4293
+        },
+        {
+          "label": "p. 1",
+          "section": "Adding Fees to Transactions",
+          "page": 1,
+          "score": 0.4282
+        },
+        {
+          "label": "p. 1",
+          "section": "Merklized Alternative Script Trees (MAST)",
+          "page": 1,
+          "score": 0.3998
+        },
+        {
+          "label": "p. 1",
+          "section": "Basic Lightning Network Example",
+          "page": 1,
+          "score": 0.6006
+        },
+        {
+          "label": "p. 1",
+          "section": "Lightning Network Benefits",
+          "page": 1,
+          "score": 0.3992
+        },
+        {
+          "label": "p. 1",
+          "section": "Signature Hash Types (SIGHASH)",
+          "page": 1,
+          "score": 0.6026
+        },
+        {
+          "label": "p. 1",
+          "section": "Upgrading to Segregated Witness",
+          "page": 1,
+          "score": 0.4056
+        },
+        {
+          "label": "p. 1",
+          "section": "What Data to Include in a Block Filter",
+          "page": 1,
+          "score": 0.3895
+        },
+        {
+          "label": "p. 1",
+          "section": "Transaction Scripts and Script Language",
+          "page": 1,
+          "score": 0.3886
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 34,
+      "category": "technical",
+      "query": "What is ECDSA and why does Bitcoin use it?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.7645,
+      "num_citations": 10,
+      "unique_sections": [
+        "A Serialized Bitcoin Transaction",
+        "Security Principles",
+        "Mining and the Hash Lottery",
+        "Mining and Consensus",
+        "Physical Bitcoin Storage",
+        "Developing Bitcoin Systems Securely",
+        "Single-Use Seals",
+        "Basic Lightning Network Example",
+        "Creating a Digital Signature",
+        "Creating an HD Wallet from the Seed"
+      ],
+      "elapsed_s": 1.01,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "A Serialized Bitcoin Transaction",
+          "page": 1,
+          "score": 0.4239
+        },
+        {
+          "label": "p. 1",
+          "section": "Security Principles",
+          "page": 1,
+          "score": 0.4489
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and the Hash Lottery",
+          "page": 1,
+          "score": 0.427
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.4151
+        },
+        {
+          "label": "p. 1",
+          "section": "Physical Bitcoin Storage",
+          "page": 1,
+          "score": 0.4282
+        },
+        {
+          "label": "p. 1",
+          "section": "Developing Bitcoin Systems Securely",
+          "page": 1,
+          "score": 0.4228
+        },
+        {
+          "label": "p. 1",
+          "section": "Single-Use Seals",
+          "page": 1,
+          "score": 0.4215
+        },
+        {
+          "label": "p. 1",
+          "section": "Basic Lightning Network Example",
+          "page": 1,
+          "score": 0.4189
+        },
+        {
+          "label": "p. 1",
+          "section": "Creating a Digital Signature",
+          "page": 1,
+          "score": 0.7645
+        },
+        {
+          "label": "p. 1",
+          "section": "Creating an HD Wallet from the Seed",
+          "page": 1,
+          "score": 0.4338
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 35,
+      "category": "technical",
+      "query": "What is the block size limit and what problem does it cause?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8549,
+      "num_citations": 10,
+      "unique_sections": [
+        "Compact Block Relay",
+        "Mining and Consensus",
+        "Using Bitcoin Core's Programmatic Interface",
+        "Soft Forks",
+        "Configuring the Bitcoin Core Node",
+        "Mining Nodes",
+        "Hard Forks",
+        "Amount",
+        "Mining Pools",
+        "Network Discovery"
+      ],
+      "elapsed_s": 0.76,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Compact Block Relay",
+          "page": 1,
+          "score": 0.8549
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.4308
+        },
+        {
+          "label": "p. 1",
+          "section": "Using Bitcoin Core's Programmatic Interface",
+          "page": 1,
+          "score": 0.42
+        },
+        {
+          "label": "p. 1",
+          "section": "Soft Forks",
+          "page": 1,
+          "score": 0.4234
+        },
+        {
+          "label": "p. 1",
+          "section": "Configuring the Bitcoin Core Node",
+          "page": 1,
+          "score": 0.4212
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining Nodes",
+          "page": 1,
+          "score": 0.4375
+        },
+        {
+          "label": "p. 1",
+          "section": "Hard Forks",
+          "page": 1,
+          "score": 0.4391
+        },
+        {
+          "label": "p. 1",
+          "section": "Amount",
+          "page": 1,
+          "score": 0.4509
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining Pools",
+          "page": 1,
+          "score": 0.4419
+        },
+        {
+          "label": "p. 1",
+          "section": "Network Discovery",
+          "page": 1,
+          "score": 0.434
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 36,
+      "category": "technical",
+      "query": "What is a hash function and why is it important in Bitcoin?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.7973,
+      "num_citations": 10,
+      "unique_sections": [
+        "Mining the Block",
+        "Legacy Pay to Script Hash (P2SH)",
+        "Hashrate Attacks",
+        "Security Principles",
+        "Mining and Consensus",
+        "Mining and the Hash Lottery",
+        "Merkle Trees",
+        "Vanity Addresses",
+        "Mining Pools"
+      ],
+      "elapsed_s": 0.67,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Mining the Block",
+          "page": 1,
+          "score": 0.7912
+        },
+        {
+          "label": "p. 1",
+          "section": "Legacy Pay to Script Hash (P2SH)",
+          "page": 1,
+          "score": 0.4545
+        },
+        {
+          "label": "p. 1",
+          "section": "Hashrate Attacks",
+          "page": 1,
+          "score": 0.4535
+        },
+        {
+          "label": "p. 1",
+          "section": "Security Principles",
+          "page": 1,
+          "score": 0.4509
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.4411
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and the Hash Lottery",
+          "page": 1,
+          "score": 0.4434
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining and Consensus",
+          "page": 1,
+          "score": 0.7973
+        },
+        {
+          "label": "p. 1",
+          "section": "Merkle Trees",
+          "page": 1,
+          "score": 0.4521
+        },
+        {
+          "label": "p. 1",
+          "section": "Vanity Addresses",
+          "page": 1,
+          "score": 0.7875
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining Pools",
+          "page": 1,
+          "score": 0.4359
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 37,
+      "category": "technical",
+      "query": "What is OP_RETURN used for?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8547,
+      "num_citations": 10,
+      "unique_sections": [
+        "Data Recording Output (OP_RETURN)",
+        "The Coinbase Transaction",
+        "Redeem Script and Validation",
+        "How Lightweight Clients Use Bloom Filters",
+        "Tapscript",
+        "Creating an HD Wallet from the Seed",
+        "A Serialized Bitcoin Transaction",
+        "Ensuring Your Access",
+        "CPFP Carve Out and Anchor Outputs"
+      ],
+      "elapsed_s": 0.7,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Data Recording Output (OP_RETURN)",
+          "page": 1,
+          "score": 0.8547
+        },
+        {
+          "label": "p. 1",
+          "section": "The Coinbase Transaction",
+          "page": 1,
+          "score": 0.6807
+        },
+        {
+          "label": "p. 1",
+          "section": "Redeem Script and Validation",
+          "page": 1,
+          "score": 0.699
+        },
+        {
+          "label": "p. 1",
+          "section": "Data Recording Output (OP_RETURN)",
+          "page": 1,
+          "score": 0.7631
+        },
+        {
+          "label": "p. 1",
+          "section": "How Lightweight Clients Use Bloom Filters",
+          "page": 1,
+          "score": 0.6254
+        },
+        {
+          "label": "p. 1",
+          "section": "Tapscript",
+          "page": 1,
+          "score": 0.4014
+        },
+        {
+          "label": "p. 1",
+          "section": "Creating an HD Wallet from the Seed",
+          "page": 1,
+          "score": 0.3997
+        },
+        {
+          "label": "p. 1",
+          "section": "A Serialized Bitcoin Transaction",
+          "page": 1,
+          "score": 0.4109
+        },
+        {
+          "label": "p. 1",
+          "section": "Ensuring Your Access",
+          "page": 1,
+          "score": 0.4112
+        },
+        {
+          "label": "p. 1",
+          "section": "CPFP Carve Out and Anchor Outputs",
+          "page": 1,
+          "score": 0.4297
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 38,
+      "category": "technical",
+      "query": "What is BIP (Bitcoin Improvement Proposal)?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.6952,
+      "num_citations": 10,
+      "unique_sections": [
+        "From Bitcoin to Bitcoin Core",
+        "Soft Forks",
+        "Constructing the Block Header",
+        "Sequence",
+        "Scripted Multisignatures",
+        "Coinbase Reward and Fees",
+        "Signature Hash Types (SIGHASH)",
+        "Schnorr Signatures",
+        "Tapscript"
+      ],
+      "elapsed_s": 0.73,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "From Bitcoin to Bitcoin Core",
+          "page": 1,
+          "score": 0.4
+        },
+        {
+          "label": "p. 1",
+          "section": "Soft Forks",
+          "page": 1,
+          "score": 0.409
+        },
+        {
+          "label": "p. 1",
+          "section": "Soft Forks",
+          "page": 1,
+          "score": 0.6952
+        },
+        {
+          "label": "p. 1",
+          "section": "Constructing the Block Header",
+          "page": 1,
+          "score": 0.3935
+        },
+        {
+          "label": "p. 1",
+          "section": "Sequence",
+          "page": 1,
+          "score": 0.3961
+        },
+        {
+          "label": "p. 1",
+          "section": "Scripted Multisignatures",
+          "page": 1,
+          "score": 0.4246
+        },
+        {
+          "label": "p. 1",
+          "section": "Coinbase Reward and Fees",
+          "page": 1,
+          "score": 0.5626
+        },
+        {
+          "label": "p. 1",
+          "section": "Signature Hash Types (SIGHASH)",
+          "page": 1,
+          "score": 0.3907
+        },
+        {
+          "label": "p. 1",
+          "section": "Schnorr Signatures",
+          "page": 1,
+          "score": 0.3932
+        },
+        {
+          "label": "p. 1",
+          "section": "Tapscript",
+          "page": 1,
+          "score": 0.392
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 39,
+      "category": "technical",
+      "query": "What is Proof of Work?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8474,
+      "num_citations": 10,
+      "unique_sections": [
+        "Retargeting to Adjust Difficulty",
+        "Mining Nodes",
+        "Validating a New Block",
+        "Revocation penalty output",
+        "Witness Structure",
+        "Taproot",
+        "Pay to Contract (P2C)",
+        "Making Trustless Channels",
+        "Applications from Building Blocks"
+      ],
+      "elapsed_s": 1.14,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Retargeting to Adjust Difficulty",
+          "page": 1,
+          "score": 0.8474
+        },
+        {
+          "label": "p. 1",
+          "section": "Retargeting to Adjust Difficulty",
+          "page": 1,
+          "score": 0.4376
+        },
+        {
+          "label": "p. 1",
+          "section": "Mining Nodes",
+          "page": 1,
+          "score": 0.4168
+        },
+        {
+          "label": "p. 1",
+          "section": "Validating a New Block",
+          "page": 1,
+          "score": 0.439
+        },
+        {
+          "label": "p. 1",
+          "section": "Revocation penalty output",
+          "page": 1,
+          "score": 0.4147
+        },
+        {
+          "label": "p. 1",
+          "section": "Witness Structure",
+          "page": 1,
+          "score": 0.437
+        },
+        {
+          "label": "p. 1",
+          "section": "Taproot",
+          "page": 1,
+          "score": 0.4172
+        },
+        {
+          "label": "p. 1",
+          "section": "Pay to Contract (P2C)",
+          "page": 1,
+          "score": 0.4233
+        },
+        {
+          "label": "p. 1",
+          "section": "Making Trustless Channels",
+          "page": 1,
+          "score": 0.418
+        },
+        {
+          "label": "p. 1",
+          "section": "Applications from Building Blocks",
+          "page": 1,
+          "score": 0.418
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 40,
+      "category": "technical",
+      "query": "What is a blockchain?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.8523,
+      "num_citations": 10,
+      "unique_sections": [
+        "The Blockchain",
+        "Regtest: The Local Blockchain",
+        "Structure of a Block",
+        "Assembling and Selecting Chains of Blocks",
+        "Colored Coins",
+        "Linking Blocks in the Blockchain",
+        "Block Identifiers: Block Header Hash and Block Height"
+      ],
+      "elapsed_s": 1.05,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "The Blockchain",
+          "page": 1,
+          "score": 0.8523
+        },
+        {
+          "label": "p. 1",
+          "section": "Regtest: The Local Blockchain",
+          "page": 1,
+          "score": 0.4577
+        },
+        {
+          "label": "p. 1",
+          "section": "Structure of a Block",
+          "page": 1,
+          "score": 0.4596
+        },
+        {
+          "label": "p. 1",
+          "section": "The Blockchain",
+          "page": 1,
+          "score": 0.4617
+        },
+        {
+          "label": "p. 1",
+          "section": "Assembling and Selecting Chains of Blocks",
+          "page": 1,
+          "score": 0.4439
+        },
+        {
+          "label": "p. 1",
+          "section": "Colored Coins",
+          "page": 1,
+          "score": 0.4591
+        },
+        {
+          "label": "p. 1",
+          "section": "Assembling and Selecting Chains of Blocks",
+          "page": 1,
+          "score": 0.4661
+        },
+        {
+          "label": "p. 1",
+          "section": "Linking Blocks in the Blockchain",
+          "page": 1,
+          "score": 0.4434
+        },
+        {
+          "label": "p. 1",
+          "section": "Linking Blocks in the Blockchain",
+          "page": 1,
+          "score": 0.4638
+        },
+        {
+          "label": "p. 1",
+          "section": "Block Identifiers: Block Header Hash and Block Height",
+          "page": 1,
+          "score": 0.4559
+        }
+      ],
+      "error": null
+    },
+    {
+      "idx": 41,
+      "category": "technical",
+      "query": "What is a Schnorr signature and how does it differ from ECDSA?",
+      "verdict": "PASS",
+      "retrieval_used": true,
+      "top_score": 0.784,
+      "num_citations": 10,
+      "unique_sections": [
+        "Creating a Digital Signature",
+        "ECDSA Signatures",
+        "Schnorr Signatures",
+        "Schnorr-based Scriptless Multisignatures",
+        "Signature Hash Types (SIGHASH)",
+        "Taproot",
+        "Schnorr-based Scriptless Threshold Signatures",
+        "Making Trustless Channels"
+      ],
+      "elapsed_s": 1.02,
+      "citations": [
+        {
+          "label": "p. 1",
+          "section": "Creating a Digital Signature",
+          "page": 1,
+          "score": 0.4852
+        },
+        {
+          "label": "p. 1",
+          "section": "ECDSA Signatures",
+          "page": 1,
+          "score": 0.4446
+        },
+        {
+          "label": "p. 1",
+          "section": "Schnorr Signatures",
+          "page": 1,
+          "score": 0.4397
+        },
+        {
+          "label": "p. 1",
+          "section": "Schnorr Signatures",
+          "page": 1,
+          "score": 0.784
+        },
+        {
+          "label": "p. 1",
+          "section": "Schnorr-based Scriptless Multisignatures",
+          "page": 1,
+          "score": 0.7492
+        },
+        {
+          "label": "p. 1",
+          "section": "Signature Hash Types (SIGHASH)",
+          "page": 1,
+          "score": 0.4222
+        },
+        {
+          "label": "p. 1",
+          "section": "Taproot",
+          "page": 1,
+          "score": 0.4177
+        },
+        {
+          "label": "p. 1",
+          "section": "Schnorr-based Scriptless Threshold Signatures",
+          "page": 1,
+          "score": 0.4303
+        },
+        {
+          "label": "p. 1",
+          "section": "Making Trustless Channels",
+          "page": 1,
+          "score": 0.4247
+        },
+        {
+          "label": "p. 1",
+          "section": "Taproot",
+          "page": 1,
+          "score": 0.4136
+        }
+      ],
+      "error": null
+    }
+  ]
+}

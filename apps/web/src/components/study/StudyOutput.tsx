@@ -51,13 +51,14 @@ export function StudyOutput({ result, courseId }: StudyOutputProps) {
         </p>
       )}
 
-      {/* Retrieval unavailable — no citations returned for an action that requires them */}
+      {/* No evidence: retrieval found no course passages, so the backend did not generate */}
       {!hasCitations && !result.retrieval_used && result.action !== 'retrieve' && hasOutput && (
         <div
           className="b-thin rounded-md px-4 py-3 text-sm"
           style={{ borderColor: '#a55a00', color: '#a55a00' }}
         >
-          Retrieval service temporarily unavailable. Response generated without source context — verify facts independently.
+          No passages from this course matched the request, so no answer was generated. Try a
+          specific concept, term or section title from your material.
         </div>
       )}
 

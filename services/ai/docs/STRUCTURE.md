@@ -54,7 +54,7 @@ services/ai/
   - Tool configurations (black, isort, pylint)
   - Pytest configuration override
 
-- **uv.lock** - Committed, reproducible dependency resolution used by development, CI, and Docker
+- **uv.lock** - Committed, reproducible dependency resolution used by development and CI (the Docker image still installs with pip, see #175)
 
 ### Documentation
 - **README.md** - Backend setup and usage documentation

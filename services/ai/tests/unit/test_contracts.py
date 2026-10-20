@@ -190,7 +190,7 @@ def test_rerank_score_defaults_to_zero_meaning_not_reranked():
 
 def _env_example_defaults() -> dict[str, str]:
     defaults = {}
-    for line in (_SERVICES_AI / ".env.example").read_text().splitlines():
+    for line in (_SERVICES_AI / ".env.example").read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -207,7 +207,7 @@ def _readme_rag_defaults() -> dict[str, str]:
     """Defaults from the README '### RAG variables' table only — the table is
     scoped to services/ai, so matching the whole file would drag in unrelated
     config rows added elsewhere in the README."""
-    readme = (_REPO_ROOT / "README.md").read_text()
+    readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
     section = re.search(
         r"^### RAG variables$(.*?)^(?:#|---)",
         readme,
@@ -238,12 +238,12 @@ def test_required_settings_are_documented_in_env_example():
 
 def test_readme_documents_the_rag_variables_that_exist():
     """Assert that variables named in the README are ones the code reads."""
-    readme = (_REPO_ROOT / "README.md").read_text()
+    readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
     documented = set(re.findall(r"^\|\s*`([A-Z][A-Z0-9_]+)`\s*\|", readme, re.MULTILINE))
     assert documented, "No configuration variables found in the README table"
 
     sources = "\n".join(
-        p.read_text()
+        p.read_text(encoding="utf-8")
         for p in (_SERVICES_AI / "app").rglob("*.py")
     )
     for name in sorted(documented):
@@ -261,13 +261,19 @@ def test_unpatched_chromadb_is_not_installed():
         _REPO_ROOT / "workers" / "requirements.txt",
     ]
     for manifest in manifests:
-        assert "chromadb" not in manifest.read_text().lower(), (
+        assert "chromadb" not in manifest.read_text(encoding="utf-8").lower(), (
             f"{manifest.relative_to(_REPO_ROOT)} reintroduced vulnerable ChromaDB"
         )
 
 
 def test_python_dependencies_are_installed_from_uv_lock_everywhere():
-    """CI, containers, and developer setup must share one locked resolution."""
+    """CI (Linux) and developer setup must share one locked resolution.
+
+    Two installs are deliberately not on uv.lock yet: the backend image keeps
+    pip with the CPU-only torch build (uv.lock resolves the CUDA wheels on
+    Linux, ~3 GB of NVIDIA libraries), and the Windows unit-test job still
+    installs with pip. Both are tracked in #175.
+    """
     ci = (_REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()
     dockerfile = (_SERVICES_AI / "Dockerfile").read_text()
     dockerignore = (_SERVICES_AI / ".dockerignore").read_text()
@@ -277,11 +283,8 @@ def test_python_dependencies_are_installed_from_uv_lock_everywhere():
     assert "uv sync --locked --extra dev" in ci
     assert "uv run --no-sync pytest" in ci
     assert "uv run --no-sync mypy" in ci
-    assert "pip install" not in ci
 
-    assert "COPY pyproject.toml uv.lock README.md" in dockerfile
-    assert "RUN uv sync --locked" in dockerfile
-    assert "pip install" not in dockerfile
+    assert "https://download.pytorch.org/whl/cpu torch" in dockerfile
     assert ".venv/" in dockerignore
 
     assert "uv sync --locked --extra dev" in setup_script
@@ -293,7 +296,7 @@ def test_documented_rag_defaults_match_env_example_and_code():
     documented = _readme_rag_defaults()
     assert documented, "No defaults parsed from the README '### RAG variables' table"
     env_defaults = _env_example_defaults()
-    sources = "\n".join(p.read_text() for p in (_SERVICES_AI / "app").rglob("*.py"))
+    sources = "\n".join(p.read_text(encoding="utf-8") for p in (_SERVICES_AI / "app").rglob("*.py"))
 
     for name, documented_default in sorted(documented.items()):
         assert name in env_defaults, f"{name} is documented but absent from .env.example"

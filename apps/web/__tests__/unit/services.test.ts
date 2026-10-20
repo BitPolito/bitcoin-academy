@@ -123,6 +123,16 @@ describe('courses service', () => {
     });
   });
 
+  it('forwards the access token when creating a course', async () => {
+    // POST /courses requires authentication; without the header the backend
+    // answers 401 and the create-workspace modal cannot create anything.
+    mockFetch.mockResolvedValue(jsonResponse({ id: 1, title: 'New' }));
+
+    await createCourse('New', undefined, 'token-1');
+
+    expect(lastCall().init.headers.Authorization).toBe('Bearer token-1');
+  });
+
   it('updates a course with PATCH', async () => {
     mockFetch.mockResolvedValue(jsonResponse({ id: 1, title: 'Renamed' }));
 

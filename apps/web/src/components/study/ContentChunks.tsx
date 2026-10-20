@@ -67,6 +67,7 @@ export function ContentChunks({
           .filter((d) => d.chunks.length > 0 || d.sections.length > 0);
 
         setContents(loaded);
+        setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load course material');
       } finally {
@@ -74,7 +75,8 @@ export function ContentChunks({
       }
     }
 
-    fetchContent();
+    // Wait for the session: without a token the request can only fail with 401.
+    if (accessToken) fetchContent();
   }, [courseId, accessToken]);
 
   if (loading) {

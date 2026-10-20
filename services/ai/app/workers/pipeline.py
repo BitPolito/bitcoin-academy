@@ -62,6 +62,11 @@ _register_module_aliases()
 _PARENT_WORDS = 1200    # parent chunk: LLM context window (≈ 1500 tokens)
 _CHILD_WORDS = 150      # child chunk: retrieval unit (≈ 200 tokens)
 _CHILD_MAX_WORDS = 350  # hard cap: single long sentence can exceed 150-word target; 350 ≈ 455 tokens (GTE-Large limit 512)
+# Word caps do not bound tokens: hex, CLI output and JSON tokenize far denser
+# than prose, and QVAC rejects the whole ingest batch when one chunk exceeds the
+# embedding model's 512-token context (#228). Every child is capped by an
+# estimated token count, with a margin for the estimate's error.
+_CHILD_MAX_TOKENS = 400
 _CHILD_OVERLAP = 30     # overlap between consecutive child chunks (words)
 _MAX_WORDS = 400        # legacy: only used by chunk_pages() (no longer called by run())
 _OVERLAP_WORDS = 50     # legacy: overlap used by chunk_pages()
@@ -77,6 +82,60 @@ _CONTEXTUAL_TIMEOUT = float(os.getenv("QVAC_CONTEXTUAL_TIMEOUT", "25"))
 
 def _word_count(text: str) -> int:
     return len(text.split())
+
+
+_TOKEN_PIECE_RE = re.compile(r"[A-Za-z]+|\d+|[^\sA-Za-z\d]")
+
+
+def _estimate_tokens(text: str) -> int:
+    """Conservative WordPiece-style token estimate for the embedding model.
+
+    Letter runs cost about one token per 6 characters, digit runs one per
+    2 characters (hashes and amounts split into short pieces), and every
+    symbol is a token of its own (JSON, hex prefixes, CLI flags).
+    """
+    tokens = 0
+    for piece in _TOKEN_PIECE_RE.findall(text):
+        if piece[0].isalpha():
+            tokens += -(-len(piece) // 6)
+        elif piece[0].isdigit():
+            tokens += -(-len(piece) // 2)
+        else:
+            tokens += 1
+    return tokens
+
+
+def _split_by_tokens(text: str, max_tokens: int = _CHILD_MAX_TOKENS) -> list[str]:
+    """Split text into segments under max_tokens, keeping whole lines when
+    possible (code, JSON), then whole words, then raw characters."""
+    if _estimate_tokens(text) <= max_tokens:
+        return [text]
+
+    units: list[str] = []
+    for line in text.splitlines():
+        if _estimate_tokens(line) <= max_tokens:
+            units.append(line)
+            continue
+        for word in line.split():
+            while _estimate_tokens(word) > max_tokens:
+                cut = max(1, len(word) * max_tokens // _estimate_tokens(word))
+                units.append(word[:cut])
+                word = word[cut:]
+            units.append(word)
+
+    segments: list[str] = []
+    current: list[str] = []
+    budget = 0
+    for unit in units:
+        cost = _estimate_tokens(unit) + 1
+        if current and budget + cost > max_tokens:
+            segments.append("\n".join(current).strip())
+            current, budget = [], 0
+        current.append(unit)
+        budget += cost
+    if current:
+        segments.append("\n".join(current).strip())
+    return [seg for seg in segments if seg]
 
 
 _FIGURE_CAPTION_RE = re.compile(r'_Figure\s+[\d][\d.-]*[^_]*_', re.IGNORECASE)
@@ -631,13 +690,16 @@ def build_parent_child_chunks(
 
                 # Genera child chunk dal parent
                 if btype in ("table", "formula", "code") or wc <= _CHILD_WORDS:
-                    # Tabelle, formule, code block e blocchi piccoli: un solo child = il parent intero
-                    child = _make_child(
-                        parent["id"], doc_id, page_num, 0,
-                        parent_text, current_section, chunk_type=btype,
-                    )
-                    if _word_count(child["text"]) >= min_thresh:
-                        children.append(child)
+                    # Tabelle, formule, code block e blocchi piccoli: un solo child = il parent
+                    # intero, diviso solo se supera il contesto dell'embedding (#228).
+                    segments = _split_by_tokens(parent_text)
+                    for k, seg in enumerate(segments):
+                        if len(segments) == 1 and _word_count(seg) < min_thresh:
+                            continue
+                        children.append(_make_child(
+                            parent["id"], doc_id, page_num, k,
+                            seg, current_section, chunk_type=btype,
+                        ))
                 else:
                     child_subs = _split_paragraph(
                         parent_text, _CHILD_WORDS, overlap_words=_CHILD_OVERLAP
@@ -648,12 +710,19 @@ def build_parent_child_chunks(
                         if _word_count(child_text) < _MIN_WORDS:
                             continue
                         # Hard cap: single long sentences can exceed the target;
-                        # split further by words so no chunk exceeds 512 tokens.
+                        # split further by words, then by estimated tokens so no
+                        # chunk exceeds the embedding context (#228).
                         if _word_count(child_text) > _CHILD_MAX_WORDS:
                             words = child_text.split()
                             step = _CHILD_MAX_WORDS - _CHILD_OVERLAP
-                            for j in range(0, len(words), step):
-                                seg = " ".join(words[j : j + _CHILD_MAX_WORDS])
+                            word_segs = [
+                                " ".join(words[j : j + _CHILD_MAX_WORDS])
+                                for j in range(0, len(words), step)
+                            ]
+                        else:
+                            word_segs = [child_text]
+                        for word_seg in word_segs:
+                            for seg in _split_by_tokens(word_seg):
                                 if _word_count(seg) >= _MIN_WORDS:
                                     children.append(
                                         _make_child(
@@ -662,14 +731,6 @@ def build_parent_child_chunks(
                                         )
                                     )
                                     ci += 1
-                        else:
-                            children.append(
-                                _make_child(
-                                    parent["id"], doc_id, page_num, ci,
-                                    child_text, current_section,
-                                )
-                            )
-                            ci += 1
 
                 parent_idx += 1
 
@@ -1115,11 +1176,8 @@ def run(
                 document_id, len(chunks), parser_used, qvac_ok,
             )
 
-            try:
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-            except OSError:
-                pass
+            # Keep the original for authenticated source previews and retries.
+            # document_service.delete_document removes it when the document is deleted.
 
         except Exception as exc:
             logger.exception("Pipeline failed for %s: %s", document_id, exc)

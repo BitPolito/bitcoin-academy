@@ -196,8 +196,8 @@ def test_pipeline_pdf_text_preview_non_empty(client, db):
 
 @pytest.mark.slow
 @pytest.mark.integration
-def test_pipeline_pdf_temp_file_cleaned_up(client, db):
-    """The uploaded temp file should be deleted by the pipeline after indexing."""
+def test_pipeline_pdf_original_retained_for_preview(client, db):
+    """The preview endpoint needs the original PDF after indexing completes."""
     _skip_if_missing(PDF_PATH)
     _try_import("fastembed")
 
@@ -239,7 +239,7 @@ def test_pipeline_pdf_temp_file_cleaned_up(client, db):
                     file_path=tmp_path,
                 )
 
-            assert not os.path.exists(tmp_path), "Temp file was not cleaned up after pipeline"
+            assert os.path.exists(tmp_path), "Original PDF must remain available for preview"
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
@@ -437,12 +437,14 @@ def test_pipeline_qvac_jsonl_contains_only_paragraph_chunks(client, db):
                     os.remove(tmp_path)
 
             jsonl_path = Path(tmp_qvac) / f"{doc_id}_contingency.jsonl"
-            rows = [json.loads(l) for l in jsonl_path.read_text().splitlines()]
+            rows = [json.loads(l) for l in jsonl_path.read_text(encoding="utf-8").splitlines()]
             assert len(rows) > 0
             for row in rows:
                 assert row["chunk_type"] in {"paragraph", "table"}, (
                     f"unexpected chunk_type in QVAC JSONL: {row['chunk_type']}"
                 )
+
+
 
 
 @pytest.mark.slow
@@ -544,7 +546,7 @@ def test_pipeline_qvac_jsonl_has_required_fields(client, db):
                     os.remove(tmp_path)
 
             jsonl_path = Path(tmp_qvac) / f"{doc_id}_contingency.jsonl"
-            rows = [json.loads(l) for l in jsonl_path.read_text().splitlines()]
+            rows = [json.loads(l) for l in jsonl_path.read_text(encoding="utf-8").splitlines()]
             assert len(rows) > 0
             for row in rows:
                 missing = required_fields - row.keys()
