@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.db.models import UserRole
 from tests.conftest import make_course_with_lessons, make_user
 from tests.integration.test_pipeline_e2e import _run_pipeline
 
@@ -124,7 +125,7 @@ def _auth_header(user) -> dict:
 @pytest.mark.integration
 def test_upload_rejects_an_unsupported_mime_type(client, db):
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
 
     response = client.post(
         f"/api/courses/{course.id}/documents",
@@ -141,7 +142,7 @@ def test_upload_rejects_an_unsupported_mime_type(client, db):
 @pytest.mark.integration
 def test_upload_rejects_a_file_over_the_size_limit(client, db):
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
     oversized = b"0" * (50 * 1024 * 1024 + 1)
 
     with patch("app.api.documents_api.document_service.create_document") as mock_create:
@@ -160,7 +161,7 @@ def test_upload_accepts_a_file_exactly_at_the_size_limit(client, db):
     """Boundary check: the limit is inclusive, not off-by-one in the wrong
     direction — a file of exactly 50 MB must not be rejected."""
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
     exactly_at_limit = b"%PDF-1.4\n" + b"0" * (50 * 1024 * 1024 - 9)
     assert len(exactly_at_limit) == 50 * 1024 * 1024
 
