@@ -196,8 +196,8 @@ def test_pipeline_pdf_text_preview_non_empty(client, db):
 
 @pytest.mark.slow
 @pytest.mark.integration
-def test_pipeline_pdf_temp_file_cleaned_up(client, db):
-    """The uploaded temp file should be deleted by the pipeline after indexing."""
+def test_pipeline_pdf_original_retained_for_preview(client, db):
+    """The preview endpoint needs the original PDF after indexing completes."""
     _skip_if_missing(PDF_PATH)
     _try_import("fastembed")
 
@@ -239,7 +239,7 @@ def test_pipeline_pdf_temp_file_cleaned_up(client, db):
                     file_path=tmp_path,
                 )
 
-            assert not os.path.exists(tmp_path), "Temp file was not cleaned up after pipeline"
+            assert os.path.exists(tmp_path), "Original PDF must remain available for preview"
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
