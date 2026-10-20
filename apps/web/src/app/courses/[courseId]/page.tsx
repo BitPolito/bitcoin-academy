@@ -376,14 +376,16 @@ export default function CourseWorkspacePage() {
           >
             Open viewer
           </button>
-          <button
-            className="btn-ghost"
-            onClick={handleReindexAll}
-            disabled={reindexing || docs.length === 0}
-            title="Re-ingest all documents (full parse → chunk → BM25 → QVAC)"
-          >
-            {reindexing ? 'Queuing…' : '↺ Reindex all'}
-          </button>
+          {canManage && (
+            <button
+              className="btn-ghost"
+              onClick={handleReindexAll}
+              disabled={reindexing || docs.length === 0}
+              title="Re-ingest all documents (full parse → chunk → BM25 → QVAC)"
+            >
+              {reindexing ? 'Queuing…' : '↺ Reindex all'}
+            </button>
+          )}
           {canManage && (
             <>
               <button
@@ -421,24 +423,26 @@ export default function CourseWorkspacePage() {
       <div className="grid grid-cols-12 gap-5">
         {/* LEFT — upload + document list */}
         <div className="col-span-12 lg:col-span-7 space-y-5">
-          {/* Upload zone */}
-          <div className="b-hard rounded-lg p-5 bg-white dark:bg-blue-dark/30">
-            <div className="flex items-end justify-between b-thin-b pb-1.5 mb-3">
-              <span className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70">
-                Upload · drop or click
-              </span>
-              <span className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-60">
-                PDF · PPTX · MD · TXT · ≤ 50 MB
-              </span>
+          {/* Upload zone — instructor/admin only, like the backend write endpoints */}
+          {canManage && (
+            <div className="b-hard rounded-lg p-5 bg-white dark:bg-blue-dark/30">
+              <div className="flex items-end justify-between b-thin-b pb-1.5 mb-3">
+                <span className="font-mono text-[10px] tracking-[0.22em] uppercase opacity-70">
+                  Upload · drop or click
+                </span>
+                <span className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-60">
+                  PDF · PPTX · MD · TXT · ≤ 50 MB
+                </span>
+              </div>
+              <ErrorBoundary>
+                <DocumentUpload
+                  courseId={courseId}
+                  accessToken={accessToken}
+                  onUploadComplete={refreshDocuments}
+                />
+              </ErrorBoundary>
             </div>
-            <ErrorBoundary>
-              <DocumentUpload
-                courseId={courseId}
-                accessToken={accessToken}
-                onUploadComplete={refreshDocuments}
-              />
-            </ErrorBoundary>
-          </div>
+          )}
 
           {/* Filter bar */}
           <div className="flex items-center gap-2">
@@ -499,6 +503,7 @@ export default function CourseWorkspacePage() {
                   onSelect={() => setSelectedId(doc.id)}
                   onOpen={() => router.push(`/courses/${courseId}/documents/${doc.id}/preview`)}
                   onDeleted={refreshDocuments}
+                  canDelete={canManage}
                   accessToken={accessToken}
                 />
               ))
@@ -620,6 +625,7 @@ function DocRow({
   onSelect,
   onOpen,
   onDeleted,
+  canDelete,
   accessToken,
 }: {
   doc: DocumentListRow;
@@ -627,6 +633,7 @@ function DocRow({
   onSelect: () => void;
   onOpen: () => void;
   onDeleted?: () => void;
+  canDelete: boolean;
   accessToken?: string;
 }) {
   const { showToast } = useToast();
@@ -687,23 +694,25 @@ function DocRow({
         >
           →
         </button>
-        <button
-          onClick={handleDelete}
-          disabled={deleting}
-          className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 disabled:cursor-not-allowed"
-          title="Delete document"
-        >
-          {deleting ? (
-            <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-            </svg>
-          ) : (
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-            </svg>
-          )}
-        </button>
+        {canDelete && (
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 disabled:cursor-not-allowed"
+            title="Delete document"
+          >
+            {deleting ? (
+              <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+            ) : (
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+              </svg>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );
