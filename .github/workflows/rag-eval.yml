@@ -54,8 +54,8 @@ jobs:
       - name: Install backend dependencies
         run: uv sync --locked --extra dev
 
-      # QVAC keeps downloaded models under /root/.cache (the qvac_models volume
-      # in infra/docker-compose.yml). Caching it avoids the ~670 MB download.
+      # The QVAC SDK keeps downloaded models in ~/.qvac/models (/root/.qvac in
+      # the container). Caching it avoids the ~670 MB download.
       - name: Restore QVAC model cache
         uses: actions/cache@v4
         with:
@@ -75,10 +75,10 @@ jobs:
             -e QVAC_LLM_ENABLED=false \
             -e QVAC_INGEST_DIR="$QVAC_INGEST_DIR" \
             -v "$QVAC_INGEST_DIR:$QVAC_INGEST_DIR" \
-            -v "$PWD/.rag/models:/root/.cache" \
+            -v "$PWD/.rag/models:/root/.qvac" \
             bitcoin-academy-qvac:rag
-          # The server listens only after loading its models (and downloading
-          # them on a cache miss).
+          # Wait until the server listens; on a cache miss the embedding model
+          # is downloaded during this or the first indexing request.
           for i in $(seq 1 180); do
             if curl -sf http://localhost:3001/health; then
               echo; echo "QVAC healthy after $((i * 5))s"; exit 0
