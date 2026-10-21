@@ -13,7 +13,7 @@ fi
 
 # Install dependencies
 echo "Installing dependencies..."
-uv sync
+uv sync --locked --extra dev
 
 # Copy .env if missing
 if [ ! -f .env ]; then
@@ -27,7 +27,7 @@ fi
 
 # Initialize database with test users
 echo "Initializing database..."
-uv run python -m app.db.init_db
+uv run --no-sync python -m app.db.init_db
 
 echo ""
 echo "Setup complete!"
@@ -37,4 +37,4 @@ echo "  Admin:   admin@bitpolito.it  / DevAdmin@2024!Secure"
 echo "  Student: student@bitpolito.it / DevStudent@2024!Learn"
 echo ""
 echo "Start the development server:"
-echo "  uv run uvicorn app.main:app --reload --port 8000"
+echo "  uv run --no-sync uvicorn app.main:app --reload --port 8000"

@@ -68,7 +68,7 @@ To run document ingestion through the Redis queue and ARQ worker locally (matchi
 2. Set `REDIS_URL=redis://localhost:6379` in `services/ai/.env`.
 3. Start the stack with `./start.sh` (or `.\start.ps1` on Windows), or run the worker manually:
    ```bash
-   cd services/ai && uv run arq app.workers.arq_worker.WorkerSettings
+   cd services/ai && uv run --no-sync arq app.workers.arq_worker.WorkerSettings
    ```
 
 `./start.sh` and `.\start.ps1` automatically start the ARQ worker only when `REDIS_URL` is set; Redis itself must already be running.
@@ -181,14 +181,15 @@ Full list: [`services/ai/.env.example`](services/ai/.env.example).
 ```bash
 # Backend (pytest)
 cd services/ai
-uv run pytest                       # all tests
-uv run pytest tests/unit/
-uv run pytest tests/integration/
+uv sync --locked --extra dev        # install exactly the committed lock
+uv run --no-sync pytest             # all tests
+uv run --no-sync pytest tests/unit/
+uv run --no-sync pytest tests/integration/
 
 # RAG evaluation suite (the single authoritative retrieval benchmark)
-uv run python ../../scripts/fetch_rag_corpus.py               # open corpus -> tests/data/corpus/ (git-ignored)
-uv run python tests/test_rag.py --metrics-only --output after.json   # technical set (41 queries)
-uv run python tests/test_rag.py --query "What is a UTXO?"           # single query
+uv run --no-sync python ../../scripts/fetch_rag_corpus.py               # open corpus -> tests/data/corpus/ (git-ignored)
+uv run --no-sync python tests/test_rag.py --metrics-only --output after.json   # technical set (41 queries)
+uv run --no-sync python tests/test_rag.py --query "What is a UTXO?"           # single query
 
 # Frontend
 cd apps/web && npm test
@@ -200,6 +201,11 @@ cd workers/qvac-service && npm test
 `services/ai/tests/test_rag.py` is the only supported way to evaluate retrieval quality. It scores each query PASS / WARN / FAIL by retrieval confidence (top citation score >= 0.35 is PASS; retrieval not used is FAIL). Two query sets: `--set technical` (default, 41 protocol queries from `tests/data/rag_golden_technical.json`) runs against *Mastering Bitcoin* 3rd edition (CC BY-SA 4.0), downloaded and checksum-verified by `scripts/fetch_rag_corpus.py`. Upload `tests/data/corpus/mastering-bitcoin-3e.docx` to a course and run with QVAC on. `--set bitcoin-standard` (35 queries) needs *The Bitcoin Standard*, a copyrighted book: it is local-only and must never be committed. Use `--metrics-only` for any report you commit or share, since it omits answers and corpus snippets. The committed baseline is `tests/data/rag_baseline_technical.json`: run the suite on your branch and compare the summary and per-query `top_score` against it.
 
 CI runs on every push and pull request to `master` via GitHub Actions (`.github/workflows/ci.yml`). See [`AGENTS.md`](AGENTS.md) for the contribution workflow.
+
+Python dependency changes are explicit: edit `pyproject.toml`, run `uv lock`, review and commit
+the resulting `uv.lock`, then run `uv sync --locked --extra dev`. CI rejects a stale lockfile
+instead of resolving dependencies implicitly. The backend image still installs with pip and the
+CPU-only torch build, because `uv.lock` resolves the CUDA wheels on Linux (#175).
 
 ---
 
@@ -221,7 +227,7 @@ CI runs on every push and pull request to `master` via GitHub Actions (`.github/
 | Port 3000 occupied by a stale process | Previous run exited without cleanup | `./start.sh` kills stale processes automatically; if running manually: `kill $(lsof -ti :3000)` |
 | QVAC service fails to start | Model download timed out on first run | Re-run `node src/server.js` — models are cached after the first successful download |
 | `/health` returns `database: disconnected` | `DATABASE_URL` missing or wrong | Check `services/ai/.env`; confirm PostgreSQL is running (or use the SQLite default for dev) |
-| Document stuck in `processing` forever | Without `REDIS_URL`: in-process background task failed. With `REDIS_URL`: Redis not running or ARQ worker not started | Without `REDIS_URL`: check `.logs/backend.log` for errors. With `REDIS_URL`: start Redis (`docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml up -d redis`), then start the ARQ worker (`./start.sh` / `.\start.ps1` or `cd services/ai && uv run arq app.workers.arq_worker.WorkerSettings`) |
+| Document stuck in `processing` forever | Without `REDIS_URL`: in-process background task failed. With `REDIS_URL`: Redis not running or ARQ worker not started | Without `REDIS_URL`: check `.logs/backend.log` for errors. With `REDIS_URL`: start Redis (`docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml up -d redis`), then start the ARQ worker (`./start.sh` / `.\start.ps1` or `cd services/ai && uv run --no-sync arq app.workers.arq_worker.WorkerSettings`) |
 | Frontend CORS error | `CORS_ORIGINS` missing the frontend origin | Add the frontend URL to `CORS_ORIGINS` in `services/ai/.env` |
 | Chat returns "Il servizio di ricerca non è disponibile" | QVAC service not running | `cd workers/qvac-service && node src/server.js` |
 | SSR API calls fail in Docker (`ECONNREFUSED localhost:8000`) | Next.js server-side calls resolve to the wrong host | `infra/docker-compose.yml` sets `API_BASE_URL=http://api:8000/api` for SSR; make sure the web container env is current |

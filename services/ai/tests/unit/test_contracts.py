@@ -266,6 +266,31 @@ def test_unpatched_chromadb_is_not_installed():
         )
 
 
+def test_python_dependencies_are_installed_from_uv_lock_everywhere():
+    """CI (Linux) and developer setup must share one locked resolution.
+
+    Two installs are deliberately not on uv.lock yet: the backend image keeps
+    pip with the CPU-only torch build (uv.lock resolves the CUDA wheels on
+    Linux, ~3 GB of NVIDIA libraries), and the Windows unit-test job still
+    installs with pip. Both are tracked in #175.
+    """
+    ci = (_REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    dockerfile = (_SERVICES_AI / "Dockerfile").read_text()
+    dockerignore = (_SERVICES_AI / ".dockerignore").read_text()
+    setup_script = (_SERVICES_AI / "setup-dev.sh").read_text()
+
+    assert "cache-dependency-glob: services/ai/uv.lock" in ci
+    assert "uv sync --locked --extra dev" in ci
+    assert "uv run --no-sync pytest" in ci
+    assert "uv run --no-sync mypy" in ci
+
+    assert "https://download.pytorch.org/whl/cpu torch" in dockerfile
+    assert ".venv/" in dockerignore
+
+    assert "uv sync --locked --extra dev" in setup_script
+    assert "uv run --no-sync" in setup_script
+
+
 def test_documented_rag_defaults_match_env_example_and_code():
     """Fail when a documented default drifts from the runnable configuration."""
     documented = _readme_rag_defaults()
