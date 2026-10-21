@@ -150,9 +150,10 @@ async def reindex_course(
     background_tasks: BackgroundTasks,
     course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    _current_user: CurrentUser = Depends(CurrentUser(roles=[UserRole.ADMIN, UserRole.INSTRUCTOR])),
 ) -> ReindexResponse:
-    """Re-ingest all documents in a course (full parse → chunk → BM25 → QVAC)."""
+    """Re-ingest all documents in a course (full parse → chunk → BM25 → QVAC).
+    Instructor/admin only."""
     from app.services import document_service
     from app.workers import pipeline
     from app.workers.pipeline import UPLOADS_DIR
