@@ -16,7 +16,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="$ROOT/.logs"
 mkdir -p "$LOG_DIR"
 
-# ─── helpers ─────────────────────────────────────────────────────────────────
+# ── helpers ──────────────────────────────────────────────────────────────────
 
 log() { printf '\033[1;34m[start]\033[0m %s\n' "$*"; }
 err() { printf '\033[1;31m[start]\033[0m ERROR: %s\n' "$*" >&2; }
@@ -29,7 +29,7 @@ load_nvm() {
     command -v node &>/dev/null || die "Node.js not found. Install via: nvm install 22 && nvm alias default 22"
 }
 
-# ─── args ────────────────────────────────────────────────────────────────────
+# ── args ─────────────────────────────────────────────────────────────────────
 
 RUN_SETUP=false
 for arg in "$@"; do
@@ -39,12 +39,12 @@ for arg in "$@"; do
     esac
 done
 
-# ─── prerequisites ───────────────────────────────────────────────────────────
+# ── prerequisites ─────────────────────────────────────────────────────────────
 
 command -v uv &>/dev/null || die "uv not found. Install: https://docs.astral.sh/uv/getting-started/installation/"
 load_nvm
 
-# ─── npm install helper (only runs when node_modules is missing) ─────────────
+# ── npm install helper (only runs when node_modules is missing) ───────────────
 
 npm_install_if_needed() {
     local dir="$1"
@@ -54,7 +54,7 @@ npm_install_if_needed() {
     fi
 }
 
-# ─── optional backend setup (first run) ──────────────────────────────────────
+# ── optional backend setup (first run) ───────────────────────────────────────
 
 if $RUN_SETUP; then
     log "Running backend setup (setup-dev.sh)..."
@@ -64,14 +64,14 @@ if $RUN_SETUP; then
     npm_install_if_needed "$ROOT/workers/qvac-service"
 fi
 
-# ─── kill stale processes on service ports (leftover from previous runs) ──────
+# ── kill stale processes on service ports (leftover from previous runs) ──────
 
 kill_port() {
     local port="$1"
     local pids
     pids=$(lsof -ti :"$port" -n -P 2>/dev/null || true)
     if [[ -n "$pids" ]]; then
-        log "Port $port in use — killing stale process(es):$pids"
+        log "Port $port in use — killing stale process(es): $pids"
         echo "$pids" | xargs kill 2>/dev/null || true
         sleep 1
     fi
@@ -81,7 +81,7 @@ kill_port 3000   # frontend
 kill_port 8000   # backend
 kill_port 3001   # QVAC
 
-# ─── cleanup on exit ─────────────────────────────────────────────────────────
+# ── cleanup on exit ───────────────────────────────────────────────────────────
 
 PIDS=()
 
@@ -96,7 +96,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# ─── 1. frontend ─────────────────────────────────────────────────────────────
+# ── 1. frontend ───────────────────────────────────────────────────────────────
 
 log "Starting frontend  → http://localhost:3000  (log: .logs/frontend.log)"
 (
@@ -105,7 +105,7 @@ log "Starting frontend  → http://localhost:3000  (log: .logs/frontend.log)"
 ) > "$LOG_DIR/frontend.log" 2>&1 &
 PIDS+=($!)
 
-# ─── 2. backend ──────────────────────────────────────────────────────────────
+# ── 2. backend ────────────────────────────────────────────────────────────────
 
 log "Starting backend   → http://localhost:8000  (log: .logs/backend.log)"
 (
@@ -120,7 +120,7 @@ PIDS+=($!)
 export QVAC_INGEST_DIR="${QVAC_INGEST_DIR:-$ROOT/services/ai/qvac_ingest}"
 mkdir -p "$QVAC_INGEST_DIR"
 
-# ─── 3. QVAC service ─────────────────────────────────────────────────────────
+# ── 3. QVAC service ───────────────────────────────────────────────────────────
 
 log "Starting QVAC      → http://localhost:3001  (log: .logs/qvac.log)"
 (
@@ -129,14 +129,14 @@ log "Starting QVAC      → http://localhost:3001  (log: .logs/qvac.log)"
 ) > "$LOG_DIR/qvac.log" 2>&1 &
 PIDS+=($!)
 
-# ─── 4. ARQ worker (Optional) ────────────────────────────────────────────────
+# ── 4. ARQ worker (optional) ──────────────────────────────────────────────────
 
 if [[ -z "${REDIS_URL:-}" ]] && [[ -f "$ROOT/services/ai/.env" ]]; then
-    REDIS_URL=$(grep '^REDIS_URL=' "$ROOT/services/ai/.env" | cut -d '=' -f2- || true)
+    REDIS_URL=$(grep '^REDIS_URL=' "$ROOT/services/ai/.env" | tail -n 1 | cut -d= -f2- | tr -d '\r' | sed -e 's/[[:space:]]*#.*$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//" || true)
 fi
 
 if [[ -n "${REDIS_URL:-}" ]]; then
-    log "Starting ARQ Worker -> Redis queue (log: .logs/arq.log)"
+    log "Starting ARQ Worker → $REDIS_URL (log: .logs/arq.log)"
     (
         cd "$ROOT/services/ai"
         exec uv run arq app.workers.arq_worker.WorkerSettings
@@ -144,7 +144,7 @@ if [[ -n "${REDIS_URL:-}" ]]; then
     PIDS+=($!)
 fi
 
-# ─── summary ─────────────────────────────────────────────────────────────────
+# ── summary ───────────────────────────────────────────────────────────────────
 
 echo ""
 echo "  Bitcoin Academy — development"
