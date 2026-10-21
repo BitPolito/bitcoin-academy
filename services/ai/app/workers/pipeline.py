@@ -1176,11 +1176,8 @@ def run(
                 document_id, len(chunks), parser_used, qvac_ok,
             )
 
-            try:
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-            except OSError:
-                pass
+            # Keep the original for authenticated source previews and retries.
+            # document_service.delete_document removes it when the document is deleted.
 
         except Exception as exc:
             logger.exception("Pipeline failed for %s: %s", document_id, exc)

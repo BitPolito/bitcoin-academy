@@ -28,11 +28,13 @@ _SSE_KEEPALIVE_INTERVAL = 15.0
 @router.post(
     "/courses/{course_id}/study",
     response_model=StudyDispatchResponse,
+    responses={503: {"description": "Course search unavailable, timed out, or failed"}},
     summary="Run a study action on course material",
     description=(
         "Retrieves relevant passages and applies the requested study action "
         "(explain, summarize, retrieve, open_questions, quiz, oral, derive, compare). "
-        "Falls back gracefully when the QVAC service or LLM is unavailable."
+        "An empty search returns 200 with no citations. Retrieval failure returns "
+        "503 with an error code and message; generation failure falls back to source passages."
     ),
 )
 @limiter.limit("20/minute")
@@ -76,6 +78,8 @@ async def study(
         "After the last token, a citations sentinel is emitted:\n"
         "  'data: \"\\x00CITATIONS\\x00<json-array>\"\\n\\n'\n"
         "followed by 'data: [DONE]\\n\\n'.\n"
+        "Retrieval failure emits a '[ERROR] <message>' frame and then [DONE], "
+        "without answer tokens or citations.\n"
         "SSE comment lines (': keepalive') are sent every 15 s during retrieval to\n"
         "prevent proxy timeouts. QUIZ and ORAL are buffered internally."
     ),
