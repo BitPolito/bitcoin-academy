@@ -103,15 +103,33 @@ $cmdQvac = "cd \`"$Root\workers\qvac-service\`"; node src/server.js *> \`"$LogDi
 Write-Step "Starting QVAC -> http://localhost:3001"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $cmdQvac
 
+# -- start arq worker (optional) -----------------------------------------------
+
+$RedisUrl = $env:REDIS_URL
+if ([string]::IsNullOrWhiteSpace($RedisUrl) -and (Test-Path "$Root\services\ai\.env")) {
+    $redisLine = Get-Content "$Root\services\ai\.env" | Where-Object { $_ -match '^\s*REDIS_URL\s*=' } | Select-Object -Last 1
+    if ($redisLine) {
+        $RedisUrl = ($redisLine -replace '^\s*REDIS_URL\s*=\s*', '' -replace '\s+#.*$', '').Trim().Trim('"', "'")
+    }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($RedisUrl)) {
+    $cmdArq = "cd \`"$Root\services\ai\`"; uv run --no-sync arq app.workers.arq_worker.WorkerSettings *> \`"$LogDir\arq.log\`"; Read-Host 'Press Enter to close'"
+    Write-Step "Starting ARQ worker -> Redis queue (REDIS_URL is set)"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", $cmdArq
+}
+
 Write-Host ""
 Write-Host "  Bitcoin Academy - development" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Frontend -> http://localhost:3000"
 Write-Host "  Backend  -> http://localhost:8000 (Swagger: /docs)"
 Write-Host "  QVAC     -> http://localhost:3001"
+if ($RedisUrl) { Write-Host "  ARQ      -> Active (Redis queue)" }
 Write-Host ""
 Write-Host "  Tail logs: Get-Content .logs\backend.log -Wait"
 Write-Host "             Get-Content .logs\frontend.log -Wait"
 Write-Host "             Get-Content .logs\qvac.log -Wait"
+if ($RedisUrl) { Write-Host "             Get-Content .logs\arq.log -Wait" }
 Write-Host ""
-Write-Host "  Close the three PowerShell windows to stop all services."
+Write-Host "  Close the PowerShell windows to stop all services."

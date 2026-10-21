@@ -129,6 +129,21 @@ log "Starting QVAC      → http://localhost:3001  (log: .logs/qvac.log)"
 ) > "$LOG_DIR/qvac.log" 2>&1 &
 PIDS+=($!)
 
+# ── 4. ARQ worker (optional) ──────────────────────────────────────────────────
+
+if [[ -z "${REDIS_URL:-}" ]] && [[ -f "$ROOT/services/ai/.env" ]]; then
+    REDIS_URL=$(grep '^REDIS_URL=' "$ROOT/services/ai/.env" | tail -n 1 | cut -d= -f2- | tr -d '\r' | sed -e 's/[[:space:]]*#.*$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//" || true)
+fi
+
+if [[ -n "${REDIS_URL:-}" ]]; then
+    log "Starting ARQ worker → Redis queue (log: .logs/arq.log)"
+    (
+        cd "$ROOT/services/ai"
+        exec uv run --no-sync arq app.workers.arq_worker.WorkerSettings
+    ) > "$LOG_DIR/arq.log" 2>&1 &
+    PIDS+=($!)
+fi
+
 # ── summary ───────────────────────────────────────────────────────────────────
 
 echo ""
@@ -137,10 +152,12 @@ echo ""
 echo "  Frontend  →  http://localhost:3000"
 echo "  Backend   →  http://localhost:8000   (Swagger: /docs)"
 echo "  QVAC      →  http://localhost:3001"
+[[ -n "${REDIS_URL:-}" ]] && echo "  ARQ Worker→  Active (Redis queue)"
 echo ""
 echo "  Tail logs:  tail -f .logs/backend.log"
 echo "              tail -f .logs/frontend.log"
 echo "              tail -f .logs/qvac.log"
+[[ -n "${REDIS_URL:-}" ]] && echo "              tail -f .logs/arq.log"
 echo ""
 echo "  Press Ctrl+C to stop all services."
 echo ""

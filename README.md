@@ -55,12 +55,23 @@ Open **http://localhost:3000** and log in:
 | Admin | `admin@bitpolito.it` | `DevAdmin@2024!Secure` |
 | Student | `student@bitpolito.it` | `DevStudent@2024!Learn` |
 
-> **Document ingestion** (uploading PDFs/slides) also requires Redis and the ARQ background worker.
-> Start them separately if you want to test uploads:
-> ```bash
-> redis-server --daemonize yes
-> cd services/ai && uv run --no-sync arq app.workers.arq_worker.WorkerSettings
-> ```
+> **Document ingestion** (uploading PDFs/slides) works out of the box in development: when `REDIS_URL` is unset, the API runs ingestion in-process as a FastAPI `BackgroundTask` (`app/api/documents_api.py`). Redis and the ARQ worker are optional in development (and required in production — see `infra/docker-compose.yml`).
+
+### With Redis + ARQ (optional)
+
+To run document ingestion through the Redis queue and ARQ worker locally (matching production):
+
+1. Start Redis via Docker Compose (maps port `6379`):
+   ```bash
+   docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml up -d redis
+   ```
+2. Set `REDIS_URL=redis://localhost:6379` in `services/ai/.env`.
+3. Start the stack with `./start.sh` (or `.\start.ps1` on Windows), or run the worker manually:
+   ```bash
+   cd services/ai && uv run --no-sync arq app.workers.arq_worker.WorkerSettings
+   ```
+
+`./start.sh` and `.\start.ps1` automatically start the ARQ worker only when `REDIS_URL` is set; Redis itself must already be running.
 
 ---
 
@@ -216,7 +227,7 @@ CPU-only torch build, because `uv.lock` resolves the CUDA wheels on Linux (#175)
 | Port 3000 occupied by a stale process | Previous run exited without cleanup | `./start.sh` kills stale processes automatically; if running manually: `kill $(lsof -ti :3000)` |
 | QVAC service fails to start | Model download timed out on first run | Re-run `node src/server.js` — models are cached after the first successful download |
 | `/health` returns `database: disconnected` | `DATABASE_URL` missing or wrong | Check `services/ai/.env`; confirm PostgreSQL is running (or use the SQLite default for dev) |
-| Document stuck in `processing` forever | Redis not running → ARQ worker not started | `redis-server --daemonize yes`, then start the ARQ worker |
+| Document stuck in `processing` forever | Without `REDIS_URL`: in-process background task failed. With `REDIS_URL`: Redis not running or ARQ worker not started | Without `REDIS_URL`: check `.logs/backend.log` for errors. With `REDIS_URL`: start Redis (`docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml up -d redis`), then start the ARQ worker (`./start.sh` / `.\start.ps1` or `cd services/ai && uv run --no-sync arq app.workers.arq_worker.WorkerSettings`) |
 | Frontend CORS error | `CORS_ORIGINS` missing the frontend origin | Add the frontend URL to `CORS_ORIGINS` in `services/ai/.env` |
 | Chat returns "Il servizio di ricerca non è disponibile" | QVAC service not running | `cd workers/qvac-service && node src/server.js` |
 | SSR API calls fail in Docker (`ECONNREFUSED localhost:8000`) | Next.js server-side calls resolve to the wrong host | `infra/docker-compose.yml` sets `API_BASE_URL=http://api:8000/api` for SSR; make sure the web container env is current |
