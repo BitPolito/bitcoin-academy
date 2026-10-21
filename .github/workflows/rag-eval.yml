@@ -1,104 +1,153 @@
-name: RAG Evaluation Suite
+name: RAG evaluation
+
+# Runs the technical query set of services/ai/tests/test_rag.py against the
+# open corpus (Mastering Bitcoin 3rd ed., CC BY-SA 4.0). Retrieval only: the
+# suite scores retrieval confidence, so the QVAC LLM stays disabled. Manual
+# (workflow_dispatch) or on pull requests labelled `rag`. It reports and
+# uploads the results; deciding what counts as a regression is #157.
 
 on:
   workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: rag-eval-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   rag-benchmark:
+    name: RAG benchmark (technical set)
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'rag')
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 120
+
+    env:
+      # The backend sends QVAC the absolute path of each chunk file, so the
+      # directory is mounted at the same path inside the QVAC container.
+      QVAC_INGEST_DIR: ${{ github.workspace }}/.rag/qvac_ingest
+      UPLOADS_DIR: ${{ github.workspace }}/.rag/uploads
+      DATABASE_URL: sqlite:///${{ github.workspace }}/.rag/rag-eval.db
+      QVAC_SERVICE_URL: http://localhost:3001
+      QVAC_LLM_ENABLED: "false"
+      QVAC_INGEST_TIMEOUT: "3600"
+      SECRET_KEY: CI-AUTH-JWT-KEY-FOR-PIPELINE-ONLY-32!
+      ENVIRONMENT: development
+
+    defaults:
+      run:
+        working-directory: services/ai
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.11"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
           enable-cache: true
-          cache-dependency-glob: "services/ai/uv.lock"
+          cache-dependency-glob: services/ai/uv.lock
 
-      - name: Cache QVAC Embedding Model
+      - name: Install backend dependencies
+        run: uv sync --locked --extra dev
+
+      # QVAC keeps downloaded models under /root/.cache (the qvac_models volume
+      # in infra/docker-compose.yml). Caching it avoids the ~670 MB download.
+      - name: Restore QVAC model cache
         uses: actions/cache@v4
-        id: qvac-cache
         with:
-          path: .qvac-cache
+          path: .rag/models
           key: qvac-models-${{ hashFiles('workers/qvac-service/package-lock.json') }}
-          restore-keys: |
-            qvac-models-
+          restore-keys: qvac-models-
 
-      - name: Build QVAC Image
-        run: docker build -t bitcoin-academy-qvac:ci ./workers/qvac-service
+      - name: Build QVAC image
+        working-directory: .
+        run: docker build -t bitcoin-academy-qvac:rag ./workers/qvac-service
 
-      - name: Boot QVAC (Retrieval-Only Mode)
+      - name: Start QVAC (retrieval only)
+        working-directory: .
         run: |
-          mkdir -p .qvac-cache
-          mkdir -p qvac_ingest
-          
-          docker run -d --name qvac-rag \
-            -p 3001:3001 \
+          mkdir -p "$QVAC_INGEST_DIR" "$UPLOADS_DIR" .rag/models
+          docker run -d --name qvac-rag -p 3001:3001 \
             -e QVAC_LLM_ENABLED=false \
-            -v ${{ github.workspace }}/qvac_ingest:/qvac_ingest \
-            -v ${{ github.workspace }}/.qvac-cache:/root/.qvac \
-            bitcoin-academy-qvac:ci
-            
-          # Wait for healthcheck (includes model initialization/download)
-          for i in {1..60}; do
-            if curl -fsS http://localhost:3001/health; then
-              echo -e "\nQVAC ready"
-              break
+            -e QVAC_INGEST_DIR="$QVAC_INGEST_DIR" \
+            -v "$QVAC_INGEST_DIR:$QVAC_INGEST_DIR" \
+            -v "$PWD/.rag/models:/root/.cache" \
+            bitcoin-academy-qvac:rag
+          # The server listens only after loading its models (and downloading
+          # them on a cache miss).
+          for i in $(seq 1 180); do
+            if curl -sf http://localhost:3001/health; then
+              echo; echo "QVAC healthy after $((i * 5))s"; exit 0
             fi
-            sleep 2
+            if [ "$(docker inspect -f '{{.State.Running}}' qvac-rag)" != "true" ]; then
+              echo "QVAC container exited during startup"; docker logs qvac-rag; exit 1
+            fi
+            sleep 5
           done
+          echo "QVAC not healthy after 15 minutes"; docker logs qvac-rag; exit 1
 
-      - name: Fetch Open Corpus (Mastering Bitcoin)
-        working-directory: services/ai
-        run: |
-          uv sync
-          uv run python ../../scripts/fetch_rag_corpus.py --out tests/data/corpus
+      - name: Fetch the open corpus
+        run: uv run --no-sync python ../../scripts/fetch_rag_corpus.py --out tests/data/corpus
 
-      - name: Initialize Backend and Ingest
-        working-directory: services/ai
+      - name: Index the corpus
         run: |
-          cp .env.example .env
-          
-          # Initialize SQLite database
-          uv run python -m app.db.init_db
-          
-          # Boot Uvicorn in the background pointing to the shared ingest volume
-          export QVAC_INGEST_DIR=${{ github.workspace }}/qvac_ingest
-          uv run uvicorn app.main:app --port 8000 &
-          
-          # Wait for API health
-          for i in {1..15}; do
-            if curl -fsS http://localhost:8000/health; then break; fi
-            sleep 2
-          done
-          
-          # Upload the corpus using the CI integration tool
-          uv run python upload.py tests/data/corpus/mastering-bitcoin-3e.docx
+          start=$(date +%s)
+          uv run --no-sync python ../../scripts/ingest_rag_corpus.py tests/data/corpus/mastering-bitcoin-3e.docx
+          echo "Indexing took $(( $(date +%s) - start ))s"
 
-      - name: Run test_rag.py Baseline Evaluation
-        working-directory: services/ai
+      - name: Run the RAG evaluation suite
         run: |
-          COURSE_ID=$(cat tests/data/corpus/course_id.txt)
-          echo "Evaluating Course: $COURSE_ID"
-          
-          uv run python tests/test_rag.py \
+          uv run --no-sync python tests/test_rag.py \
             --set technical \
-            --course $COURSE_ID \
             --metrics-only \
             --output rag_report_technical.json
 
-      - name: Upload Report Artifact
+      - name: Compare with the committed baseline
+        run: |
+          uv run --no-sync python - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from collections import Counter
+
+          def summary(path):
+              data = json.load(open(path, encoding="utf-8"))
+              results = data["results"]
+              verdicts = Counter(r["verdict"] for r in results)
+              scores = [r["top_score"] for r in results if r.get("top_score") is not None]
+              avg = sum(scores) / len(scores) if scores else 0.0
+              return verdicts, avg, len(results)
+
+          rows = [("Baseline", "tests/data/rag_baseline_technical.json"),
+                  ("This run", "rag_report_technical.json")]
+          print("### RAG evaluation (technical set)\n")
+          print("| | PASS | WARN | FAIL | ERROR | Avg top score | Queries |")
+          print("|---|---|---|---|---|---|---|")
+          for name, path in rows:
+              v, avg, n = summary(path)
+              print(f"| {name} | {v['PASS']} | {v['WARN']} | {v['FAIL']} | {v['ERROR']} | {avg:.4f} | {n} |")
+          EOF
+          cat "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rag-evaluation-report
           path: services/ai/rag_report_technical.json
+          if-no-files-found: ignore
           retention-days: 14
+
+      - name: QVAC logs
+        if: failure()
+        working-directory: .
+        run: docker logs qvac-rag 2>&1 | tail -200
+
+      # Files written by the container are owned by root; make the model cache
+      # readable so the post-job cache save can archive it.
+      - name: Fix cache ownership
+        if: always()
+        working-directory: .
+        run: sudo chown -R "$(id -u):$(id -g)" .rag || true
