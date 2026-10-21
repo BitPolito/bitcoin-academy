@@ -60,8 +60,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .rag/models
-          key: qvac-models-${{ hashFiles('workers/qvac-service/package-lock.json') }}
-          restore-keys: qvac-models-
+          key: qvac-sdk-models-${{ hashFiles('workers/qvac-service/package-lock.json') }}
+          restore-keys: qvac-sdk-models-
 
       - name: Build QVAC image
         working-directory: .
