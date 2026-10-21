@@ -1,0 +1,130 @@
+name: RAG Evaluation Suite
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+jobs:
+  rag-benchmark:
+    name: Run RAG Evaluation
+    runs-on: ubuntu-latest
+    # Only run on manual dispatch OR if the PR has the 'rag' label attached
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'rag')
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: 'latest'
+
+      - name: Install Python dependencies
+        working-directory: services/ai
+        run: uv sync --locked --extra dev
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Cache QVAC models
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: qvac-models-${{ hashFiles('workers/qvac-service/package-lock.json') }}
+          restore-keys: |
+            qvac-models-
+
+      - name: Build QVAC Image
+        run: docker build -t qvac-local ./workers/qvac-service
+
+      - name: Create shared directories
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/.cache
+          mkdir -p $GITHUB_WORKSPACE/qvac_ingest
+
+      - name: Start QVAC Service (Retrieval Only)
+        run: |
+          # We mount QVAC_INGEST_DIR at the exact same absolute path on host and container
+          docker run -d --name qvac-rag \
+            -p 3001:3001 \
+            -e PORT=3001 \
+            -e QVAC_LLM_ENABLED=false \
+            -e QVAC_INGEST_DIR=$GITHUB_WORKSPACE/qvac_ingest \
+            -v $GITHUB_WORKSPACE/.cache:/root/.cache \
+            -v $GITHUB_WORKSPACE/qvac_ingest:$GITHUB_WORKSPACE/qvac_ingest \
+            qvac-local
+
+      - name: Start Backend API
+        working-directory: services/ai
+        env:
+          QVAC_INGEST_DIR: ${{ github.workspace }}/qvac_ingest
+        run: |
+          cp .env.example .env
+          sed -i 's/^REDIS_URL=/# REDIS_URL=/g' .env
+          mkdir -p .logs
+          uv run uvicorn app.main:app --port 8000 > .logs/backend.log 2>&1 &
+
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for Backend..."
+          timeout=60
+          while ! curl -s http://localhost:8000/docs > /dev/null; do
+            sleep 2
+            timeout=$((timeout - 2))
+            if [ $timeout -le 0 ]; then
+              echo "Backend failed to start"
+              cat services/ai/.logs/backend.log 2>/dev/null || true
+              exit 1
+            fi
+          done
+          
+          echo "Waiting for QVAC (may download 670MB model)..."
+          timeout=300
+          while ! curl -s http://localhost:3001/health > /dev/null; do
+            sleep 5
+            timeout=$((timeout - 5))
+            if [ $timeout -le 0 ]; then
+              echo "QVAC failed to start"
+              docker logs qvac-rag
+              exit 1
+            fi
+          done
+
+      - name: Fetch Evaluation Corpus
+        working-directory: services/ai
+        run: uv run python ../scripts/fetch_rag_corpus.py --out tests/data/corpus
+
+      - name: Ingest Corpus
+        working-directory: services/ai
+        env:
+          QVAC_INGEST_DIR: ${{ github.workspace }}/qvac_ingest
+        run: uv run python ../scripts/ingest_rag_corpus.py tests/data/corpus/mastering-bitcoin-3e.docx
+
+      - name: Run RAG Evaluation
+        working-directory: services/ai
+        env:
+          QVAC_INGEST_DIR: ${{ github.workspace }}/qvac_ingest
+        run: uv run python test_rag.py --set technical --metrics-only
+
+      - name: Fix Cache Permissions
+        if: always()
+        run: |
+          # Docker runs as root, so we must return ownership of the cache to the Actions runner user
+          sudo chown -R $USER:$USER $GITHUB_WORKSPACE/.cache
+
+      - name: Upload Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rag-evaluation-report
+          path: services/ai/rag_report_technical.json
+          retention-days: 14
+          
