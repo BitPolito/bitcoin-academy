@@ -48,7 +48,9 @@ _require_reviewer = CurrentUser(roles=[UserRole.ADMIN, UserRole.INSTRUCTOR])
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _chapter_to_schema(chapter: Chapter) -> ChapterDraftSchema:
+def _chapter_to_schema(chapter: Chapter, db: Session) -> ChapterDraftSchema:
+    from app.services.outline_staleness_service import source_snapshot
+
     lessons = [
         LessonDraftSchema(
             id=ls.id,
@@ -59,6 +61,13 @@ def _chapter_to_schema(chapter: Chapter) -> ChapterDraftSchema:
             source_refs=json.loads(ls.source_refs_json) if ls.source_refs_json else [],
             is_human_modified=ls.is_human_modified,
             human_modified_at=ls.human_modified_at,
+            is_stale=ls.is_stale,
+            stale_reason=ls.stale_reason,
+            sources=(
+                json.loads(ls.source_snapshot_json)
+                if ls.source_snapshot_json
+                else source_snapshot(db, json.loads(ls.source_refs_json or "[]"))
+            ),
         )
         for ls in sorted(chapter.lessons, key=lambda x: x.order_index)
     ]
@@ -71,6 +80,8 @@ def _chapter_to_schema(chapter: Chapter) -> ChapterDraftSchema:
         lessons=lessons,
         is_human_modified=chapter.is_human_modified,
         human_modified_at=chapter.human_modified_at,
+        is_stale=chapter.is_stale,
+        stale_reason=chapter.stale_reason,
     )
 
 
@@ -82,6 +93,15 @@ def _latest_run_id(course_id: str, db: Session) -> str | None:
         .first()
     )
     return run.id if run else None
+
+
+def _latest_run(course_id: str, db: Session) -> GenerationRunSchema | None:
+    run = db.query(GenerationRun).filter(GenerationRun.course_id == course_id).order_by(
+        GenerationRun.created_at.desc()
+    ).first()
+    if run is None:
+        return None
+    return GenerationRunSchema.model_validate(run)
 
 
 async def _run_outline_bg(course_id: str, doc_ids: list, run_id: str) -> None:
@@ -152,6 +172,14 @@ async def generate_outline(
             "No READY documents found. Upload and process at least one document first."
         )
 
+    if not body.confirm_human_overwrite and (
+        db.query(Chapter).filter(Chapter.course_id == course_id, Chapter.is_human_modified == True).first()
+        or db.query(Lesson).join(Chapter).filter(
+            Chapter.course_id == course_id, Lesson.is_human_modified == True
+        ).first()
+    ):
+        raise ValidationError_("Regeneration would replace human edits; explicit confirmation is required.")
+
     from app.services.outline_service import OUTLINE_PROMPT_VERSION
 
     run = GenerationRun(
@@ -192,7 +220,7 @@ async def generate_outline(
 def get_outline(
     course_id: str = Path(..., min_length=1, max_length=36),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    _current_user: CurrentUser = Depends(_require_reviewer),
 ):
     course = course_service.get_course(db, course_id)
     if course is None:
@@ -200,7 +228,10 @@ def get_outline(
 
     chapters = (
         db.query(Chapter)
-        .filter(Chapter.course_id == course_id, Chapter.status == "draft")
+        .filter(
+            Chapter.course_id == course_id,
+            (Chapter.status == "draft") | (Chapter.is_stale == True),
+        )
         .order_by(Chapter.order_index)
         .all()
     )
@@ -208,7 +239,10 @@ def get_outline(
     return OutlineResponse(
         course_id=course_id,
         run_id=_latest_run_id(course_id, db),
-        chapters=[_chapter_to_schema(ch) for ch in chapters],
+        chapters=[_chapter_to_schema(ch, db) for ch in chapters],
+        is_stale=course.outline_stale,
+        stale_reason=course.outline_stale_reason,
+        generation_run=_latest_run(course_id, db),
     )
 
 
@@ -289,7 +323,10 @@ def patch_outline(
     return OutlineResponse(
         course_id=course_id,
         run_id=_latest_run_id(course_id, db),
-        chapters=[_chapter_to_schema(ch) for ch in chapters],
+        chapters=[_chapter_to_schema(ch, db) for ch in chapters],
+        is_stale=course.outline_stale,
+        stale_reason=course.outline_stale_reason,
+        generation_run=_latest_run(course_id, db),
     )
 
 
@@ -304,7 +341,8 @@ def edit_outline(
     db: Session = Depends(get_db),
     _current_user: CurrentUser = Depends(_require_reviewer),
 ):
-    if course_service.get_course(db, course_id) is None:
+    course = course_service.get_course(db, course_id)
+    if course is None:
         raise NotFoundError("Course", course_id)
 
     from app.services.outline_edit_service import apply_action
@@ -319,7 +357,10 @@ def edit_outline(
     return OutlineResponse(
         course_id=course_id,
         run_id=_latest_run_id(course_id, db),
-        chapters=[_chapter_to_schema(ch) for ch in chapters],
+        chapters=[_chapter_to_schema(ch, db) for ch in chapters],
+        is_stale=course.outline_stale,
+        stale_reason=course.outline_stale_reason,
+        generation_run=_latest_run(course_id, db),
     )
 
 

@@ -16,11 +16,11 @@ def auth_headers(db) -> dict:
 
 
 @pytest.mark.unit
-def test_get_courses_returns_list(client, db, auth_headers):
-    """GET /api/courses returns a JSON array (empty when no data is seeded)."""
+def test_get_courses_returns_cursor_page(client, db, auth_headers):
+    """GET /api/courses returns an empty cursor page when no data is seeded."""
     response = client.get("/api/courses", headers=auth_headers)
     assert response.status_code == 200
-    assert isinstance(response.json(), list)
+    assert response.json() == {"items": [], "next_cursor": None, "has_more": False}
 
 
 @pytest.mark.unit

@@ -42,10 +42,13 @@ const lesson = (id: string, title: string, order_index: number) => ({
   status: 'draft',
   source_refs: [`source-${id}`],
   is_human_modified: false,
+  is_stale: false,
+  sources: [],
 });
 
 const outline = {
   course_id: 'course-1',
+  is_stale: false,
   chapters: [
     {
       id: 'chapter-1',
@@ -53,6 +56,7 @@ const outline = {
       order_index: 0,
       status: 'draft',
       is_human_modified: false,
+      is_stale: false,
       lessons: [lesson('lesson-1', 'Money', 0), lesson('lesson-2', 'Bitcoin', 1)],
     },
     {
@@ -61,6 +65,7 @@ const outline = {
       order_index: 1,
       status: 'draft',
       is_human_modified: false,
+      is_stale: false,
       lessons: [lesson('lesson-3', 'Mining', 0)],
     },
   ],

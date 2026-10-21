@@ -35,6 +35,9 @@ class LessonDraftSchema(BaseModel):
     source_refs: List[str] = Field(default_factory=list)
     is_human_modified: bool = False
     human_modified_at: Optional[str] = None
+    is_stale: bool = False
+    stale_reason: Optional[str] = None
+    sources: List[Dict[str, str]] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=False)
 
@@ -48,6 +51,8 @@ class ChapterDraftSchema(BaseModel):
     lessons: List[LessonDraftSchema] = Field(default_factory=list)
     is_human_modified: bool = False
     human_modified_at: Optional[str] = None
+    is_stale: bool = False
+    stale_reason: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=False)
 
@@ -56,6 +61,9 @@ class OutlineResponse(BaseModel):
     course_id: str
     run_id: Optional[str] = None
     chapters: List[ChapterDraftSchema] = Field(default_factory=list)
+    is_stale: bool = False
+    stale_reason: Optional[str] = None
+    generation_run: Optional[GenerationRunSchema] = None
 
 
 # ---- Request bodies ----
@@ -66,6 +74,7 @@ class GenerateOutlineBody(BaseModel):
         description="Document IDs to include; defaults to all READY docs in the course",
     )
     options: Optional[Dict[str, Any]] = Field(default=None)
+    confirm_human_overwrite: bool = False
 
 
 class LessonPatch(BaseModel):
@@ -93,7 +102,7 @@ class OutlineActionBody(BaseModel):
     action: Literal[
         "create_chapter", "create_lesson", "rename_chapter", "rename_lesson",
         "reorder_chapters", "reorder_lessons", "move_lesson", "merge_chapters",
-        "split_chapter", "delete_chapter", "delete_lesson",
+        "split_chapter", "delete_chapter", "delete_lesson", "accept_stale",
     ]
     chapter_id: Optional[str] = None
     lesson_id: Optional[str] = None

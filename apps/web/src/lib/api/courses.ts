@@ -1,12 +1,14 @@
 import { apiFetch } from '@/lib/api';
-import type { ApiCourse, ApiLesson, CreateCourseRequest } from './types';
+import type { ApiCourse, ApiLesson, CreateCourseRequest, CursorPage } from './types';
 
 export async function fetchCourses(
-  skip = 0,
-  limit = 100,
+  cursor?: string,
+  limit = 20,
   accessToken?: string
-): Promise<ApiCourse[]> {
-  return apiFetch<ApiCourse[]>(`/courses?skip=${skip}&limit=${limit}`, {
+): Promise<CursorPage<ApiCourse>> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  return apiFetch<CursorPage<ApiCourse>>(`/courses?${params}`, {
     accessToken,
   });
 }

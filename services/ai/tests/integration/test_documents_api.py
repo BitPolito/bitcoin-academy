@@ -50,14 +50,14 @@ def test_list_documents_empty_course(client, db, auth_headers):
     course, _ = make_course_with_lessons(db)
     resp = client.get(f"/api/courses/{course.id}/documents", headers=auth_headers)
     assert resp.status_code == 200
-    assert resp.json() == []
+    assert resp.json() == {"items": [], "next_cursor": None, "has_more": False}
 
 
 @pytest.mark.integration
 def test_list_documents_unknown_course_returns_empty(client, db, auth_headers):
     resp = client.get("/api/courses/nonexistent-course-id/documents", headers=auth_headers)
     assert resp.status_code == 200
-    assert resp.json() == []
+    assert resp.json() == {"items": [], "next_cursor": None, "has_more": False}
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +121,7 @@ def test_upload_creates_document_record(client, db, auth_headers):
 
     list_resp = client.get(f"/api/courses/{course.id}/documents", headers=auth_headers)
     assert list_resp.status_code == 200
-    ids = [d["id"] for d in list_resp.json()]
+    ids = [d["id"] for d in list_resp.json()["items"]]
     assert doc_id in ids
 
 
@@ -242,7 +242,7 @@ def test_delete_document(client, db, auth_headers):
 
     # Should now be absent from list
     list_resp = client.get(f"/api/courses/{course.id}/documents", headers=auth_headers)
-    ids = [d["id"] for d in list_resp.json()]
+    ids = [d["id"] for d in list_resp.json()["items"]]
     assert doc_id not in ids
 
 

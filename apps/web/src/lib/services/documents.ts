@@ -1,4 +1,5 @@
 import { apiFetch, ApiError } from '@/lib/api';
+import type { CursorPage } from '@/lib/api/types';
 
 export type DocumentStatus = 'uploading' | 'processing' | 'ready' | 'error';
 
@@ -22,9 +23,19 @@ export async function getDocuments(
   courseId: string,
   accessToken?: string
 ): Promise<CourseDocument[]> {
-  return apiFetch<CourseDocument[]>(`/courses/${courseId}/documents`, {
-    accessToken,
-  });
+  const documents: CourseDocument[] = [];
+  let cursor: string | undefined;
+  do {
+    const params = new URLSearchParams({ limit: '100' });
+    if (cursor) params.set('cursor', cursor);
+    const page = await apiFetch<CursorPage<CourseDocument>>(
+      `/courses/${courseId}/documents?${params}`,
+      { accessToken }
+    );
+    documents.push(...page.items);
+    cursor = page.next_cursor ?? undefined;
+  } while (cursor);
+  return documents;
 }
 
 export async function uploadDocument(

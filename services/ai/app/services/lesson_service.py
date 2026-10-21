@@ -376,6 +376,11 @@ async def process_lesson(lesson_id: str, db: Session) -> str:
     lesson.content = full_content
     lesson.content_hash = current_hash
     lesson.status = final_status
+    from app.services.outline_staleness_service import source_snapshot
+    lesson.source_snapshot_json = json.dumps(source_snapshot(db, used_ids))
+    lesson.is_stale = False
+    lesson.stale_reason = None
+    lesson.stale_at = None
     db.commit()
 
     # ---- Quiz ----
@@ -501,11 +506,12 @@ def publish_course(course_id: str, db: Session) -> Dict[str, int]:
             skipped_chapters += 1
             continue
 
-        # A chapter publishes only when EVERY lesson is already "published".
-        # Anything else — "needs_review", or still "draft" with empty content
-        # because it was never processed — blocks the chapter; otherwise students
-        # would open a published chapter onto a blank lesson body.
-        blocking = [ls for ls in lessons if ls.status != "published"]
+        # A chapter publishes only when EVERY lesson is already "published" and
+        # none is stale. Anything else — "needs_review", still "draft" with empty
+        # content because it was never processed, or regenerated from changed
+        # sources since review — blocks the chapter; otherwise students would
+        # open a published chapter onto a blank or unreviewed lesson body.
+        blocking = [ls for ls in lessons if ls.status != "published" or ls.is_stale]
 
         if blocking:
             skipped_chapters += 1

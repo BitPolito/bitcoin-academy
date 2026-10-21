@@ -11,8 +11,11 @@ export interface LessonDraft {
   status?: string;
   order_index: number;
   source_refs: string[];
+  sources: { chunk_id: string; document_id: string; content_hash: string }[];
   is_human_modified: boolean;
   human_modified_at?: string;
+  is_stale: boolean;
+  stale_reason?: string;
 }
 
 export interface ChapterDraft {
@@ -24,12 +27,17 @@ export interface ChapterDraft {
   lessons: LessonDraft[];
   is_human_modified: boolean;
   human_modified_at?: string;
+  is_stale: boolean;
+  stale_reason?: string;
 }
 
 export interface OutlineResponse {
   course_id: string;
   run_id?: string;
   chapters: ChapterDraft[];
+  is_stale: boolean;
+  stale_reason?: string;
+  generation_run?: GenerationRun;
 }
 
 export interface GenerationRun {
@@ -91,11 +99,12 @@ export async function getOutline(courseId: string, accessToken?: string): Promis
 
 export async function generateOutline(
   courseId: string,
-  accessToken?: string
+  accessToken?: string,
+  confirmHumanOverwrite = false
 ): Promise<{ run_id: string; status: string }> {
   return apiFetch(`/courses/${courseId}/outline/generate`, {
     method: 'POST',
-    body: {},
+    body: { confirm_human_overwrite: confirmHumanOverwrite },
     accessToken,
   });
 }
@@ -112,7 +121,8 @@ export type OutlineAction = {
     | 'merge_chapters'
     | 'split_chapter'
     | 'delete_chapter'
-    | 'delete_lesson';
+    | 'delete_lesson'
+    | 'accept_stale';
   chapter_id?: string;
   lesson_id?: string;
   target_chapter_id?: string;
@@ -142,11 +152,14 @@ export async function editOutline(
 export async function generateContent(
   courseId: string,
   lessonIds?: string[],
-  accessToken?: string
+  accessToken?: string,
+  confirmHumanOverwrite = false
 ): Promise<{ run_id: string; status: string; draft_lessons: number }> {
   return apiFetch(`/courses/${courseId}/content/generate`, {
     method: 'POST',
-    body: lessonIds ? { lesson_ids: lessonIds } : {},
+    body: lessonIds
+      ? { lesson_ids: lessonIds, confirm_human_overwrite: confirmHumanOverwrite }
+      : {},
     accessToken,
   });
 }
