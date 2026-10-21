@@ -105,15 +105,17 @@ Start-Process powershell -ArgumentList "-NoExit", "-Command", $cmdQvac
 
 # -- start arq worker (optional) -----------------------------------------------
 
-$RedisUrl =$env:REDIS_URL
+$RedisUrl = $env:REDIS_URL
 if ([string]::IsNullOrWhiteSpace($RedisUrl) -and (Test-Path "$Root\services\ai\.env")) {
     $redisLine = Get-Content "$Root\services\ai\.env" | Where-Object { $_ -match '^\s*REDIS_URL\s*=' } | Select-Object -Last 1
-    if ($redisLine) {$RedisUrl = ($redisLine -replace '^\s*REDIS_URL\s*=\s*', '' -replace '\s+#.*$', '').Trim().Trim('"', "'")
+    if ($redisLine) {
+        $RedisUrl = ($redisLine -replace '^\s*REDIS_URL\s*=\s*', '' -replace '\s+#.*$', '').Trim().Trim('"', "'")
     }
 }
 
-if (-not [string]::IsNullOrWhiteSpace($RedisUrl)) {$cmdArq = "cd ""$Root\services\ai""; uv run arq app.workers.arq_worker.WorkerSettings *> ""$LogDir\arq.log""; Read-Host 'Press Enter to close'"
-    Write-Step "Starting ARQ Worker -> Redis at $RedisUrl"
+if (-not [string]::IsNullOrWhiteSpace($RedisUrl)) {
+    $cmdArq = "cd \`"$Root\services\ai\`"; uv run arq app.workers.arq_worker.WorkerSettings *> \`"$LogDir\arq.log\`"; Read-Host 'Press Enter to close'"
+    Write-Step "Starting ARQ worker -> Redis queue (REDIS_URL is set)"
     Start-Process powershell -ArgumentList "-NoExit", "-Command", $cmdArq
 }
 

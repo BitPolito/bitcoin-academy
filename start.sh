@@ -136,7 +136,7 @@ if [[ -z "${REDIS_URL:-}" ]] && [[ -f "$ROOT/services/ai/.env" ]]; then
 fi
 
 if [[ -n "${REDIS_URL:-}" ]]; then
-    log "Starting ARQ Worker → $REDIS_URL (log: .logs/arq.log)"
+    log "Starting ARQ worker → Redis queue (log: .logs/arq.log)"
     (
         cd "$ROOT/services/ai"
         exec uv run arq app.workers.arq_worker.WorkerSettings
