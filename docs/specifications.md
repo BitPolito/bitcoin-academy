@@ -142,6 +142,15 @@ answer is absent from it. When retrieval returns no evidence for an action that 
 generation runs: the action answers "No relevant content found." with no citations, and that
 result is not cached, so material uploaded later can answer the same request.
 
+Retrieval failure is distinct from a successful search with no matches. If
+retrieval fails after attempting the QVAC/ChromaDB fallback path, buffered Study requests return
+HTTP 503 using the standard error envelope, with `RETRIEVAL_UNAVAILABLE`,
+`RETRIEVAL_TIMEOUT`, or `RETRIEVAL_FAILED`. Streaming requests emit an `[ERROR]`
+frame followed by `[DONE]`. The Study UI displays the service error and retry
+guidance instead of claiming that no course passages matched. Neither failure
+path generates an answer or caches the failure. Useful fallback evidence is
+still accepted; retrieval, ranking, and evidence-pack structure are unchanged.
+
 ---
 
 ### 11. Source linking and citation visibility — ✅ Implemented
@@ -152,6 +161,14 @@ must be able to inspect and navigate back to the relevant source location.
 **Implementation.** The model emits inline `[ref_N]` markers which are parsed back into citation
 objects carrying document, page, slide and section. The UI renders citation cards and a source pane
 that navigates to the originating passage.
+
+Original uploads are retained after ingestion until their document or course is
+deleted. PDF previews fetch the source with the signed-in user's bearer token and
+display a temporary browser object URL, preserving the requested page. Object URLs
+are released when the preview closes or changes documents. Missing originals
+(including files deleted by older ingestion versions) require re-uploading the
+document; the viewer shows the error and offers a retry. API framing protections
+remain enabled, and original-file responses disable caching.
 
 ---
 
@@ -270,6 +287,10 @@ The system must authenticate users and protect its endpoints.
 account lockout after repeated failures, `admin`/`student` roles, rate limiting, security headers
 and audit middleware. Development accounts are seeded automatically, and seeding refuses to run
 when `ENVIRONMENT=production`.
+
+CORS permits `PATCH` requests from configured frontend origins so course, outline
+and lesson edits can pass browser preflight checks. The editing endpoints still
+require authentication and the appropriate instructor/admin role.
 
 Endpoint protection is asserted structurally rather than by convention:
 `tests/integration/test_authorization_matrix.py` derives the endpoint list from the live OpenAPI
