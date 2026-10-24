@@ -22,10 +22,11 @@ _SERVICES_AI = _HERE.parents[2]          # services/ai/
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(_SERVICES_AI / "uploads")))
 QVAC_INGEST_DIR = Path(os.getenv("QVAC_INGEST_DIR", str(_SERVICES_AI / "qvac_ingest")))
 QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
+SUPPORTED_EXTENSIONS = (".pdf", ".pptx", ".docx", ".md", ".txt")
 
 from app.db.models import CourseDocument, DocumentProcessingStage, DocumentStatus  # noqa: E402
 from app.db.session import get_db_context                                           # noqa: E402
-from app.repositories import document_repo  # noqa: E402
+from app.repositories import document_repo                                          # noqa: E402
 
 # ---------------------------------------------------------------------------
 # sys.modules aliasing — dual-import guard
@@ -1041,11 +1042,8 @@ def run(
             logger.error("Document %s not found — aborting pipeline", document_id)
             return
 
-        # Local import placed inside the function to break the circular dependency
-        from app.api.documents_api import _ALLOWED_EXTENSIONS
-
         ext = Path(filename).suffix.lower()
-        if ext not in _ALLOWED_EXTENSIONS:
+        if ext not in SUPPORTED_EXTENSIONS:
             _mark_error(doc, f"Unsupported file type '{ext}'. Accepted: PDF, PPTX, DOCX, MD, TXT.", db)
             return
 
@@ -1076,7 +1074,7 @@ def run(
             elif ext in {".md", ".txt"}:
                 with open(file_path, "r", encoding="utf-8", errors="replace") as f:
                     raw_text = f.read()
-                # Yield a single "page" containing the entire markdown/text content
+                # Plain text has no pages: the whole file is one page
                 pages = [{"page": 1, "text": raw_text}]
                 page_count = 1
                 parser_used = "utf8-text-reader"

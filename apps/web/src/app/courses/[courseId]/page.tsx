@@ -428,7 +428,7 @@ export default function CourseWorkspacePage() {
                 Upload · drop or click
               </span>
               <span className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-60">
-                PDF · PPTX · MD · TXT · ≤ 50 MB
+                PDF · PPTX · DOCX · MD · TXT · ≤ 50 MB
               </span>
             </div>
             <ErrorBoundary>
