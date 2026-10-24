@@ -25,7 +25,7 @@ QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 
 from app.db.models import CourseDocument, DocumentProcessingStage, DocumentStatus  # noqa: E402
 from app.db.session import get_db_context                                           # noqa: E402
-from app.repositories import document_repo                                          # noqa: E402
+from app.repositories import document_repo  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # sys.modules aliasing — dual-import guard
@@ -1041,9 +1041,12 @@ def run(
             logger.error("Document %s not found — aborting pipeline", document_id)
             return
 
+        # Local import placed inside the function to break the circular dependency
+        from app.api.documents_api import _ALLOWED_EXTENSIONS
+
         ext = Path(filename).suffix.lower()
-        if ext not in {".pdf", ".pptx", ".docx"}:
-            _mark_error(doc, f"Unsupported file type '{ext}'. Accepted: PDF, PPTX, DOCX.", db)
+        if ext not in _ALLOWED_EXTENSIONS:
+            _mark_error(doc, f"Unsupported file type '{ext}'. Accepted: PDF, PPTX, DOCX, MD, TXT.", db)
             return
 
         try:
@@ -1070,6 +1073,13 @@ def run(
             elif ext == ".pptx":
                 pages, page_count = parse_pptx_pages(file_path)
                 parser_used = "python-pptx"
+            elif ext in {".md", ".txt"}:
+                with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                    raw_text = f.read()
+                # Yield a single "page" containing the entire markdown/text content
+                pages = [{"page": 1, "text": raw_text}]
+                page_count = 1
+                parser_used = "utf8-text-reader"
             else:
                 pages, page_count = parse_docx_pages(file_path)
                 parser_used = "python-docx"

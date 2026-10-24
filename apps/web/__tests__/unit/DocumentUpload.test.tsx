@@ -40,12 +40,15 @@ describe('DocumentUpload', () => {
   });
 
   it('rejects unsupported file types with a toast', () => {
-    render(<DocumentUpload courseId="c1" />);
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-    const file = makeFile('notes.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    const { container } = render(<DocumentUpload courseId="c1" />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    
+    // Test with a truly unsupported file type (.png) instead of .docx
+    const file = makeFile('image.png', 'image/png');
     fireEvent.change(input, { target: { files: [file] } });
-    expect(mockShowToast).toHaveBeenCalledWith('Unsupported format. Use PDF or PPTX.', 'err');
-    expect(screen.queryByText('notes.docx')).not.toBeInTheDocument();
+    
+    expect(mockShowToast).toHaveBeenCalledWith('Unsupported format. Use PDF, PPTX, DOCX, MD, or TXT.', 'err');
+    expect(screen.queryByText('image.png')).not.toBeInTheDocument();
   });
 
   it('rejects files over 50 MB with a validation error row', () => {

@@ -13,10 +13,14 @@ import { useToast } from '@/components/ui/Toast';
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const MAX_CONCURRENT = 2;
-const ALLOWED_EXTS = ['.pdf', '.pptx'];
+const ALLOWED_EXTS = ['.pdf', '.pptx', '.docx', '.md', '.txt'];
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain',
+  'text/markdown',
+  'text/x-markdown',
 ]);
 const MAX_SIZE_BYTES = 50 * 1024 * 1024;
 
@@ -395,10 +399,11 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
       if (fileArray.length === 0) return;
 
       // Type-gate: reject unsupported formats with a toast, never create a job for them
+      // Type-gate: reject unsupported formats with a toast, never create a job for them
       const accepted: File[] = [];
       for (const file of fileArray) {
         if (!isSupportedType(file)) {
-          showToast('Unsupported format. Use PDF or PPTX.', 'err');
+          showToast('Unsupported format. Use PDF, PPTX, DOCX, MD, or TXT.', 'err');
           continue;
         }
         accepted.push(file);
@@ -506,7 +511,7 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
           ref={inputRef}
           type="file"
           multiple
-          accept=".pdf,.pptx"
+          accept=".pdf,.pptx,.docx,.md,.txt"
           className="sr-only"
           onChange={(e) => {
             if (e.target.files) handleFiles(e.target.files);
@@ -531,7 +536,7 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
           <span className="opacity-60"> or drag and drop</span>
         </p>
         <p className="mt-1 font-mono text-[10px] opacity-50">
-          PDF · PPTX — max 50 MB — as {MATERIAL_TYPE_LABELS[selectedType]}
+          PDF · PPTX · DOCX · MD · TXT — max 50 MB — as {MATERIAL_TYPE_LABELS[selectedType]}
         </p>
       </div>
 
