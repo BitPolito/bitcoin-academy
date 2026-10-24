@@ -165,6 +165,60 @@ def test_upload_tiny_file(client, db, auth_headers):
     assert resp.json()["filename"] == "tiny.pdf"
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("filename", "content_type", "stored_mime"),
+    [
+        ("notes.md", "text/markdown", "text/markdown"),
+        ("notes.md", "application/octet-stream", "text/markdown"),
+        ("notes.txt", "text/plain", "text/plain"),
+        ("notes.txt", "application/octet-stream", "text/plain"),
+        (
+            "notes.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+    ],
+)
+def test_upload_accepts_text_and_docx(client, db, auth_headers, filename, content_type, stored_mime):
+    course, _ = make_course_with_lessons(db)
+
+    with patch("app.workers.pipeline.run"):
+        resp = client.post(
+            f"/api/courses/{course.id}/documents",
+            headers=auth_headers,
+            files={"file": (filename, b"# Title\n\nBody text.", content_type)},
+        )
+
+    assert resp.status_code == 201
+    assert resp.json()["mime_type"] == stored_mime
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("image.png", "image/png"),
+        ("slides.pdf", "application/octet-stream"),
+        ("notes.pdf.exe", "application/pdf"),
+        ("notes.md", "image/png"),
+    ],
+)
+def test_upload_rejects_unsupported_formats_with_415(client, db, auth_headers, filename, content_type):
+    course, _ = make_course_with_lessons(db)
+
+    with patch("app.workers.pipeline.run") as mock_run:
+        resp = client.post(
+            f"/api/courses/{course.id}/documents",
+            headers=auth_headers,
+            files={"file": (filename, b"data", content_type)},
+        )
+
+    assert resp.status_code == 415
+    assert "MD, TXT" in resp.json()["error"]["message"]
+    mock_run.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Status endpoint
 # ---------------------------------------------------------------------------

@@ -13,11 +13,17 @@ import { useToast } from '@/components/ui/Toast';
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const MAX_CONCURRENT = 2;
-const ALLOWED_EXTS = ['.pdf', '.pptx'];
+const ALLOWED_EXTS = ['.pdf', '.pptx', '.docx', '.md', '.txt'];
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain',
+  'text/markdown',
+  'text/x-markdown',
 ]);
+// Browsers often report .md and .txt as octet-stream; trust the extension for those
+const TEXT_EXTS = ['.md', '.txt'];
 const MAX_SIZE_BYTES = 50 * 1024 * 1024;
 
 const MATERIAL_TYPE_LABELS: Record<MaterialType, string> = {
@@ -65,7 +71,8 @@ function isSupportedType(file: File): boolean {
   const ext = '.' + (file.name.split('.').pop() ?? '').toLowerCase();
   if (!ALLOWED_EXTS.includes(ext)) return false;
   // If the browser reports a MIME type it must match; empty string means undetected (trust extension)
-  return !file.type || ALLOWED_MIME_TYPES.has(file.type);
+  if (!file.type || ALLOWED_MIME_TYPES.has(file.type)) return true;
+  return TEXT_EXTS.includes(ext) && file.type === 'application/octet-stream';
 }
 
 function validateFile(file: File): string | null {
@@ -398,7 +405,7 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
       const accepted: File[] = [];
       for (const file of fileArray) {
         if (!isSupportedType(file)) {
-          showToast('Unsupported format. Use PDF or PPTX.', 'err');
+          showToast('Unsupported format. Use PDF, PPTX, DOCX, MD, or TXT.', 'err');
           continue;
         }
         accepted.push(file);
@@ -506,7 +513,7 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
           ref={inputRef}
           type="file"
           multiple
-          accept=".pdf,.pptx"
+          accept=".pdf,.pptx,.docx,.md,.txt"
           className="sr-only"
           onChange={(e) => {
             if (e.target.files) handleFiles(e.target.files);
@@ -531,7 +538,7 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
           <span className="opacity-60"> or drag and drop</span>
         </p>
         <p className="mt-1 font-mono text-[10px] opacity-50">
-          PDF · PPTX — max 50 MB — as {MATERIAL_TYPE_LABELS[selectedType]}
+          PDF · PPTX · DOCX · MD · TXT — max 50 MB — as {MATERIAL_TYPE_LABELS[selectedType]}
         </p>
       </div>
 

@@ -274,6 +274,22 @@ def test_pipeline_pptx_chunk_count_positive(client, db):
     assert doc.chunk_count > 0
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize("suffix", [".md", ".txt"])
+def test_pipeline_text_file_becomes_ready_with_chunks(client, db, tmp_path, suffix):
+    _try_import("fastembed")
+    text = "# Bitcoin\n\n" + " ".join(["Bitcoin is a peer-to-peer electronic cash system."] * 40)
+    path = tmp_path / f"notes{suffix}"
+    path.write_text(text, encoding="utf-8")
+
+    course, _ = make_course_with_lessons(db)
+    _, doc = _run_pipeline(db, path, course.id, path.name)
+
+    assert doc.status == DocumentStatus.READY, doc.error_message
+    assert doc.chunk_count is not None
+    assert doc.chunk_count > 0
+
+
 # ---------------------------------------------------------------------------
 # Error handling — bad file path
 # ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@ from app.db.session import get_db
 from app.middleware.auth import CurrentUser, get_current_user
 from app.services import document_service
 from app.workers import pipeline
-from app.workers.pipeline import UPLOADS_DIR
+from app.workers.pipeline import SUPPORTED_EXTENSIONS, UPLOADS_DIR
 from app.schemas.document_schemas import (
     DocumentDetail,
     DocumentListItem,
@@ -27,7 +27,13 @@ _ALLOWED_MIME_TYPES = {
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/plain",
+    "text/markdown",
+    "text/x-markdown",
 }
+# Browsers often report .md and .txt as octet-stream or leave the type empty
+_GENERIC_MIME_TYPES = {"", "application/octet-stream"}
+_TEXT_MIME_BY_EXT = {".md": "text/markdown", ".txt": "text/plain"}
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
@@ -58,8 +64,14 @@ async def upload_document(
     db: Session = Depends(get_db),
     _current_user: CurrentUser = Depends(get_current_user),
 ):
-    if file.content_type not in _ALLOWED_MIME_TYPES:
-        raise HTTPException(status_code=415, detail="Unsupported file type. Allowed: PDF, PPTX, DOCX.")
+    ext = Path(file.filename or "").suffix.lower()
+    content_type = file.content_type or ""
+    is_generic_text = ext in _TEXT_MIME_BY_EXT and content_type in _GENERIC_MIME_TYPES
+    if ext not in SUPPORTED_EXTENSIONS or not (content_type in _ALLOWED_MIME_TYPES or is_generic_text):
+        raise HTTPException(
+            status_code=415,
+            detail="Unsupported file type. Allowed: PDF, PPTX, DOCX, MD, TXT.",
+        )
 
     content = await file.read(_MAX_UPLOAD_BYTES + 1)
     if len(content) > _MAX_UPLOAD_BYTES:
@@ -72,7 +84,7 @@ async def upload_document(
         course_id=course_id,
         filename=filename,
         size=len(content),
-        mime_type=file.content_type,
+        mime_type=_TEXT_MIME_BY_EXT[ext] if is_generic_text else content_type,
         document_type=document_type,
     )
 
