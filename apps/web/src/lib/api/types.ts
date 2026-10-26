@@ -36,6 +36,7 @@ export interface ApiDocumentListItem {
   status: DocumentStatus;
   processing_stage: ProcessingStage;
   error_message: string | null;
+  indexing_status?: string | null;
   document_type: MaterialType;
   created_at: string;
   updated_at: string;
@@ -159,6 +160,7 @@ export interface DocumentListRow {
   processingStage: ProcessingStage;
   isTerminal: boolean;
   errorMessage: string | null;
+  indexingStatus: string | null;
   documentType: MaterialType;
   createdAt: string;
   updatedAt: string;

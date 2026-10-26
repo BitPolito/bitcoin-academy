@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import path from "path";
 import { ragIngest, ragDeleteWorkspace } from "@qvac/sdk";
-import { getEmbeddingModelId } from "./models.js";
+import { getEmbeddingModelId, reloadEmbeddingModel } from "./models.js";
 
 const INGEST_DIR = process.env.QVAC_INGEST_DIR ?? "/qvac_ingest";
 
@@ -69,12 +69,23 @@ export async function ingestFromJsonl(jsonlPath, workspace, rebuild = false) {
 
   console.log(`[ingest] indexing ${indexableChunks.length} chunks into '${workspace}'...`);
 
-  const result = await ragIngest({
-    modelId,
-    workspace,
-    documents: indexableChunks.map((c) => c.text),
-    chunk: false,
-  });
+  let result;
+  try {
+    result = await ragIngest({
+      modelId,
+      workspace,
+      documents: indexableChunks.map((c) => c.text),
+      chunk: false,
+    });
+  } catch (err) {
+    console.error(`[ingest] embedding failed for '${workspace}':`, err.message);
+    // A failed batch leaves the SDK adapter unusable ("Adapter not initialized")
+    // until the model is reloaded. The ingest error still reaches the caller.
+    await reloadEmbeddingModel().catch((reloadErr) =>
+      console.error("[ingest] embedding model reload failed:", reloadErr.message),
+    );
+    throw err;
+  }
 
   // Build qvac_id → citation + BM25 cross-reference metadata.
   const keptChunks = indexableChunks.filter(

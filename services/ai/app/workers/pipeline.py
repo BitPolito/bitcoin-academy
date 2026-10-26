@@ -985,10 +985,12 @@ def _write_jsonl(chunks: list[dict], document_id: str) -> Path:
 # QVAC ingest
 # ---------------------------------------------------------------------------
 
-def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> bool:
+def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> str:
     """POST the JSONL path to QVAC for embedding + HyperDB indexing.
 
-    Returns True on success, False on any network/HTTP error.
+    Returns the document's indexing_status: "indexed" on success,
+    "qvac_pending" when QVAC is unreachable (BM25-only until a reindex),
+    "qvac_failed" when QVAC rejected the batch.
     Timeout configurable via QVAC_INGEST_TIMEOUT env (default 300s).
     """
     try:
@@ -1000,10 +1002,13 @@ def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> boo
             )
             resp.raise_for_status()
             logger.info("QVAC ingest accepted — workspace '%s', status %d", workspace, resp.status_code)
-            return True
+            return "indexed"
+    except httpx.HTTPStatusError as exc:
+        logger.error("QVAC rejected the ingest for workspace '%s': %s", workspace, exc)
+        return "qvac_failed"
     except httpx.HTTPError as exc:
         logger.warning("QVAC service unavailable, skipping QVAC ingest: %s", exc)
-        return False
+        return "qvac_pending"
 
 
 # ---------------------------------------------------------------------------
@@ -1141,7 +1146,7 @@ def run(
             # QVAC is the sole dense index. ChromaDB was removed because its
             # embedded server has unresolved pre-auth code-injection issues.
             jsonl_path = _write_jsonl(chunks, document_id)
-            qvac_ok = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=False)
+            indexing_status = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=False)
 
             # ------------------------------------------------------------------
             # Stage 6b — BM25 index update (sparse retrieval)
@@ -1167,9 +1172,11 @@ def run(
                 for c in chunks[:5]
             ]
 
+            # Chunks and BM25 are usable without the dense index, so the
+            # document is READY; indexing_status reports the QVAC outcome.
             doc.status = DocumentStatus.READY
             doc.processing_stage = DocumentProcessingStage.DONE
-            doc.indexing_status = "indexed" if qvac_ok else "qvac_pending"
+            doc.indexing_status = indexing_status
             doc.chunk_count = len(chunks)
             doc.parser_used = parser_used
             doc.page_count = page_count if page_count else None
@@ -1180,8 +1187,8 @@ def run(
             db.commit()
 
             logger.info(
-                "Pipeline done for %s — %d chunks, parser=%s, qvac_ok=%s",
-                document_id, len(chunks), parser_used, qvac_ok,
+                "Pipeline done for %s — %d chunks, parser=%s, indexing_status=%s",
+                document_id, len(chunks), parser_used, indexing_status,
             )
 
             # Keep the original for authenticated source previews and retries.
@@ -1197,7 +1204,7 @@ def run(
 # ---------------------------------------------------------------------------
 
 def reindex_qvac(document_id: str, course_id: str) -> None:
-    """Retry QVAC ingest for a document whose indexing_status is 'qvac_pending'."""
+    """Retry QVAC ingest for a document whose indexing_status is 'qvac_pending' or 'qvac_failed'."""
     jsonl_path = QVAC_INGEST_DIR / f"{document_id}_contingency.jsonl"
     if not jsonl_path.exists():
         logger.warning("Cannot reindex %s: JSONL not found at %s", document_id, jsonl_path)
@@ -1209,7 +1216,6 @@ def reindex_qvac(document_id: str, course_id: str) -> None:
             logger.error("Document %s not found — aborting reindex", document_id)
             return
 
-        qvac_ok = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=True)
-        doc.indexing_status = "indexed" if qvac_ok else "qvac_pending"
+        doc.indexing_status = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=True)
         db.commit()
         logger.info("Reindex QVAC for %s: indexing_status=%s", document_id, doc.indexing_status)

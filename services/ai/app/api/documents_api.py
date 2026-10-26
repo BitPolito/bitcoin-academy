@@ -122,7 +122,7 @@ async def upload_document(
 @router.post(
     "/documents/{document_id}/reindex",
     response_model=DocumentStatusResponse,
-    summary="Retry QVAC ingest for a document with indexing_status=qvac_pending",
+    summary="Retry QVAC ingest for a document with indexing_status=qvac_pending or qvac_failed",
 )
 async def reindex_document(
     request: Request,

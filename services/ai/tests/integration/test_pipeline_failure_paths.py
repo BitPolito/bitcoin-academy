@@ -112,6 +112,85 @@ def test_document_with_no_extractable_text_reaches_ready_with_zero_chunks(db):
 
 
 # ---------------------------------------------------------------------------
+# QVAC dense index failures — the document stays usable through BM25
+# ---------------------------------------------------------------------------
+
+_TEXT = "# Bitcoin\n\n" + "Bitcoin is a peer-to-peer electronic cash system. " * 40
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("qvac_status", ["qvac_pending", "qvac_failed"])
+def test_qvac_failure_keeps_document_ready_and_reports_indexing_status(db, tmp_path, qvac_status):
+    """Unreachable (pending) and rejected (failed) QVAC ingests both leave the
+    chunks and BM25 usable, so the document is READY and indexing_status says
+    which dense-index problem the UI must show."""
+    course, _ = make_course_with_lessons(db)
+    path = tmp_path / "notes.md"
+    path.write_text(_TEXT, encoding="utf-8")
+
+    _, doc = _run_pipeline(db, path, course.id, path.name, qvac_status=qvac_status)
+
+    assert doc.status == "ready"
+    assert doc.indexing_status == qvac_status
+    assert doc.chunk_count > 0
+    assert doc.error_message is None
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("qvac_status", "expected"), [
+    ("indexed", "indexed"),
+    ("qvac_failed", "qvac_failed"),
+])
+def test_reindex_updates_indexing_status_and_keeps_document_ready(
+    db, tmp_path, monkeypatch, qvac_status, expected
+):
+    from contextlib import contextmanager
+
+    import app.workers.pipeline as pipeline_mod
+    from app.db.models import CourseDocument
+
+    course, _ = make_course_with_lessons(db)
+    doc = CourseDocument(
+        course_id=course.id, filename="notes.md", mime_type="text/markdown", size=10,
+        status="ready", processing_stage="done", indexing_status="qvac_failed",
+    )
+    db.add(doc)
+    db.commit()
+    (tmp_path / f"{doc.id}_contingency.jsonl").write_text("{}\n")
+
+    @contextmanager
+    def _fake_db_ctx():
+        yield db
+
+    monkeypatch.setattr(pipeline_mod, "QVAC_INGEST_DIR", tmp_path)
+    monkeypatch.setattr(pipeline_mod, "get_db_context", _fake_db_ctx)
+    with patch("app.workers.pipeline._qvac_ingest", return_value=qvac_status) as mock_qvac:
+        pipeline_mod.reindex_qvac(doc.id, course.id)
+
+    db.refresh(doc)
+    assert mock_qvac.call_args.kwargs["rebuild"] is True
+    assert doc.status == "ready"
+    assert doc.indexing_status == expected
+
+
+@pytest.mark.integration
+def test_document_list_exposes_indexing_status(client, db):
+    from app.db.models import CourseDocument
+
+    course, _ = make_course_with_lessons(db)
+    user = make_user(db)
+    db.add(CourseDocument(
+        course_id=course.id, filename="notes.md", mime_type="text/markdown", size=10,
+        status="ready", processing_stage="done", indexing_status="qvac_failed",
+    ))
+    db.commit()
+
+    rows = client.get(f"/api/courses/{course.id}/documents", headers=_auth_header(user)).json()
+
+    assert rows[0]["indexing_status"] == "qvac_failed"
+
+
+# ---------------------------------------------------------------------------
 # API-level validation — rejected before a CourseDocument row is even created
 # ---------------------------------------------------------------------------
 
