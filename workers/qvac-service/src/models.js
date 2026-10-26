@@ -46,21 +46,17 @@ export async function shutdownModels() {
 }
 
 export async function reloadEmbeddingModel() {
-  console.warn("[qvac] Re-initializing embedding model to recover from adapter failure...");
+  console.warn("[qvac] reloading embedding model...");
   if (embeddingModelId) {
-    try {
-      await unloadModel({ modelId: embeddingModelId });
-    } catch (e) {
-      console.warn("[qvac] Failed to unload broken model, forcing reload...", e.message);
-    }
+    await unloadModel({ modelId: embeddingModelId }).catch((err) =>
+      console.warn("[qvac] unload of the failed embedding model failed:", err.message),
+    );
   }
-  
   embeddingModelId = await loadModel({
     modelSrc: EMB_SRC,
     modelType: "embeddings",
   });
-  
-  console.log("[qvac] Embedding model recovered:", embeddingModelId);
+  console.log("[qvac] embedding model reloaded:", embeddingModelId);
   return embeddingModelId;
 }
 
