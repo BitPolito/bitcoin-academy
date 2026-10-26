@@ -45,6 +45,25 @@ export async function shutdownModels() {
   await close();
 }
 
+export async function reloadEmbeddingModel() {
+  console.warn("[qvac] Re-initializing embedding model to recover from adapter failure...");
+  if (embeddingModelId) {
+    try {
+      await unloadModel({ modelId: embeddingModelId });
+    } catch (e) {
+      console.warn("[qvac] Failed to unload broken model, forcing reload...", e.message);
+    }
+  }
+  
+  embeddingModelId = await loadModel({
+    modelSrc: EMB_SRC,
+    modelType: "embeddings",
+  });
+  
+  console.log("[qvac] Embedding model recovered:", embeddingModelId);
+  return embeddingModelId;
+}
+
 export function getEmbeddingModelId() { return embeddingModelId; }
 export function getLlmModelId() { return llmModelId; }
 export function getLlmCtxSize() { return LLM_CTX; }

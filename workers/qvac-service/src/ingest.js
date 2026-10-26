@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import path from "path";
 import { ragIngest, ragDeleteWorkspace } from "@qvac/sdk";
-import { getEmbeddingModelId } from "./models.js";
+import { getEmbeddingModelId, reloadEmbeddingModel } from "./models.js";
 
 const INGEST_DIR = process.env.QVAC_INGEST_DIR ?? "/qvac_ingest";
 
@@ -69,12 +69,20 @@ export async function ingestFromJsonl(jsonlPath, workspace, rebuild = false) {
 
   console.log(`[ingest] indexing ${indexableChunks.length} chunks into '${workspace}'...`);
 
-  const result = await ragIngest({
-    modelId,
-    workspace,
-    documents: indexableChunks.map((c) => c.text),
-    chunk: false,
-  });
+  let result;
+  try {
+    result = await ragIngest({
+      modelId,
+      workspace,
+      documents: indexableChunks.map((c) => c.text),
+      chunk: false,
+    });
+  } catch (err) {
+    console.error(`[ingest] Fatal embedding error in workspace '${workspace}':`, err.message);
+    // Recover the SDK state so future batches don't fail with "Adapter not initialized"
+    await reloadEmbeddingModel();
+    throw err; // Propagate the error to return a 500 so Python marks the doc as ERROR
+  }
 
   // Build qvac_id → citation + BM25 cross-reference metadata.
   const keptChunks = indexableChunks.filter(

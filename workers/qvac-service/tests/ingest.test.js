@@ -57,29 +57,29 @@ await mock.module(import.meta.resolve("../src/models.js"), {
     getLlmModelId: () => null,
     initModels: mock.fn(),
     shutdownModels: mock.fn(),
+    reloadEmbeddingModel: mock.fn(),
   },
 });
 
 const { ingestFromJsonl } = await import("../src/ingest.js");
 
 // ---------------------------------------------------------------------------
-// Fixture helpers
+// Test data fixtures
 // ---------------------------------------------------------------------------
+const PARA = { chunk_type: "paragraph", text: "Paragraph text", citation_page: 1 };
+const PARA2 = { chunk_type: "paragraph", text: "Paragraph 2 text", citation_page: 1 };
+const TABLE = { chunk_type: "table", text: "Table text", citation_page: 2 };
+const SEC = { chunk_type: "section", text: "Section header", citation_page: 1 };
+const MICRO = { chunk_type: "micro", text: "Sentence text", citation_page: 1 };
 
-function writeJsonl(name, chunks) {
-  const path = join(TMP, name);
-  writeFileSync(path, chunks.map((c) => JSON.stringify(c)).join("\n"));
-  return path;
+function writeJsonl(name, lines) {
+  const p = join(TMP, name);
+  writeFileSync(p, lines.map((l) => JSON.stringify(l)).join("\n"));
+  return p;
 }
 
-const PARA  = { chunk_type: "paragraph", text: "Bitcoin uses UTXO." };
-const PARA2 = { chunk_type: "paragraph", text: "Proof-of-work secures the chain." };
-const TABLE = { chunk_type: "table",     text: "| Col1 | Col2 |\n| A    | B    |" };
-const SEC   = { chunk_type: "section",   text: "1. Transactions" };
-const MICRO = { chunk_type: "micro",     text: "UTXO." };
-
 // ---------------------------------------------------------------------------
-// Tests
+// Test suite
 // ---------------------------------------------------------------------------
 
 describe("ingestFromJsonl", () => {
@@ -211,5 +211,26 @@ describe("ingestFromJsonl", () => {
     await ingestFromJsonl(source, "WS_NEW_DIR");
 
     assert.ok(existsSync(join(TMP, "WS_NEW_DIR_meta.json")));
+  });
+
+  // --- recovery ---
+
+  it("reloads the embedding model and throws when ragIngest fails", async () => {
+    mockRagIngest.mock.mockImplementationOnce(async () => {
+      throw new Error("context overflow");
+    });
+    
+    // Ensure the imported mock function from models.js tracks calls fresh
+    const { reloadEmbeddingModel } = await import("../src/models.js");
+    reloadEmbeddingModel.mock.resetCalls();
+
+    const path = writeJsonl("crash.jsonl", [PARA]);
+    await assert.rejects(
+      () => ingestFromJsonl(path, "WS1"),
+      /context overflow/
+    );
+
+    // Verify our recovery function was triggered exactly once
+    assert.equal(reloadEmbeddingModel.mock.calls.length, 1);
   });
 });

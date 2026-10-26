@@ -1169,7 +1169,12 @@ def run(
                 for c in chunks[:5]
             ]
 
-            doc.status = DocumentStatus.READY
+            if qvac_ok:
+                doc.status = DocumentStatus.READY
+            else:
+                doc.status = DocumentStatus.ERROR
+                doc.error_message = "Vector indexing failed. Dense search is unavailable."
+                
             doc.processing_stage = DocumentProcessingStage.DONE
             doc.indexing_status = "indexed" if qvac_ok else "qvac_pending"
             doc.chunk_count = len(chunks)
