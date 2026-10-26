@@ -10,7 +10,7 @@ from app.db.session import get_db
 from app.middleware.auth import CurrentUser, get_current_user
 from app.services import document_service
 from app.workers import pipeline
-from app.workers.pipeline import UPLOADS_DIR
+from app.workers.pipeline import SUPPORTED_EXTENSIONS, UPLOADS_DIR
 from app.schemas.document_schemas import (
     DocumentDetail,
     DocumentListItem,
@@ -31,6 +31,9 @@ _ALLOWED_MIME_TYPES = {
     "text/markdown",
     "text/x-markdown",
 }
+# Browsers often report .md and .txt as octet-stream or leave the type empty
+_GENERIC_MIME_TYPES = {"", "application/octet-stream"}
+_TEXT_MIME_BY_EXT = {".md": "text/markdown", ".txt": "text/plain"}
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
@@ -44,6 +47,7 @@ def list_documents(
     _current_user: CurrentUser = Depends(get_current_user),
 ):
     return document_service.list_documents(db, course_id)
+
 
 @router.post(
     "/courses/{course_id}/documents",
@@ -60,14 +64,13 @@ async def upload_document(
     db: Session = Depends(get_db),
     _current_user: CurrentUser = Depends(get_current_user),
 ):
-    # Browsers sometimes send .md as octet-stream or empty, so fallback to filename extension
-    is_valid_mime = file.content_type in _ALLOWED_MIME_TYPES
-    is_valid_ext = file.filename and file.filename.lower().endswith(('.md', '.txt'))
-    
-    if not (is_valid_mime or is_valid_ext):
+    ext = Path(file.filename or "").suffix.lower()
+    content_type = file.content_type or ""
+    is_generic_text = ext in _TEXT_MIME_BY_EXT and content_type in _GENERIC_MIME_TYPES
+    if ext not in SUPPORTED_EXTENSIONS or not (content_type in _ALLOWED_MIME_TYPES or is_generic_text):
         raise HTTPException(
-            status_code=415, 
-            detail="Unsupported file type. Allowed: PDF, PPTX, DOCX, MD, TXT."
+            status_code=415,
+            detail="Unsupported file type. Allowed: PDF, PPTX, DOCX, MD, TXT.",
         )
 
     content = await file.read(_MAX_UPLOAD_BYTES + 1)
@@ -76,17 +79,12 @@ async def upload_document(
 
     filename = Path(file.filename or "upload").name
 
-    # Optional normalization: if it passed via extension but had a generic MIME type, force it
-    mime_to_save = file.content_type
-    if not is_valid_mime and is_valid_ext:
-        mime_to_save = "text/markdown" if filename.lower().endswith(".md") else "text/plain"
-
     doc = document_service.create_document(
         db,
         course_id=course_id,
         filename=filename,
         size=len(content),
-        mime_type=mime_to_save,
+        mime_type=_TEXT_MIME_BY_EXT[ext] if is_generic_text else content_type,
         document_type=document_type,
     )
 
