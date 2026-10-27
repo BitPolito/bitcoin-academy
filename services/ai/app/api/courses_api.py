@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.db.models import UserRole
-from app.middleware.auth import CurrentUser, get_current_user
+from app.middleware.auth import CurrentUser, get_current_user, require_instructor
 from app.services import course_service
 from app.schemas.course_schemas import CourseSchema, LessonSchema
 from app.core.errors import NotFoundError, ValidationError_
@@ -150,7 +150,7 @@ async def reindex_course(
     background_tasks: BackgroundTasks,
     course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(CurrentUser(roles=[UserRole.ADMIN, UserRole.INSTRUCTOR])),
+    _current_user: CurrentUser = Depends(require_instructor),
 ) -> ReindexResponse:
     """Re-ingest all documents in a course (full parse → chunk → BM25 → QVAC).
     Instructor/admin only."""

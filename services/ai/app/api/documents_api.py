@@ -7,8 +7,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.db.models import UserRole
-from app.middleware.auth import CurrentUser, get_current_user
+from app.middleware.auth import CurrentUser, get_current_user, require_instructor
 from app.services import document_service
 from app.workers import pipeline
 from app.workers.pipeline import UPLOADS_DIR
@@ -30,10 +29,6 @@ _ALLOWED_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
-
-# Changing course material (upload, re-ingest, delete) is instructor/admin only,
-# matching course create/update/delete. Reads stay open to any authenticated user.
-_WRITE_ROLES = CurrentUser(roles=[UserRole.ADMIN, UserRole.INSTRUCTOR])
 
 
 @router.get(
@@ -61,7 +56,7 @@ async def upload_document(
     file: UploadFile = File(...),
     document_type: str = Form("lecture"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(_WRITE_ROLES),
+    _current_user: CurrentUser = Depends(require_instructor),
 ):
     if file.content_type not in _ALLOWED_MIME_TYPES:
         raise HTTPException(status_code=415, detail="Unsupported file type. Allowed: PDF, PPTX, DOCX.")
@@ -122,7 +117,7 @@ async def reindex_document(
     background_tasks: BackgroundTasks,
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(_WRITE_ROLES),
+    _current_user: CurrentUser = Depends(require_instructor),
 ):
     doc = document_service.get_document(db, document_id)
     if doc is None:
@@ -160,7 +155,7 @@ async def retry_document(
     background_tasks: BackgroundTasks,
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(_WRITE_ROLES),
+    _current_user: CurrentUser = Depends(require_instructor),
 ):
     doc = document_service.get_document(db, document_id)
     if doc is None:
@@ -295,7 +290,7 @@ def get_document_structure(
 def delete_document(
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(_WRITE_ROLES),
+    _current_user: CurrentUser = Depends(require_instructor),
 ):
     deleted = document_service.delete_document(db, document_id)
     if not deleted:

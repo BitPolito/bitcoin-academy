@@ -303,6 +303,10 @@ instructor/admin role, the same guard as course create, update and delete;
 `tests/integration/test_document_write_authorization.py` asserts `403` for students and success for
 both roles on each of them.
 
+These write endpoints use the shared authentication dependency before checking
+the instructor/admin role. Invalid, expired or revoked credentials return `401`
+without changing documents or scheduling ingestion work.
+
 Endpoint protection is asserted structurally rather than by convention:
 `tests/integration/test_authorization_matrix.py` derives the endpoint list from the live OpenAPI
 schema, so an endpoint added without authentication fails the build. Endpoints that are deliberately
