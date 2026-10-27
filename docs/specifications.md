@@ -151,6 +151,14 @@ guidance instead of claiming that no course passages matched. Neither failure
 path generates an answer or caches the failure. Useful fallback evidence is
 still accepted; retrieval, ranking, and evidence-pack structure are unchanged.
 
+Generated course lessons are judged as a whole, including their learning objectives,
+glossary definitions and self-check questions, against the complete selected source
+passages. Glossary terms absent from those passages require manual review even if
+the model judge approves the prose. Unsupported content or unavailable validation
+leaves the lesson in `needs_review` rather than automatically publishing it.
+The content prompt version invalidates previously generated lesson caches; existing
+lessons must be regenerated to receive the updated checks.
+
 ---
 
 ### 11. Source linking and citation visibility — ✅ Implemented
