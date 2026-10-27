@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=65.0"]
+requires = ["setuptools>=84.1.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -51,7 +51,9 @@ dependencies = [
     "flashrank>=0.2.0",
     "sentence-transformers>=2.7.0",
     # Security floors for transitive image/model dependencies used at runtime.
-    "Pillow>=12.3.0",
+    "Pillow>=13.0.0",
+    "filelock>=4.2.1",
+    "setuptools>=84.1.0",
     "transformers>=5.10.0",
     "rank-bm25>=0.2.2",
     # Hardware tier detection (RAM, cross-platform incl. Windows)

@@ -425,3 +425,12 @@ Selected behaviours are configurable and their defaults matter when reading this
 | ChromaDB indexing | skipped | QVAC-only indexing by default |
 
 The full variable reference lives in the README and the configuration document.
+
+
+### Security dependency migration candidate
+
+The pending Python dependency candidate raises the Pillow, filelock and
+setuptools floors and requires ingestion/model compatibility verification. It
+does not change document authorization or incorporate the separate certifi
+PR. See [the migration plan](security-python-migration.md) for validation and
+release prerequisites.
