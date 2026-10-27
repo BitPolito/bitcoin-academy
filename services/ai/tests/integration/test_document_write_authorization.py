@@ -117,3 +117,28 @@ def test_student_keeps_read_access(client, db, stored_document, path):
         headers=_headers(db, UserRole.STUDENT),
     )
     assert resp.status_code == 200
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("action", sorted(_WRITE_CALLS))
+def test_revoked_writer_token_cannot_change_course_material(
+    client, db, stored_document, action, monkeypatch
+):
+    course_id, doc_id = stored_document
+    headers = _headers(db, UserRole.INSTRUCTOR)
+    token = headers["Authorization"].removeprefix("Bearer ")
+    monkeypatch.setattr(
+        "app.middleware.auth.is_token_blacklisted", lambda token_id: token_id == token[:32]
+    )
+
+    with patch("app.workers.pipeline.run") as run, patch(
+        "app.workers.pipeline.reindex_qvac"
+    ) as reindex:
+        resp = _WRITE_CALLS[action](client, course_id, doc_id, headers)
+    assert resp.status_code == 401
+    run.assert_not_called()
+    reindex.assert_not_called()
+    db.expire_all()
+    docs = db.query(CourseDocument).filter(CourseDocument.course_id == course_id).all()
+    assert [doc.id for doc in docs] == [doc_id]
+    assert docs[0].status == "ready"
