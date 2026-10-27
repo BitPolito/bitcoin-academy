@@ -50,6 +50,7 @@ await mock.module("@qvac/sdk", {
 
 // models.js mock — use mock.fn() so individual tests can override the return value
 const mockGetEmbeddingModelId = mock.fn(() => "test-emb-id");
+const mockReloadEmbeddingModel = mock.fn(async () => "test-emb-id-2");
 
 await mock.module(import.meta.resolve("../src/models.js"), {
   namedExports: {
@@ -57,6 +58,7 @@ await mock.module(import.meta.resolve("../src/models.js"), {
     getLlmModelId: () => null,
     initModels: mock.fn(),
     shutdownModels: mock.fn(),
+    reloadEmbeddingModel: mockReloadEmbeddingModel,
   },
 });
 
@@ -211,5 +213,37 @@ describe("ingestFromJsonl", () => {
     await ingestFromJsonl(source, "WS_NEW_DIR");
 
     assert.ok(existsSync(join(TMP, "WS_NEW_DIR_meta.json")));
+  });
+
+  // --- recovery after an embedding failure ---
+
+  it("reloads the embedding model and rethrows when ragIngest fails", async () => {
+    mockReloadEmbeddingModel.mock.resetCalls();
+    mockRagIngest.mock.mockImplementationOnce(async () => {
+      throw new Error("context overflow");
+    });
+
+    const path = writeJsonl("crash.jsonl", [PARA]);
+    await assert.rejects(() => ingestFromJsonl(path, "WS1"), /context overflow/);
+    assert.equal(mockReloadEmbeddingModel.mock.calls.length, 1);
+  });
+
+  it("rethrows the ingest error even when the reload fails", async () => {
+    mockRagIngest.mock.mockImplementationOnce(async () => {
+      throw new Error("context overflow");
+    });
+    mockReloadEmbeddingModel.mock.mockImplementationOnce(async () => {
+      throw new Error("load failed");
+    });
+
+    const path = writeJsonl("crash-reload.jsonl", [PARA]);
+    await assert.rejects(() => ingestFromJsonl(path, "WS1"), /context overflow/);
+  });
+
+  it("does not reload the model when ragIngest succeeds", async () => {
+    mockReloadEmbeddingModel.mock.resetCalls();
+    const path = writeJsonl("ok.jsonl", [PARA]);
+    await ingestFromJsonl(path, "WS1");
+    assert.equal(mockReloadEmbeddingModel.mock.calls.length, 0);
   });
 });
