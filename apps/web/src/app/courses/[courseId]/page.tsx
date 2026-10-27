@@ -251,7 +251,10 @@ export default function CourseWorkspacePage() {
         setDocsLoading(true);
         const rows = await getDocumentListRows(courseId, accessToken);
         setDocs(rows);
-        if (rows.length > 0 && !selectedId) setSelectedId(rows[0].id);
+        // Functional update: auto-select the first row only when nothing is
+        // selected, without making selectedId a dependency (that would refetch
+        // the list on every row click).
+        if (rows.length > 0) setSelectedId((current) => current ?? rows[0].id);
       } catch {
         setDocs([]);
       } finally {
