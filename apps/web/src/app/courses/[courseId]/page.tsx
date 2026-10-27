@@ -15,6 +15,12 @@ import { canManageCourses } from '@/lib/auth/roles';
 
 type DocFilter = 'all' | 'ready' | 'processing' | 'error';
 
+// A READY document is always searchable by keyword; these flag a missing dense index.
+const INDEXING_WARNINGS: Record<string, string> = {
+  qvac_pending: 'Semantic index pending: the QVAC service was unreachable. Keyword search only until you reindex.',
+  qvac_failed: 'Semantic indexing failed: QVAC rejected this document. Keyword search only. Reindex to retry.',
+};
+
 const FILTER_OPTIONS: { id: DocFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'ready', label: 'Indexed' },
@@ -431,7 +437,7 @@ export default function CourseWorkspacePage() {
                 Upload · drop or click
               </span>
               <span className="font-mono text-[10px] tracking-[0.18em] uppercase opacity-60">
-                PDF · PPTX · MD · TXT · ≤ 50 MB
+                PDF · PPTX · DOCX · MD · TXT · ≤ 50 MB
               </span>
             </div>
             <ErrorBoundary>
@@ -536,6 +542,23 @@ export default function CourseWorkspacePage() {
                       updatedAt={selected.updatedAt}
                     />
                   </div>
+
+                  {selected.status === 'ready' &&
+                    selected.indexingStatus &&
+                    INDEXING_WARNINGS[selected.indexingStatus] && (
+                      <div
+                        role="status"
+                        className="b-hard-1 rounded-md p-3"
+                        style={{ borderColor: '#b26a00', color: '#b26a00' }}
+                      >
+                        <div className="font-mono text-[10px] tracking-[0.2em] uppercase mb-1">
+                          Warning
+                        </div>
+                        <div className="font-mono text-[12px] leading-relaxed">
+                          {INDEXING_WARNINGS[selected.indexingStatus]}
+                        </div>
+                      </div>
+                    )}
 
                   {selected.status === 'error' && selected.errorMessage && (
                     <div

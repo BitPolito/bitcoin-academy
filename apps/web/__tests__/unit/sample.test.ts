@@ -16,6 +16,11 @@ const baseListItem: ApiDocumentListItem = {
 };
 
 describe('toDocumentListRow', () => {
+  it('maps indexing_status and defaults it to null', () => {
+    expect(toDocumentListRow({ ...baseListItem, indexing_status: 'qvac_failed' }).indexingStatus).toBe('qvac_failed');
+    expect(toDocumentListRow(baseListItem).indexingStatus).toBeNull();
+  });
+
   it('maps id and courseId correctly', () => {
     const row = toDocumentListRow(baseListItem);
     expect(row.id).toBe('doc-1');
