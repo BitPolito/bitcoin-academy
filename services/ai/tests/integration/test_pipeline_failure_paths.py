@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
+import gc 
 from tests.conftest import make_course_with_lessons, make_user
 from tests.integration.test_pipeline_e2e import _run_pipeline
 
@@ -48,23 +48,45 @@ def test_unsupported_extension_marks_error_not_stuck(db):
 
 
 @pytest.mark.integration
-def test_corrupt_pdf_marks_error_not_stuck(db):
-    """Garbage bytes with a .pdf extension — pymupdf4llm raises FileDataError;
-    the pipeline's outer exception handler must turn that into a terminal
-    error state, not propagate it (which would leave the document mid-flight
-    forever if this ran as a background task with no caller to catch it)."""
+def test_corrupt_pdf_marks_error_not_stuck(db, tmp_path, monkeypatch):
+    """A completely invalid PDF file must not crash the worker or hang forever.
+    It should be caught and marked as an error."""
+    import uuid
+    from app.db.models import CourseDocument
+    from app.workers import pipeline
+    from contextlib import contextmanager
+    
     course, _ = make_course_with_lessons(db)
-    path = _write_temp(".pdf", b"this is not a pdf, just garbage bytes 12345")
+    doc_id = str(uuid.uuid4())
+    
+    path = tmp_path / "corrupt.pdf"
+    path.write_bytes(b"This is not a PDF file. It is just some bytes.")
 
-    try:
-        _, doc = _run_pipeline(db, path, course.id, "corrupt.pdf")
-    finally:
-        path.unlink(missing_ok=True)
+    doc = CourseDocument(
+        id=doc_id, course_id=course.id, filename="corrupt.pdf",
+        mime_type="application/pdf", size=path.stat().st_size,
+        status="processing", processing_stage="queued",
+    )
+    db.add(doc)
+    db.commit()
 
+    @contextmanager
+    def isolated_db():
+        yield db
+
+    monkeypatch.setattr(pipeline, "get_db_context", isolated_db)
+    
+    # Run pipeline directly to bypass the WinError 32 bug inside the _run_pipeline helper
+    pipeline.run(document_id=doc_id, course_id=course.id, filename="corrupt.pdf", file_path=str(path))
+    
+    db.refresh(doc)
+    
     assert doc.status == "error"
-    assert doc.error_message
-
-
+    assert doc.chunk_count in (0, None)
+    assert doc.error_message is not None
+    
+    
+    
 @pytest.mark.integration
 def test_empty_pdf_marks_error_not_stuck(db):
     """A zero-byte file with a .pdf extension — pymupdf4llm raises
@@ -82,12 +104,11 @@ def test_empty_pdf_marks_error_not_stuck(db):
 
 
 @pytest.mark.integration
-def test_document_with_no_extractable_text_reaches_ready_with_zero_chunks(db):
+def test_document_with_no_extractable_text_marks_error(db):
     """A structurally valid PDF whose pages carry no text (a blank page, or a
-    page of only images) must NOT be treated as a failure. This is the
-    'document that parses but yields zero chunks' case the issue calls out —
-    it must reach a coherent, inspectable READY state with chunk_count == 0,
-    not error and not hang."""
+    page of only images) must be explicitly marked as an error (Issue #263).
+    It must reach an ERROR state with a user-facing limitation message,
+    and chunk_count == 0."""
     import fitz
 
     doc_obj = fitz.open()
@@ -103,12 +124,13 @@ def test_document_with_no_extractable_text_reaches_ready_with_zero_chunks(db):
     finally:
         path.unlink(missing_ok=True)
 
-    assert doc.status == "ready", (
-        f"A blank document must still reach READY, not {doc.status}. "
-        f"error_message={doc.error_message!r}"
+    assert doc.status == "error", (
+        f"A blank document must reach ERROR, not {doc.status}."
     )
     assert doc.chunk_count == 0
     assert doc.page_count == 1
+    assert doc.error_message is not None
+    assert "No searchable text was extracted" in doc.error_message
 
 
 # ---------------------------------------------------------------------------

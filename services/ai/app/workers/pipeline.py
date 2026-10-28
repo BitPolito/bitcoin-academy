@@ -1126,6 +1126,28 @@ def run(
                     len(chunks), document_id,
                 )
                 chunks = _enrich_with_context(chunks, doc_summary, QVAC_SERVICE_URL)
+            
+            # ------------------------------------------------------------------
+            # Stage 4 — EMPTY EXTRACTION GUARD (Issue #263)
+            # ------------------------------------------------------------------
+            if not chunks:
+                logger.warning(
+                    "No searchable text/chunks for %s (likely image-only). Bypassing DB and indexers.", 
+                    document_id
+                )
+                doc.status = DocumentStatus.ERROR
+                doc.error_message = (
+                    "No searchable text was extracted from this document. "
+                    "Image-only or scanned PDFs (OCR) are not currently supported. "
+                    "Please upload a PDF with selectable, searchable text."
+                )
+                doc.processing_stage = DocumentProcessingStage.DONE
+                doc.chunk_count = 0
+                doc.parser_used = parser_used
+                doc.page_count = page_count if page_count else None
+                
+                db.commit()
+                return
 
             # ------------------------------------------------------------------
             # Stage 3d — SAVE PARENTS TO DB

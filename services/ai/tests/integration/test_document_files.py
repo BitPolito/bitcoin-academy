@@ -1,6 +1,7 @@
 """Original files remain authenticated, available after ingest, and deletable."""
 import uuid
 from contextlib import contextmanager
+from pathlib import Path
 
 import fitz
 import pytest
@@ -69,7 +70,6 @@ def test_original_pdf_is_available_after_ingestion(client, ingested_pdf):
     assert path.exists()
     assert response.headers["content-type"] == "application/pdf"
     assert response.headers["cache-control"] == "private, no-store"
-    # Fetching a blob for rendering does not require relaxing API frame protection.
     assert response.headers["x-frame-options"] == "DENY"
 
 
@@ -93,11 +93,14 @@ def test_deleting_document_removes_retained_original(client, ingested_pdf):
     assert not path.exists()
     assert client.get(f"/api/documents/{doc_id}/file", headers=headers).status_code == 404
 
-
-def test_upload_allowed_mime_types(client, db):
+def test_upload_allowed_mime_types(client, db, monkeypatch):
     course, _ = make_course_with_lessons(db, n_lessons=1)
     admin = make_user(db, role=UserRole.ADMIN)
     headers = {"Authorization": f"Bearer {create_access_token(admin.id, admin.email, 'admin')}"}
+
+    # CRITICAL FIX: Prevent the successful 201 uploads from spawning real background 
+    # tasks that crash the in-memory SQLite test database.
+    monkeypatch.setattr(pipeline, "run", lambda *args, **kwargs: None)
 
     # Test .md with text/markdown
     res_md = client.post(
@@ -127,14 +130,17 @@ def test_upload_allowed_mime_types(client, db):
     assert res_png.status_code == 415
     assert "PDF, PPTX, DOCX, MD, TXT" in str(res_png.json())
 
-
 def test_pipeline_markdown_ingestion(db, tmp_path, monkeypatch):
     course, _ = make_course_with_lessons(db, n_lessons=1)
     doc_id = str(uuid.uuid4())
     upload_dir = tmp_path / course.id
     upload_dir.mkdir()
     path = upload_dir / f"{doc_id}_notes.md"
-    path.write_text("# Chapter 1\nThis is a markdown test document.", encoding="utf-8")
+    path.write_text(
+        "# Chapter 1\n" + 
+        "This is a markdown test document with sufficient length to pass the quality filter. " * 10, 
+        encoding="utf-8"
+    )
     
     doc = CourseDocument(
         id=doc_id, course_id=course.id, filename="notes.md",
@@ -159,7 +165,54 @@ def test_pipeline_markdown_ingestion(db, tmp_path, monkeypatch):
                  filename="notes.md", file_path=str(path))
                  
     db.refresh(doc)
-    assert doc.status == "ready"  # Worker marks as ready (indexed) upon completion
+    assert doc.status == "ready"
     assert doc.page_count == 1
     
     
+def test_pipeline_image_only_pdf_marks_error(db, tmp_path, monkeypatch):
+    course, _ = make_course_with_lessons(db, n_lessons=1)
+    doc_id = str(uuid.uuid4())
+    upload_dir = tmp_path / course.id
+    upload_dir.mkdir()
+    path = upload_dir / f"{doc_id}_scanned.pdf"
+    
+    pdf = fitz.open()
+    pdf.new_page()
+    pdf.save(path)
+    pdf.close()
+    
+    doc = CourseDocument(
+        id=doc_id, course_id=course.id, filename="scanned.pdf",
+        mime_type="application/pdf", size=path.stat().st_size,
+        status="processing", processing_stage="queued",
+    )
+    db.add(doc)
+    db.commit()
+
+    @contextmanager
+    def isolated_db():
+        yield db
+
+    monkeypatch.setattr(pipeline, "get_db_context", isolated_db)
+    monkeypatch.setattr(pipeline, "UPLOADS_DIR", tmp_path)
+    monkeypatch.setattr(documents_api, "UPLOADS_DIR", tmp_path)
+    monkeypatch.setattr(pipeline, "QVAC_INGEST_DIR", tmp_path / "index")
+    monkeypatch.setattr(pipeline, "_RAG_CONTEXTUAL_CHUNKS", False)
+    
+    qvac_called = False
+    def mock_qvac(*args, **kwargs):
+        nonlocal qvac_called
+        qvac_called = True
+        return True
+    monkeypatch.setattr(pipeline, "_qvac_ingest", mock_qvac)
+
+    pipeline.run(document_id=doc_id, course_id=course.id,
+                 filename="scanned.pdf", file_path=str(path))
+                 
+    db.refresh(doc)
+    
+    assert doc.status == "error"
+    assert doc.chunk_count == 0
+    assert doc.error_message is not None
+    assert "No searchable text" in doc.error_message
+    assert qvac_called is False

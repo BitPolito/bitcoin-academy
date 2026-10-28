@@ -31,6 +31,8 @@ _ALLOWED_MIME_TYPES = {
     "text/markdown",
     "text/x-markdown",
 }
+
+_ALLOWED_EXTENSIONS = {".pdf", ".pptx", ".docx", ".md", ".txt"}
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
@@ -45,6 +47,8 @@ def list_documents(
 ):
     return document_service.list_documents(db, course_id)
 
+
+# ... [Ensure exactly two blank lines above this decorator] ...
 @router.post(
     "/courses/{course_id}/documents",
     response_model=DocumentListItem,
@@ -60,15 +64,19 @@ async def upload_document(
     db: Session = Depends(get_db),
     _current_user: CurrentUser = Depends(get_current_user),
 ):
-    # Browsers sometimes send .md as octet-stream or empty, so fallback to filename extension
     is_valid_mime = file.content_type in _ALLOWED_MIME_TYPES
-    is_valid_ext = file.filename and file.filename.lower().endswith(('.md', '.txt'))
+    is_valid_ext = False
     
+    # Restrict fallback strictly to un-typed streams or empty/missing types
+    if file.content_type in ("application/octet-stream", "", None):
+        is_valid_ext = file.filename and file.filename.lower().endswith(tuple(_ALLOWED_EXTENSIONS))
+        
     if not (is_valid_mime or is_valid_ext):
         raise HTTPException(
             status_code=415, 
             detail="Unsupported file type. Allowed: PDF, PPTX, DOCX, MD, TXT."
         )
+
 
     content = await file.read(_MAX_UPLOAD_BYTES + 1)
     if len(content) > _MAX_UPLOAD_BYTES:
