@@ -17,8 +17,8 @@ type DocFilter = 'all' | 'ready' | 'processing' | 'error';
 
 // A READY document is always searchable by keyword; these flag a missing dense index.
 const INDEXING_WARNINGS: Record<string, string> = {
-  qvac_pending: 'Semantic index pending: the QVAC service was unreachable. Keyword search only until you reindex.',
-  qvac_failed: 'Semantic indexing failed: QVAC rejected this document. Keyword search only. Reindex to retry.',
+  qvac_pending: 'Semantic index pending: the QVAC service was unreachable. Keyword search only until the document is reindexed.',
+  qvac_failed: 'Semantic indexing failed: QVAC rejected this document. Keyword search only until it is reindexed.',
 };
 
 const FILTER_OPTIONS: { id: DocFilter; label: string }[] = [
