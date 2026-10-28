@@ -82,12 +82,11 @@ def test_empty_pdf_marks_error_not_stuck(db):
 
 
 @pytest.mark.integration
-def test_document_with_no_extractable_text_reaches_ready_with_zero_chunks(db):
+def test_document_with_no_extractable_text_marks_error(db):
     """A structurally valid PDF whose pages carry no text (a blank page, or a
-    page of only images) must NOT be treated as a failure. This is the
-    'document that parses but yields zero chunks' case the issue calls out —
-    it must reach a coherent, inspectable READY state with chunk_count == 0,
-    not error and not hang."""
+    page of only images, #263) has nothing to index: it must end in ERROR with
+    a message explaining that scanned PDFs are not supported, not in a READY
+    state that looks searchable."""
     import fitz
 
     doc_obj = fitz.open()
@@ -103,10 +102,9 @@ def test_document_with_no_extractable_text_reaches_ready_with_zero_chunks(db):
     finally:
         path.unlink(missing_ok=True)
 
-    assert doc.status == "ready", (
-        f"A blank document must still reach READY, not {doc.status}. "
-        f"error_message={doc.error_message!r}"
-    )
+    assert doc.status == "error"
+    assert doc.processing_stage == "error"
+    assert "No searchable text" in doc.error_message
     assert doc.chunk_count == 0
     assert doc.page_count == 1
 

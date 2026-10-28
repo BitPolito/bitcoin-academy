@@ -23,6 +23,10 @@ UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(_SERVICES_AI / "uploads")))
 QVAC_INGEST_DIR = Path(os.getenv("QVAC_INGEST_DIR", str(_SERVICES_AI / "qvac_ingest")))
 QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 SUPPORTED_EXTENSIONS = (".pdf", ".pptx", ".docx", ".md", ".txt")
+NO_TEXT_ERROR = (
+    "No searchable text was extracted from this document. Image-only or scanned PDFs "
+    "are not supported (no OCR). Upload a PDF with selectable text."
+)
 
 from app.db.models import CourseDocument, DocumentProcessingStage, DocumentStatus  # noqa: E402
 from app.db.session import get_db_context                                           # noqa: E402
@@ -1129,6 +1133,17 @@ def run(
                     len(chunks), document_id,
                 )
                 chunks = _enrich_with_context(chunks, doc_summary, QVAC_SERVICE_URL)
+
+            # ------------------------------------------------------------------
+            # Stage 3e — NO EXTRACTABLE TEXT (e.g. image-only PDF): nothing to index
+            # ------------------------------------------------------------------
+            if not chunks:
+                logger.warning("No extractable text in %s — likely an image-only PDF", document_id)
+                doc.chunk_count = 0
+                doc.parser_used = parser_used
+                doc.page_count = page_count if page_count else None
+                _mark_error(doc, NO_TEXT_ERROR, db)
+                return
 
             # ------------------------------------------------------------------
             # Stage 3d — SAVE PARENTS TO DB
