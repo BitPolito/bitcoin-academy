@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { LessonNav } from './LessonNav';
 import { ContentChunks } from './ContentChunks';
 import type { Lesson } from '@/lib/services/courses';
@@ -74,6 +75,13 @@ export function SourcePane({
               className="mt-2"
               activeCitationDocIds={activeCitationDocIds}
             />
+
+            <Link
+              href={`/courses/${courseId}/lessons/${selectedLesson.id}/quiz`}
+              className="btn-ghost text-sm"
+            >
+              Take lesson quiz
+            </Link>
 
             <div className="pt-2 b-thin-t">
               {isCompleted ? (

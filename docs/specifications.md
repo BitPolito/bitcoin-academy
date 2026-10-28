@@ -360,18 +360,24 @@ a badge system (definitions plus per-user awards) rendered in the UI.
 
 ---
 
-### 24. Assessment: quizzes and chapter tests — 🔴 Not implemented
+### 24. Assessment: quizzes and chapter tests — 🟡 Partially implemented
 
 The system must let students take quizzes and chapter tests, and must record attempts and scores.
 
-**Implementation.** The data model is complete and migrated (quizzes, questions, options, chapter
-tests, attempts, per-answer records), and the API surface is defined with typed request/response
-schemas.
+**Implementation.** Generated quizzes, questions, options, attempts and per-answer
+records are persisted. Student-facing quiz responses omit correct-answer flags;
+submission returns the score, passing result and corrections. Chapter tests have
+a learner submission page. The passing threshold comes from the quiz configuration.
 
-**Gap.** The endpoints are stubs: listing returns an empty collection and the detail and submission
-endpoints return not-found. The quiz service contains no logic. Note that this entity-based quiz is
-distinct from the `quiz` **study action**, which is fully implemented and generates questions from
-retrieved evidence.
+Course-filtered attempt history includes course quizzes, lesson quizzes through
+their chapter, and chapter tests through their chapter. It remains restricted to
+the authenticated learner's attempts.
+
+The Study source pane links to a saved lesson quiz. Lesson quizzes and chapter
+tests share one authenticated answer-submission form, which displays the server's
+passing threshold, score and corrections. A missing saved quiz shows an explicit
+unavailable state instead of submitting an ad-hoc Study action. Generated question
+quality remains tracked separately in #134.
 
 ---
 
