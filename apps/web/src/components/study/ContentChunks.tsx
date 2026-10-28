@@ -49,25 +49,18 @@ export function ContentChunks({
         const docs = await getDocuments(courseId, accessToken);
         const relevantDocs = docs.filter((d) => d.status === 'ready' || d.status === 'error');
 
+        // Errored documents are listed too, so a scanned PDF explains why it has no content.
         const previews = await Promise.allSettled(
-          relevantDocs.map(async (doc) => {
-            let preview: any = { sections: [], sampleChunks: [] };
-            
-            if (doc.status === 'ready') {
-              try {
-                preview = await getDocumentPreviewView(doc.id, accessToken);
-              } catch (e) {
-                console.warn(`Failed to fetch preview for ready doc ${doc.id}`);
-              }
-            }
-            
+          relevantDocs.map(async (doc): Promise<DocumentContent> => {
+            const preview =
+              doc.status === 'ready' ? await getDocumentPreviewView(doc.id, accessToken) : null;
             return {
               documentId: doc.id,
               filename: doc.filename,
               status: doc.status,
               errorMessage: doc.error_message,
-              sections: (preview.sections ?? []).map((title: string) => ({ title })),
-              chunks: (preview.sampleChunks ?? []).map((c: any) => ({
+              sections: (preview?.sections ?? []).map((title) => ({ title })),
+              chunks: (preview?.sampleChunks ?? []).map((c) => ({
                 text: c.text,
                 section: c.section ?? undefined,
               })),
@@ -79,7 +72,7 @@ export function ContentChunks({
           .flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
           .filter((d) => d.status === 'error' || d.chunks.length > 0 || d.sections.length > 0);
 
-        setContents(loaded as DocumentContent[]);
+        setContents(loaded);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load course material');
@@ -145,12 +138,16 @@ export function ContentChunks({
                 </p>
               </div>
 
-              {/* Error Banner for empty chunks / OCR limitation */}
               {doc.status === 'error' ? (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-3 mb-3">
-                  <h4 className="text-red-800 dark:text-red-300 font-semibold text-xs mb-1">No Searchable Text Extracted</h4>
+                <div
+                  role="alert"
+                  className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-3 mb-3"
+                >
+                  <h4 className="text-red-800 dark:text-red-300 font-semibold text-xs mb-1">
+                    Not available for study
+                  </h4>
                   <p className="text-red-600 dark:text-red-400 text-[11px] leading-relaxed">
-                    {doc.errorMessage || "This file appears to be an image-only or scanned document. Local OCR is not currently supported—please upload a searchable PDF with selectable text."}
+                    {doc.errorMessage || 'This document could not be processed.'}
                   </p>
                 </div>
               ) : (
