@@ -442,10 +442,14 @@ async def _stream_generate(
                 try:
                     token = json.loads(payload)
                     if isinstance(token, str):
+                        if token.startswith("[ERROR]"):
+                            raise httpx.RemoteProtocolError("QVAC reported a stream failure")
                         tokens_yielded += 1
                         yield token
                 except (json.JSONDecodeError, ValueError):
                     pass
+            if tokens_yielded:
+                raise httpx.RemoteProtocolError("QVAC stream ended without [DONE]")
     except httpx.HTTPError as exc:
         logger.warning("QVAC /stream failed for action '%s': %s", action.value, exc)
         if tokens_yielded:
@@ -706,26 +710,20 @@ async def stream_dispatch(
 
     # Streaming actions: stream tokens, accumulate for citation parsing + cache write
     accumulated: list[str] = []
-    stream_failed = False
     try:
         async for token in _stream_generate(action, question, pack.context_block()):
             accumulated.append(token)
             yield token
-    except httpx.HTTPError:
-        stream_failed = True
+    except httpx.HTTPError as exc:
+        raise ExternalServiceError(
+            message="Answer interrupted. Please retry.",
+            code="GENERATION_INTERRUPTED",
+        ) from exc
 
-    if accumulated and not stream_failed:
+    if accumulated:
         full_text = "".join(accumulated)
         sources = _parse_citations(full_text, pack)
         yield _cache_and_sentinel(full_text, sources)
-    elif accumulated and stream_failed:
-        # Partial answer already sent to the client; emit citations for what we
-        # have but do not write the truncated text to the semantic cache.
-        full_text = "".join(accumulated)
-        sources = _parse_citations(full_text, pack)
-        yield _CITATIONS_SENTINEL + json.dumps(
-            [dataclasses.asdict(s) for s in sources]
-        )
     else:
         # Stream yielded nothing — fall back to buffered generate
         generated = await _generate(action, question, pack.context_block())
