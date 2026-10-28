@@ -50,6 +50,7 @@ await mock.module("@qvac/sdk", {
 
 // models.js mock — use mock.fn() so individual tests can override the return value
 const mockGetEmbeddingModelId = mock.fn(() => "test-emb-id");
+const mockReloadEmbeddingModel = mock.fn(async () => "test-emb-id-2");
 
 await mock.module(import.meta.resolve("../src/models.js"), {
   namedExports: {
@@ -57,29 +58,30 @@ await mock.module(import.meta.resolve("../src/models.js"), {
     getLlmModelId: () => null,
     initModels: mock.fn(),
     shutdownModels: mock.fn(),
-    reloadEmbeddingModel: mock.fn(),
+    reloadEmbeddingModel: mockReloadEmbeddingModel,
   },
 });
 
 const { ingestFromJsonl } = await import("../src/ingest.js");
 
 // ---------------------------------------------------------------------------
-// Test data fixtures
+// Fixture helpers
 // ---------------------------------------------------------------------------
-const PARA = { chunk_type: "paragraph", text: "Paragraph text", citation_page: 1 };
-const PARA2 = { chunk_type: "paragraph", text: "Paragraph 2 text", citation_page: 1 };
-const TABLE = { chunk_type: "table", text: "Table text", citation_page: 2 };
-const SEC = { chunk_type: "section", text: "Section header", citation_page: 1 };
-const MICRO = { chunk_type: "micro", text: "Sentence text", citation_page: 1 };
 
-function writeJsonl(name, lines) {
-  const p = join(TMP, name);
-  writeFileSync(p, lines.map((l) => JSON.stringify(l)).join("\n"));
-  return p;
+function writeJsonl(name, chunks) {
+  const path = join(TMP, name);
+  writeFileSync(path, chunks.map((c) => JSON.stringify(c)).join("\n"));
+  return path;
 }
 
+const PARA  = { chunk_type: "paragraph", text: "Bitcoin uses UTXO." };
+const PARA2 = { chunk_type: "paragraph", text: "Proof-of-work secures the chain." };
+const TABLE = { chunk_type: "table",     text: "| Col1 | Col2 |\n| A    | B    |" };
+const SEC   = { chunk_type: "section",   text: "1. Transactions" };
+const MICRO = { chunk_type: "micro",     text: "UTXO." };
+
 // ---------------------------------------------------------------------------
-// Test suite
+// Tests
 // ---------------------------------------------------------------------------
 
 describe("ingestFromJsonl", () => {
@@ -213,24 +215,35 @@ describe("ingestFromJsonl", () => {
     assert.ok(existsSync(join(TMP, "WS_NEW_DIR_meta.json")));
   });
 
-  // --- recovery ---
+  // --- recovery after an embedding failure ---
 
-  it("reloads the embedding model and throws when ragIngest fails", async () => {
+  it("reloads the embedding model and rethrows when ragIngest fails", async () => {
+    mockReloadEmbeddingModel.mock.resetCalls();
     mockRagIngest.mock.mockImplementationOnce(async () => {
       throw new Error("context overflow");
     });
-    
-    // Ensure the imported mock function from models.js tracks calls fresh
-    const { reloadEmbeddingModel } = await import("../src/models.js");
-    reloadEmbeddingModel.mock.resetCalls();
 
     const path = writeJsonl("crash.jsonl", [PARA]);
-    await assert.rejects(
-      () => ingestFromJsonl(path, "WS1"),
-      /context overflow/
-    );
+    await assert.rejects(() => ingestFromJsonl(path, "WS1"), /context overflow/);
+    assert.equal(mockReloadEmbeddingModel.mock.calls.length, 1);
+  });
 
-    // Verify our recovery function was triggered exactly once
-    assert.equal(reloadEmbeddingModel.mock.calls.length, 1);
+  it("rethrows the ingest error even when the reload fails", async () => {
+    mockRagIngest.mock.mockImplementationOnce(async () => {
+      throw new Error("context overflow");
+    });
+    mockReloadEmbeddingModel.mock.mockImplementationOnce(async () => {
+      throw new Error("load failed");
+    });
+
+    const path = writeJsonl("crash-reload.jsonl", [PARA]);
+    await assert.rejects(() => ingestFromJsonl(path, "WS1"), /context overflow/);
+  });
+
+  it("does not reload the model when ragIngest succeeds", async () => {
+    mockReloadEmbeddingModel.mock.resetCalls();
+    const path = writeJsonl("ok.jsonl", [PARA]);
+    await ingestFromJsonl(path, "WS1");
+    assert.equal(mockReloadEmbeddingModel.mock.calls.length, 0);
   });
 });

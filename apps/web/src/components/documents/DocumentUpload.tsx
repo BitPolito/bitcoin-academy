@@ -22,6 +22,8 @@ const ALLOWED_MIME_TYPES = new Set([
   'text/markdown',
   'text/x-markdown',
 ]);
+// Browsers often report .md and .txt as octet-stream; trust the extension for those
+const TEXT_EXTS = ['.md', '.txt'];
 const MAX_SIZE_BYTES = 50 * 1024 * 1024;
 
 const MATERIAL_TYPE_LABELS: Record<MaterialType, string> = {
@@ -69,7 +71,8 @@ function isSupportedType(file: File): boolean {
   const ext = '.' + (file.name.split('.').pop() ?? '').toLowerCase();
   if (!ALLOWED_EXTS.includes(ext)) return false;
   // If the browser reports a MIME type it must match; empty string means undetected (trust extension)
-  return !file.type || ALLOWED_MIME_TYPES.has(file.type);
+  if (!file.type || ALLOWED_MIME_TYPES.has(file.type)) return true;
+  return TEXT_EXTS.includes(ext) && file.type === 'application/octet-stream';
 }
 
 function validateFile(file: File): string | null {
@@ -398,7 +401,6 @@ export function DocumentUpload({ courseId, accessToken, onUploadComplete }: Docu
       const fileArray = Array.from(files);
       if (fileArray.length === 0) return;
 
-      // Type-gate: reject unsupported formats with a toast, never create a job for them
       // Type-gate: reject unsupported formats with a toast, never create a job for them
       const accepted: File[] = [];
       for (const file of fileArray) {

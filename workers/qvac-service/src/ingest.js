@@ -78,10 +78,13 @@ export async function ingestFromJsonl(jsonlPath, workspace, rebuild = false) {
       chunk: false,
     });
   } catch (err) {
-    console.error(`[ingest] Fatal embedding error in workspace '${workspace}':`, err.message);
-    // Recover the SDK state so future batches don't fail with "Adapter not initialized"
-    await reloadEmbeddingModel();
-    throw err; // Propagate the error to return a 500 so Python marks the doc as ERROR
+    console.error(`[ingest] embedding failed for '${workspace}':`, err.message);
+    // A failed batch leaves the SDK adapter unusable ("Adapter not initialized")
+    // until the model is reloaded. The ingest error still reaches the caller.
+    await reloadEmbeddingModel().catch((reloadErr) =>
+      console.error("[ingest] embedding model reload failed:", reloadErr.message),
+    );
+    throw err;
   }
 
   // Build qvac_id → citation + BM25 cross-reference metadata.
