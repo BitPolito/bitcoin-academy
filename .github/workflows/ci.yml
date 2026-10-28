@@ -12,6 +12,10 @@ on:
     # periodically, so the gate must run there too rather than only on master.
     branches: [master, mvp-testing]
 
+# No job writes to the repository; the repo default token is write-capable.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true

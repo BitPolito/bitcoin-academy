@@ -13,12 +13,16 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Depends, Path, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError, ValidationError_
 from app.core.rate_limit import limiter
 from app.db.models import (
     AttemptAnswer,
+    Chapter,
+    ChapterTest,
+    Lesson,
     OptionChoice,
     Question,
     Quiz,
@@ -345,7 +349,15 @@ def list_my_attempts(
         .filter(QuizAttempt.user_id == current_user.sub)
     )
     if course_id is not None:
-        q = q.filter(Quiz.course_id == course_id)
+        # Lesson and chapter-test quizzes are linked through their parent tree,
+        # rather than the direct course_id used by ad-hoc course quizzes.
+        q = q.filter(or_(
+            Quiz.course_id == course_id,
+            Quiz.lesson.has(Lesson.chapter.has(Chapter.course_id == course_id)),
+            Quiz.chapter_tests.any(
+                ChapterTest.chapter.has(Chapter.course_id == course_id)
+            ),
+        ))
 
     rows = q.order_by(QuizAttempt.finished_at.desc()).all()
     items = [

@@ -19,6 +19,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+import httpx
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -39,7 +40,7 @@ from app.services.qvac_structured import (
 
 logger = logging.getLogger(__name__)
 
-CONTENT_PROMPT_VERSION = "v1"
+CONTENT_PROMPT_VERSION = "v2"
 
 # Max parent chunks to include in the generation context (token-budget guard).
 MAX_CONTEXT_CHUNKS = 3
@@ -109,7 +110,7 @@ _CONTENT_SYSTEM = (
     "Write a complete, pedagogically structured lesson from the provided source material.\n"
     "RULES:\n"
     "1. Use ONLY the information in the provided source passages — never inject external knowledge.\n"
-    "2. Use exact technical terminology from the document (UTXO, hashrate, proof-of-work, etc.).\n"
+    "2. Use only technical terminology present in the provided source passages.\n"
     "3. Cite every factual claim as [ref_N] where N is the 1-based passage index.\n"
     "4. Write 3–5 focused paragraphs: introduction → key concepts → synthesis.\n"
     "5. Do NOT open with generic phrases like 'In this lesson' or 'Based on the context'.\n"
@@ -125,7 +126,9 @@ _JUDGE_SYSTEM = (
     "1. Check whether claims marked [ref_N] are actually supported by the corresponding passage.\n"
     "2. Flag claims that contradict the source, exaggerate, or introduce information not in the text.\n"
     "3. Minor rephrasing of source text is acceptable if meaning is preserved.\n"
-    "4. Return faithful=true only if ALL cited claims are directly supported."
+    "4. Check ALL lesson sections, including objectives, glossary definitions, and self-checks, "
+    "whether or not they include citation markers.\n"
+    "5. Return faithful=true only if every factual claim is supported by the source."
 )
 
 # ---------------------------------------------------------------------------
@@ -242,23 +245,17 @@ async def _judge_groundedness(
     content: str, context_items: List[Dict[str, str]]
 ) -> Dict[str, Any]:
     """Check that the lesson content is faithful to its source passages."""
-    # Truncate content for judge to save tokens (first 800 words)
-    content_preview = " ".join(content.split()[:800])
     prompt = (
         "Review this lesson content for faithfulness to the provided source passages.\n\n"
-        f"LESSON CONTENT:\n{content_preview}\n\n"
-        "Check: are all [ref_N] claims directly supported by the corresponding passages? "
-        "List any unsupported or exaggerated claims as issues."
+        f"LESSON CONTENT:\n{content}\n\n"
+        "Check every section, including learning objectives, glossary, and self-check questions. "
+        "Are all factual claims supported, including claims without [ref_N] markers? "
+        "List any unsupported or exaggerated claims and glossary entries as issues."
     )
-    # Use abbreviated source for judge (first 200 words per chunk)
-    judge_context = [
-        {"label": item["label"], "text": " ".join(item["text"].split()[:200])}
-        for item in context_items
-    ]
     return await generate_json(
         prompt,
         _JUDGE_SCHEMA,
-        context=judge_context,
+        context=context_items,
         system_prompt=_JUDGE_SYSTEM,
         generation_params={"temp": 0.1},
         task_type="judge",
@@ -339,22 +336,7 @@ async def process_lesson(lesson_id: str, db: Session) -> str:
         db.commit()
         return "needs_review"
 
-    # ---- Groundedness judge ----
-    try:
-        verdict = await _judge_groundedness(content, context_items)
-        faithful = verdict.get("faithful", True)
-        issues = verdict.get("issues", [])
-    except (LlmDisabledError, StructuredGenerationError) as exc:
-        logger.warning(
-            "lesson %s: judge failed (%s) — assuming faithful", lesson_id, exc
-        )
-        faithful = True
-        issues = []
-
-    final_status = "published" if faithful else "needs_review"
-
-    # ---- Persist content ----
-    # Append objectives, glossary, self_check as Markdown sections after the main content.
+    # Assemble every student-visible section before judging it.
     full_content = content
 
     if objectives:
@@ -369,6 +351,30 @@ async def process_lesson(lesson_id: str, db: Session) -> str:
         sc_lines = "\n".join(f"{i+1}. {q}" for i, q in enumerate(self_check))
         full_content += f"\n\n## Self-Check\n{sc_lines}"
 
+    # The glossary contract requires terms to occur in the source. Enforce it
+    # independently of the model judge, which can incorrectly approve additions.
+    source_text = " ".join(" ".join(item["text"] for item in context_items).casefold().split())
+    glossary_issues = []
+    for entry in glossary:
+        term = " ".join(entry["term"].casefold().split())
+        if not term or not re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", source_text):
+            glossary_issues.append(f"Glossary term absent from source: {entry['term']}")
+
+    # ---- Groundedness judge ----
+    try:
+        verdict = await _judge_groundedness(full_content, context_items)
+        faithful = verdict.get("faithful") is True
+        issues = list(verdict.get("issues", []))
+    except (LlmDisabledError, StructuredGenerationError, httpx.HTTPError) as exc:
+        logger.warning("lesson %s: judge failed (%s) — review required", lesson_id, exc)
+        faithful = False
+        issues = ["Groundedness validation could not be completed; manual review required."]
+
+    issues.extend(glossary_issues)
+    faithful = faithful and not issues
+    final_status = "published" if faithful else "needs_review"
+
+    # ---- Persist content ----
     if issues:
         issues_lines = "\n".join(f"- {iss}" for iss in issues)
         full_content += f"\n\n<!-- groundedness_issues:\n{issues_lines}\n-->"

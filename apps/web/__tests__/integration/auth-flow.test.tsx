@@ -165,6 +165,19 @@ describe('Authentication Flow Integration', () => {
       expect(mockRouter.push).not.toHaveBeenCalled();
     });
 
+    it('explains an account lockout without suggesting a retry in seconds', async () => {
+      (signIn as jest.Mock).mockResolvedValue({ ok: false, error: 'AccountLocked' });
+      render(<LoginPage />);
+      fireEvent.change(screen.getByLabelText(/email/i), {
+        target: { value: 'locked@example.com' },
+      });
+      fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'Password123!' } });
+      fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+      expect(await screen.findByText(/account is temporarily locked/i)).toBeInTheDocument();
+      expect(screen.queryByText(/few seconds|qualche secondo/i)).not.toBeInTheDocument();
+      expect(mockRouter.push).not.toHaveBeenCalled();
+    });
+
     it('handles registration failure for duplicate email', async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: false,

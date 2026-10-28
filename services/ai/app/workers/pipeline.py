@@ -22,6 +22,11 @@ _SERVICES_AI = _HERE.parents[2]          # services/ai/
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(_SERVICES_AI / "uploads")))
 QVAC_INGEST_DIR = Path(os.getenv("QVAC_INGEST_DIR", str(_SERVICES_AI / "qvac_ingest")))
 QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
+SUPPORTED_EXTENSIONS = (".pdf", ".pptx", ".docx", ".md", ".txt")
+NO_TEXT_ERROR = (
+    "No searchable text was extracted from this document. Image-only or scanned PDFs "
+    "are not supported (no OCR). Upload a PDF with selectable text."
+)
 
 from app.db.models import CourseDocument, DocumentProcessingStage, DocumentStatus  # noqa: E402
 from app.db.session import get_db_context                                           # noqa: E402
@@ -984,10 +989,12 @@ def _write_jsonl(chunks: list[dict], document_id: str) -> Path:
 # QVAC ingest
 # ---------------------------------------------------------------------------
 
-def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> bool:
+def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> str:
     """POST the JSONL path to QVAC for embedding + HyperDB indexing.
 
-    Returns True on success, False on any network/HTTP error.
+    Returns the document's indexing_status: "indexed" on success,
+    "qvac_pending" when QVAC is unreachable (BM25-only until a reindex),
+    "qvac_failed" when QVAC rejected the batch.
     Timeout configurable via QVAC_INGEST_TIMEOUT env (default 300s).
     """
     try:
@@ -999,10 +1006,13 @@ def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> boo
             )
             resp.raise_for_status()
             logger.info("QVAC ingest accepted — workspace '%s', status %d", workspace, resp.status_code)
-            return True
+            return "indexed"
+    except httpx.HTTPStatusError as exc:
+        logger.error("QVAC rejected the ingest for workspace '%s': %s", workspace, exc)
+        return "qvac_failed"
     except httpx.HTTPError as exc:
         logger.warning("QVAC service unavailable, skipping QVAC ingest: %s", exc)
-        return False
+        return "qvac_pending"
 
 
 # ---------------------------------------------------------------------------
@@ -1042,8 +1052,8 @@ def run(
             return
 
         ext = Path(filename).suffix.lower()
-        if ext not in {".pdf", ".pptx", ".docx"}:
-            _mark_error(doc, f"Unsupported file type '{ext}'. Accepted: PDF, PPTX, DOCX.", db)
+        if ext not in SUPPORTED_EXTENSIONS:
+            _mark_error(doc, f"Unsupported file type '{ext}'. Accepted: PDF, PPTX, DOCX, MD, TXT.", db)
             return
 
         try:
@@ -1070,6 +1080,13 @@ def run(
             elif ext == ".pptx":
                 pages, page_count = parse_pptx_pages(file_path)
                 parser_used = "python-pptx"
+            elif ext in {".md", ".txt"}:
+                with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                    raw_text = f.read()
+                # Plain text has no pages: the whole file is one page
+                pages = [{"page": 1, "text": raw_text}]
+                page_count = 1
+                parser_used = "utf8-text-reader"
             else:
                 pages, page_count = parse_docx_pages(file_path)
                 parser_used = "python-docx"
@@ -1118,6 +1135,17 @@ def run(
                 chunks = _enrich_with_context(chunks, doc_summary, QVAC_SERVICE_URL)
 
             # ------------------------------------------------------------------
+            # Stage 3e — NO EXTRACTABLE TEXT (e.g. image-only PDF): nothing to index
+            # ------------------------------------------------------------------
+            if not chunks:
+                logger.warning("No extractable text in %s — likely an image-only PDF", document_id)
+                doc.chunk_count = 0
+                doc.parser_used = parser_used
+                doc.page_count = page_count if page_count else None
+                _mark_error(doc, NO_TEXT_ERROR, db)
+                return
+
+            # ------------------------------------------------------------------
             # Stage 3d — SAVE PARENTS TO DB
             # ------------------------------------------------------------------
             try:
@@ -1133,7 +1161,7 @@ def run(
             # QVAC is the sole dense index. ChromaDB was removed because its
             # embedded server has unresolved pre-auth code-injection issues.
             jsonl_path = _write_jsonl(chunks, document_id)
-            qvac_ok = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=False)
+            indexing_status = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=False)
 
             # ------------------------------------------------------------------
             # Stage 6b — BM25 index update (sparse retrieval)
@@ -1159,9 +1187,11 @@ def run(
                 for c in chunks[:5]
             ]
 
+            # Chunks and BM25 are usable without the dense index, so the
+            # document is READY; indexing_status reports the QVAC outcome.
             doc.status = DocumentStatus.READY
             doc.processing_stage = DocumentProcessingStage.DONE
-            doc.indexing_status = "indexed" if qvac_ok else "qvac_pending"
+            doc.indexing_status = indexing_status
             doc.chunk_count = len(chunks)
             doc.parser_used = parser_used
             doc.page_count = page_count if page_count else None
@@ -1172,8 +1202,8 @@ def run(
             db.commit()
 
             logger.info(
-                "Pipeline done for %s — %d chunks, parser=%s, qvac_ok=%s",
-                document_id, len(chunks), parser_used, qvac_ok,
+                "Pipeline done for %s — %d chunks, parser=%s, indexing_status=%s",
+                document_id, len(chunks), parser_used, indexing_status,
             )
 
             # Keep the original for authenticated source previews and retries.
@@ -1189,7 +1219,7 @@ def run(
 # ---------------------------------------------------------------------------
 
 def reindex_qvac(document_id: str, course_id: str) -> None:
-    """Retry QVAC ingest for a document whose indexing_status is 'qvac_pending'."""
+    """Retry QVAC ingest for a document whose indexing_status is 'qvac_pending' or 'qvac_failed'."""
     jsonl_path = QVAC_INGEST_DIR / f"{document_id}_contingency.jsonl"
     if not jsonl_path.exists():
         logger.warning("Cannot reindex %s: JSONL not found at %s", document_id, jsonl_path)
@@ -1201,7 +1231,6 @@ def reindex_qvac(document_id: str, course_id: str) -> None:
             logger.error("Document %s not found — aborting reindex", document_id)
             return
 
-        qvac_ok = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=True)
-        doc.indexing_status = "indexed" if qvac_ok else "qvac_pending"
+        doc.indexing_status = _qvac_ingest(jsonl_path, workspace=course_id, rebuild=True)
         db.commit()
         logger.info("Reindex QVAC for %s: indexing_status=%s", document_id, doc.indexing_status)
