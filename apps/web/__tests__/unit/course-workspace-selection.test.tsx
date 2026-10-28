@@ -12,9 +12,10 @@ jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn() }),
 }));
 
+// Instructor: the refetch test triggers "Reindex all", which only instructors and admins see.
 jest.mock('next-auth/react', () => ({
   useSession: () => ({
-    data: { user: { accessToken: 'token-1', role: 'student' } },
+    data: { user: { accessToken: 'token-1', role: 'instructor' } },
     status: 'authenticated',
   }),
 }));

@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.middleware.auth import CurrentUser, get_current_user
+from app.middleware.auth import CurrentUser, get_current_user, require_instructor
 from app.services import document_service
 from app.workers import pipeline
 from app.workers.pipeline import SUPPORTED_EXTENSIONS, UPLOADS_DIR
@@ -62,7 +62,7 @@ async def upload_document(
     file: UploadFile = File(...),
     document_type: str = Form("lecture"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    _current_user: CurrentUser = Depends(require_instructor),
 ):
     ext = Path(file.filename or "").suffix.lower()
     content_type = file.content_type or ""
@@ -129,7 +129,7 @@ async def reindex_document(
     background_tasks: BackgroundTasks,
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    _current_user: CurrentUser = Depends(require_instructor),
 ):
     doc = document_service.get_document(db, document_id)
     if doc is None:
@@ -167,7 +167,7 @@ async def retry_document(
     background_tasks: BackgroundTasks,
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    _current_user: CurrentUser = Depends(require_instructor),
 ):
     doc = document_service.get_document(db, document_id)
     if doc is None:
@@ -302,7 +302,7 @@ def get_document_structure(
 def delete_document(
     document_id: str = PathParam(..., description="Document ID"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    _current_user: CurrentUser = Depends(require_instructor),
 ):
     deleted = document_service.delete_document(db, document_id)
     if not deleted:
