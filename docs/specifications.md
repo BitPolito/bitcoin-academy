@@ -41,6 +41,12 @@ messages.
 processing status per document, supports retry and deletion, and surfaces actionable errors. A
 processing panel and progress indicator render the state in the course workspace.
 
+Changing course material is restricted to instructors and admins: uploading a document, retrying or
+re-indexing it, deleting it, and re-indexing a whole course (`POST /api/courses/{id}/reindex`)
+return `403` for students. Students keep read access to the material (document list, status, detail,
+preview, structure and original file), and the course workspace hides the upload panel, "Reindex
+all" and the per-document delete action from them.
+
 ---
 
 ### 3. Document parsing and normalization — ✅ Implemented
@@ -150,6 +156,15 @@ frame followed by `[DONE]`. The Study UI displays the service error and retry
 guidance instead of claiming that no course passages matched. Neither failure
 path generates an answer or caches the failure. Useful fallback evidence is
 still accepted; retrieval, ranking, and evidence-pack structure are unchanged.
+
+If Study generation fails after streaming begins, the server emits an `[ERROR]`
+frame with "Answer interrupted. Please retry." followed by `[DONE]`. A QVAC stream
+ending without its completion marker or reporting an error is also a failure.
+Partial answers are not cached or reported as completed action results. The UI
+marks the partial output interrupted and offers Retry for the same action and
+question. A browser connection ending without `[DONE]` also triggers this retry
+path instead of silently accepting the truncated answer. Failure before any
+upstream output retains the existing buffered/evidence fallback.
 
 Generated course lessons are judged as a whole, including their learning objectives,
 glossary definitions and self-check questions, against the complete selected source
@@ -296,9 +311,22 @@ account lockout after repeated failures, `admin`/`student` roles, rate limiting,
 and audit middleware. Development accounts are seeded automatically, and seeding refuses to run
 when `ENVIRONMENT=production`.
 
+The authenticated top bar offers Sign out using the existing NextAuth session flow.
+Login distinguishes account lockout from general request throttling without promising
+a retry in seconds; server diagnostics are not shown in the login error.
+
 CORS permits `PATCH` requests from configured frontend origins so course, outline
 and lesson edits can pass browser preflight checks. The editing endpoints still
 require authentication and the appropriate instructor/admin role.
+
+Course-material writes (document upload, retry, reindex, delete and course reindex) require the
+instructor/admin role, the same guard as course create, update and delete;
+`tests/integration/test_document_write_authorization.py` asserts `403` for students and success for
+both roles on each of them.
+
+These write endpoints use the shared authentication dependency before checking
+the instructor/admin role. Invalid, expired or revoked credentials return `401`
+without changing documents or scheduling ingestion work.
 
 Endpoint protection is asserted structurally rather than by convention:
 `tests/integration/test_authorization_matrix.py` derives the endpoint list from the live OpenAPI
