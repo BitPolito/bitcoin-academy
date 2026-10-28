@@ -311,6 +311,10 @@ account lockout after repeated failures, `admin`/`student` roles, rate limiting,
 and audit middleware. Development accounts are seeded automatically, and seeding refuses to run
 when `ENVIRONMENT=production`.
 
+The authenticated top bar offers Sign out using the existing NextAuth session flow.
+Login distinguishes account lockout from general request throttling without promising
+a retry in seconds; server diagnostics are not shown in the login error.
+
 CORS permits `PATCH` requests from configured frontend origins so course, outline
 and lesson edits can pass browser preflight checks. The editing endpoints still
 require authentication and the appropriate instructor/admin role.
