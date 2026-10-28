@@ -224,33 +224,47 @@ def _lacks_evidence(meta: ActionMeta, pack: EvidencePack) -> bool:
 
 _REF_PATTERN = re.compile(r'\[ref_(\d+)\]', re.IGNORECASE)
 
+def _parse_citations(text: str, pack: EvidencePack) -> tuple[str, List[SourceChunk]]:
+    """Extract [ref_N] markers, reorder cited sources, and remap inline markers (Issue #264).
 
-def _parse_citations(text: str, pack: EvidencePack) -> List[SourceChunk]:
-    """Extract [ref_N] markers from generated text and return referenced chunks.
-
-    The LLM is instructed to emit [ref_N] in-line; this function parses those
-    markers and returns SourceChunks for only the cited evidence, preserving
-    citation order (first appearance wins for dedup).
-
-    Falls back to all pack chunks when no [ref_N] markers are found — this
-    happens when the LLM ignores the citation instruction or when the action
-    does not require source grounding.
+    Returns:
+        (remapped_text, source_chunks): The generated text with citations sequentially
+        renumbered starting from 1, and the ordered list of cited SourceChunks matching
+        those new numbers.
     """
     cited_indices: list[int] = []
     seen: set[int] = set()
+    old_to_new_map: dict[int, int] = {}
+    
+    # 1. Identify which chunks were cited, in order of first appearance
     for m in _REF_PATTERN.finditer(text):
-        idx = int(m.group(1)) - 1  # [ref_N] is 1-based
-        if 0 <= idx < len(pack.chunks) and idx not in seen:
-            cited_indices.append(idx)
-            seen.add(idx)
+        original_ref_num = int(m.group(1))
+        idx = original_ref_num - 1  # 0-based pack index
+        
+        if 0 <= idx < len(pack.chunks):
+            if original_ref_num not in old_to_new_map:
+                cited_indices.append(idx)
+                seen.add(idx)
+                # Map the old LLM-generated ref number to its new sequential 1-based index
+                old_to_new_map[original_ref_num] = len(cited_indices)
 
     if not cited_indices:
         # No markers found — return all pack chunks as citations (backward-compat)
         source_chunks = pack.chunks
+        remapped_text = text
     else:
         source_chunks = [pack.chunks[i] for i in cited_indices]
+        # 2. Single-pass regex replacement to update the inline markers
+        def replace_ref(match: re.Match) -> str:
+            old_num = int(match.group(1))
+            if old_num in old_to_new_map:
+                new_num = old_to_new_map[old_num]
+                return f"[ref_{new_num}]"
+            return match.group(0)  # Unchanged if it was an invalid out-of-bounds citation
+            
+        remapped_text = _REF_PATTERN.sub(replace_ref, text)
 
-    return [
+    return remapped_text, [
         SourceChunk(
             snippet=c.text,
             score=c.score,
@@ -509,9 +523,7 @@ async def _route(
     generated = await _generate(action, question, pack.context_block())
     if generated is not None:
         trace.generation_ran = True
-        answer = generated
-        # Parse [ref_N] markers to surface only the cited chunks as citations.
-        sources = _parse_citations(generated, pack)
+        answer, sources = _parse_citations(generated, pack)
     else:
         trace.fallback_used = True
         answer = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER
@@ -695,8 +707,7 @@ async def stream_dispatch(
     if action in _BUFFERED_ACTIONS:
         generated = await _generate(action, question, pack.context_block())
         if generated:
-            answer = generated
-            sources = _parse_citations(generated, pack)
+            answer, sources = _parse_citations(generated, pack)
         else:
             answer = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER
             sources = _make_sources(pack.chunks)
@@ -716,13 +727,12 @@ async def stream_dispatch(
 
     if accumulated and not stream_failed:
         full_text = "".join(accumulated)
-        sources = _parse_citations(full_text, pack)
-        yield _cache_and_sentinel(full_text, sources)
+        remapped_text, sources = _parse_citations(full_text, pack)
+        yield _cache_and_sentinel(remapped_text, sources)
     elif accumulated and stream_failed:
         # Partial answer already sent to the client; emit citations for what we
         # have but do not write the truncated text to the semantic cache.
-        full_text = "".join(accumulated)
-        sources = _parse_citations(full_text, pack)
+        _, sources = _parse_citations(full_text, pack)
         yield _CITATIONS_SENTINEL + json.dumps(
             [dataclasses.asdict(s) for s in sources]
         )
@@ -730,9 +740,9 @@ async def stream_dispatch(
         # Stream yielded nothing — fall back to buffered generate
         generated = await _generate(action, question, pack.context_block())
         if generated:
+            remapped_text, sources = _parse_citations(generated, pack)
             yield generated
-            sources = _parse_citations(generated, pack)
-            yield _cache_and_sentinel(generated, sources)
+            yield _cache_and_sentinel(remapped_text, sources)
         else:
             fallback = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER
             sources = _make_sources(pack.chunks)
