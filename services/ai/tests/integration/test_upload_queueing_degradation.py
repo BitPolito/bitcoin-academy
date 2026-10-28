@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.db.models import UserRole
 from tests.conftest import make_course_with_lessons, make_user
 
 
@@ -35,7 +36,7 @@ def test_upload_falls_back_to_in_process_pipeline_when_no_arq_pool_is_configured
     ingestion pipeline — via BackgroundTasks — rather than leaving the
     document parked in `processing` with nothing ever picking it up."""
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
 
     assert not hasattr(client.app.state, "arq_pool") or client.app.state.arq_pool is None, (
         "Test assumes no ARQ pool is configured; if this changes, the "
@@ -64,7 +65,7 @@ def test_upload_enqueues_via_arq_when_a_pool_is_configured(client, db):
     from unittest.mock import AsyncMock
 
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
 
     fake_pool = AsyncMock()
     client.app.state.arq_pool = fake_pool

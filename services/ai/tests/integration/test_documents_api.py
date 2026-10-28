@@ -17,6 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from app.core.config import create_access_token
+from app.db.models import UserRole
 from tests.conftest import make_course_with_lessons, make_user
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -25,8 +26,8 @@ PDF_PATH = _DOCS / "bitcoin_technical_document.pdf"
 PPTX_PATH = _DOCS / "bitcoin_creative_commons_en.pptx"
 
 
-def _auth(user_id: str) -> dict:
-    token = create_access_token(user_id, "u@test.com", "student")
+def _auth(user_id: str, role: str = "student") -> dict:
+    token = create_access_token(user_id, "u@test.com", role)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -37,8 +38,8 @@ def _skip_if_missing(path: Path):
 
 @pytest.fixture
 def auth_headers(db) -> dict:
-    """Document endpoints require authentication."""
-    return _auth(make_user(db).id)
+    """Document writes are instructor/admin only; reads accept any authenticated user."""
+    return _auth(make_user(db, UserRole.INSTRUCTOR).id, "instructor")
 
 
 # ---------------------------------------------------------------------------
