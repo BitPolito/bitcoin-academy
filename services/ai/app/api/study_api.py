@@ -80,6 +80,8 @@ async def study(
         "followed by 'data: [DONE]\\n\\n'.\n"
         "Retrieval failure emits a '[ERROR] <message>' frame and then [DONE], "
         "without answer tokens or citations.\n"
+        "Generation interrupted after partial output emits an [ERROR] frame and "
+        "then [DONE]; the partial answer is not cached.\n"
         "SSE comment lines (': keepalive') are sent every 15 s during retrieval to\n"
         "prevent proxy timeouts. QUIZ and ORAL are buffered internally."
     ),

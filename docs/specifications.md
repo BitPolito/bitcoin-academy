@@ -157,6 +157,15 @@ guidance instead of claiming that no course passages matched. Neither failure
 path generates an answer or caches the failure. Useful fallback evidence is
 still accepted; retrieval, ranking, and evidence-pack structure are unchanged.
 
+If Study generation fails after streaming begins, the server emits an `[ERROR]`
+frame with "Answer interrupted. Please retry." followed by `[DONE]`. A QVAC stream
+ending without its completion marker or reporting an error is also a failure.
+Partial answers are not cached or reported as completed action results. The UI
+marks the partial output interrupted and offers Retry for the same action and
+question. A browser connection ending without `[DONE]` also triggers this retry
+path instead of silently accepting the truncated answer. Failure before any
+upstream output retains the existing buffered/evidence fallback.
+
 Generated course lessons are judged as a whole, including their learning objectives,
 glossary definitions and self-check questions, against the complete selected source
 passages. Glossary terms absent from those passages require manual review even if
