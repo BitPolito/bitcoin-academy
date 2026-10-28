@@ -70,7 +70,10 @@ export const authOptions: AuthOptions = {
 
           if (!res.ok) {
             if (res.status === 429) {
-              throw new Error('TooManyRequests');
+              const error = await res.json().catch(() => ({}));
+              throw new Error(
+                error.error?.code === 'ACCOUNT_LOCKED' ? 'AccountLocked' : 'TooManyRequests'
+              );
             }
             const error = await res.json().catch(() => ({}));
             throw new Error(error.detail || 'Invalid email or password');

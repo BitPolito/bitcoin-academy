@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.db.models import UserRole
 from tests.conftest import make_course_with_lessons, make_user
 from tests.integration.test_pipeline_e2e import _run_pipeline
 
@@ -82,12 +83,11 @@ def test_empty_pdf_marks_error_not_stuck(db):
 
 
 @pytest.mark.integration
-def test_document_with_no_extractable_text_reaches_ready_with_zero_chunks(db):
+def test_document_with_no_extractable_text_marks_error(db):
     """A structurally valid PDF whose pages carry no text (a blank page, or a
-    page of only images) must NOT be treated as a failure. This is the
-    'document that parses but yields zero chunks' case the issue calls out —
-    it must reach a coherent, inspectable READY state with chunk_count == 0,
-    not error and not hang."""
+    page of only images, #263) has nothing to index: it must end in ERROR with
+    a message explaining that scanned PDFs are not supported, not in a READY
+    state that looks searchable."""
     import fitz
 
     doc_obj = fitz.open()
@@ -103,10 +103,9 @@ def test_document_with_no_extractable_text_reaches_ready_with_zero_chunks(db):
     finally:
         path.unlink(missing_ok=True)
 
-    assert doc.status == "ready", (
-        f"A blank document must still reach READY, not {doc.status}. "
-        f"error_message={doc.error_message!r}"
-    )
+    assert doc.status == "error"
+    assert doc.processing_stage == "error"
+    assert "No searchable text" in doc.error_message
     assert doc.chunk_count == 0
     assert doc.page_count == 1
 
@@ -203,7 +202,7 @@ def _auth_header(user) -> dict:
 @pytest.mark.integration
 def test_upload_rejects_an_unsupported_mime_type(client, db):
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
 
     response = client.post(
         f"/api/courses/{course.id}/documents",
@@ -220,7 +219,7 @@ def test_upload_rejects_an_unsupported_mime_type(client, db):
 @pytest.mark.integration
 def test_upload_rejects_a_file_over_the_size_limit(client, db):
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
     oversized = b"0" * (50 * 1024 * 1024 + 1)
 
     with patch("app.api.documents_api.document_service.create_document") as mock_create:
@@ -239,7 +238,7 @@ def test_upload_accepts_a_file_exactly_at_the_size_limit(client, db):
     """Boundary check: the limit is inclusive, not off-by-one in the wrong
     direction — a file of exactly 50 MB must not be rejected."""
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
     exactly_at_limit = b"%PDF-1.4\n" + b"0" * (50 * 1024 * 1024 - 9)
     assert len(exactly_at_limit) == 50 * 1024 * 1024
 
