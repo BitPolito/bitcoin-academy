@@ -41,6 +41,12 @@ messages.
 processing status per document, supports retry and deletion, and surfaces actionable errors. A
 processing panel and progress indicator render the state in the course workspace.
 
+Changing course material is restricted to instructors and admins: uploading a document, retrying or
+re-indexing it, deleting it, and re-indexing a whole course (`POST /api/courses/{id}/reindex`)
+return `403` for students. Students keep read access to the material (document list, status, detail,
+preview, structure and original file), and the course workspace hides the upload panel, "Reindex
+all" and the per-document delete action from them.
+
 ---
 
 ### 3. Document parsing and normalization — ✅ Implemented
@@ -299,6 +305,15 @@ when `ENVIRONMENT=production`.
 CORS permits `PATCH` requests from configured frontend origins so course, outline
 and lesson edits can pass browser preflight checks. The editing endpoints still
 require authentication and the appropriate instructor/admin role.
+
+Course-material writes (document upload, retry, reindex, delete and course reindex) require the
+instructor/admin role, the same guard as course create, update and delete;
+`tests/integration/test_document_write_authorization.py` asserts `403` for students and success for
+both roles on each of them.
+
+These write endpoints use the shared authentication dependency before checking
+the instructor/admin role. Invalid, expired or revoked credentials return `401`
+without changing documents or scheduling ingestion work.
 
 Endpoint protection is asserted structurally rather than by convention:
 `tests/integration/test_authorization_matrix.py` derives the endpoint list from the live OpenAPI
