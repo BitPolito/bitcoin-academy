@@ -126,6 +126,7 @@ class Course(Base):
     title: Mapped[str] = mapped_column(String)
     description: Mapped[Optional[str]] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    owner_id: Mapped[Optional[str]] = mapped_column(ForeignKey("app_user.id"), nullable=True)
 
     section: Mapped["Section"] = relationship(back_populates="courses")
     chapters: Mapped[List["Chapter"]] = relationship(back_populates="course")

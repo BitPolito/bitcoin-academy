@@ -78,9 +78,9 @@ def _get_or_create_default_section(db: Session) -> str:
     return section.id
 
 
-def create_course(db: Session, title: str, description: Optional[str] = None) -> Course:
+def create_course(db: Session, title: str, description: Optional[str] = None, owner_id: Optional[str] = None) -> Course:
     section_id = _get_or_create_default_section(db)
-    course = Course(title=title, description=description, section_id=section_id)
+    course = Course(title=title, description=description, section_id=section_id, owner_id=owner_id)
     db.add(course)
     db.commit()
     db.refresh(course)

@@ -7,7 +7,7 @@ from alembic import command
 @pytest.mark.integration
 def test_alembic_upgrade_head_on_empty_db(tmp_path, monkeypatch):
     """
-    Issue #207: Ensure 'alembic upgrade head' successfully runs from 0001 to head 
+    Issue #207 & #211: Ensure 'alembic upgrade head' successfully runs from 0001 to head 
     on a completely empty database without duplicate table/column OperationalErrors.
     """
     # 1. Setup a fresh, empty SQLite database in a temporary directory
@@ -30,8 +30,6 @@ def test_alembic_upgrade_head_on_empty_db(tmp_path, monkeypatch):
     alembic_cfg.set_main_option("sqlalchemy.url", db_url)
     
     # 3. Execute upgrade head
-    # This will crash if 0001 uses Base.metadata.create_all() 
-    # and 0002 tries to create answer_feedback again.
     command.upgrade(alembic_cfg, "head")
     
     # 4. Verify the schema reached head successfully
@@ -58,6 +56,10 @@ def test_alembic_upgrade_head_on_empty_db(tmp_path, monkeypatch):
     # Assert 0006 columns applied to quiz
     quiz_cols = [c["name"] for c in inspector.get_columns("quiz")]
     assert "course_id" in quiz_cols               # 0006
+    
+    # Assert 0009 course owner applied
+    course_cols = [c["name"] for c in inspector.get_columns("course")]
+    assert "owner_id" in course_cols              # 0009
 
     # 5. Verify downgrade is clean (Rolls back to base)
     command.downgrade(alembic_cfg, "base")

@@ -2,7 +2,7 @@
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query, Request, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -38,7 +38,10 @@ def create_course(
     _current_user: CurrentUser = Depends(get_current_user),
 ):
     """Create a new course workspace."""
-    return course_service.create_course(db, title=body.title, description=body.description)
+    # Pass current_user.id as the owner
+    return course_service.create_course(
+        db, title=body.title, description=body.description, owner_id=_current_user.id
+    )
 
 
 @router.get("/courses", response_model=List[CourseSchema])
@@ -78,9 +81,7 @@ def update_course(
     body: UpdateCourseBody,
     course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(
-        CurrentUser(roles=[UserRole.ADMIN, UserRole.INSTRUCTOR])
-    ),
+    _current_user: CurrentUser = Depends(get_current_user), # CHANGED dependency
 ):
     """Update course title and description."""
     try:
@@ -91,11 +92,19 @@ def update_course(
             details={"course_id": course_id},
         )
 
+    course = course_service.get_course(db, course_id)
+    if course is None:
+        raise NotFoundError(resource="Course", identifier=course_id)
+        
+    # NEW: Owner-or-Reviewer Auth Check
+    is_reviewer = _current_user.role in (UserRole.ADMIN, UserRole.INSTRUCTOR, "admin", "instructor")
+    is_owner = course.owner_id is not None and course.owner_id == _current_user.id
+    if not (is_reviewer or is_owner):
+        raise HTTPException(status_code=403, detail="Not authorized to modify this course")
+
     result = course_service.update_course(
         db, course_id=course_id, **body.model_dump(exclude_unset=True)
     )
-    if result is None:
-        raise NotFoundError(resource="Course", identifier=course_id)
     return result
 
 
@@ -103,11 +112,9 @@ def update_course(
 def delete_course(
     course_id: str = Path(..., min_length=1, max_length=36, description="Course UUID"),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(CurrentUser(roles=[UserRole.ADMIN, UserRole.INSTRUCTOR])),
+    _current_user: CurrentUser = Depends(get_current_user), # CHANGED dependency
 ):
-    """Delete a course: documents (+ files, QVAC vectors, chunks), chapters,
-    lessons, quizzes, attempts, generation runs, and progress. Certificates
-    are revoked, not deleted, so verification stays honest. Instructor/admin only."""
+    """Delete a course. Instructor/admin or course owner only."""
     try:
         UUID(course_id)
     except ValueError:
@@ -116,9 +123,17 @@ def delete_course(
             details={"course_id": course_id},
         )
 
-    counts = course_service.delete_course(db, course_id)
-    if counts is None:
+    course = course_service.get_course(db, course_id)
+    if course is None:
         raise NotFoundError(resource="Course", identifier=course_id)
+        
+    # NEW: Owner-or-Reviewer Auth Check
+    is_reviewer = _current_user.role in (UserRole.ADMIN, UserRole.INSTRUCTOR, "admin", "instructor")
+    is_owner = course.owner_id is not None and course.owner_id == _current_user.id
+    if not (is_reviewer or is_owner):
+        raise HTTPException(status_code=403, detail="Not authorized to modify this course")
+
+    counts = course_service.delete_course(db, course_id)
     return {"message": "Course deleted", "counts": counts}
 
 
@@ -152,7 +167,7 @@ async def reindex_course(
     db: Session = Depends(get_db),
     _current_user: CurrentUser = Depends(get_current_user),
 ) -> ReindexResponse:
-    """Re-ingest all documents in a course (full parse → chunk → BM25 → QVAC)."""
+    """Re-ingest all documents in a course (full parse -> chunk -> BM25 -> QVAC)."""
     from app.services import document_service
     from app.workers import pipeline
     from app.workers.pipeline import UPLOADS_DIR

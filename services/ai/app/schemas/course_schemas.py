@@ -22,3 +22,11 @@ class CourseSchema(BaseModel):
 
 class CourseWithLessonsSchema(CourseSchema):
     lessons: List[LessonSchema] = []
+
+
+class CourseSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    title: str
+    description: Optional[str] = None
+    owner_id: Optional[str] = None  # NEW
