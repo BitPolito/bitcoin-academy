@@ -3,6 +3,8 @@
 Revision ID: 0002
 Revises: 0001
 Create Date: 2026-05-15
+
+Adds answer_feedback table for student thumbs-up/down ratings (Q8).
 """
 from typing import Sequence, Union
 from alembic import op

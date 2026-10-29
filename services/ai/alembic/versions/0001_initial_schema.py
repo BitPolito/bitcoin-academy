@@ -5,7 +5,9 @@ Revises:
 Create Date: 2026-05-15
 
 Baseline migration: creates all tables from the SQLAlchemy metadata using explicit DDL.
-Safe for both fresh databases and existing ones (checkfirst=True makes every CREATE TABLE idempotent).
+The schema is written out as it was at this revision, so later revisions can
+apply on top of it. Tables that already exist (databases created by
+create_all()) are skipped.
 """
 from typing import Sequence, Union
 from alembic import op
@@ -51,7 +53,7 @@ def upgrade() -> None:
             sa.Column("section_id", sa.String(), sa.ForeignKey("section.id"), nullable=False),
             sa.Column("title", sa.String(), nullable=False),
             sa.Column("description", sa.Text(), nullable=True),
-            sa.Column("is_active", sa.Boolean(), server_default=sa.text("1"), nullable=False),
+            sa.Column("is_active", sa.Boolean(), server_default=sa.true(), nullable=False),
         )
 
     if not _has_table(bind, "chapter"):
@@ -118,7 +120,7 @@ def upgrade() -> None:
             sa.Column("id", sa.String(), primary_key=True),
             sa.Column("question_id", sa.String(), sa.ForeignKey("question.id"), nullable=False),
             sa.Column("label", sa.String(), nullable=False),
-            sa.Column("is_correct", sa.Boolean(), server_default=sa.text("0"), nullable=False),
+            sa.Column("is_correct", sa.Boolean(), server_default=sa.false(), nullable=False),
         )
 
     if not _has_table(bind, "quiz_attempt"):
@@ -196,6 +198,18 @@ def upgrade() -> None:
             sa.Column("updated_at", sa.String(), server_default=sa.func.now(), nullable=False),
         )
 
+    if not _has_table(bind, "chunk_parent"):
+        op.create_table(
+            "chunk_parent",
+            sa.Column("id", sa.String(), primary_key=True),
+            sa.Column("doc_id", sa.String(), nullable=False),
+            sa.Column("course_id", sa.String(), nullable=False),
+            sa.Column("text", sa.Text(), nullable=False),
+            sa.Column("citation_label", sa.String(), nullable=False),
+            sa.Column("citation_page", sa.Integer(), nullable=False),
+            sa.Column("citation_section", sa.String(), nullable=False),
+        )
+
     if not _has_table(bind, "resource"):
         op.create_table(
             "resource",
@@ -208,7 +222,7 @@ def upgrade() -> None:
             sa.Column("resource_type", sa.String(), server_default="other", nullable=False),
             sa.Column("mime_type", sa.String(), nullable=True),
             sa.Column("order_index", sa.Integer(), server_default="0", nullable=False),
-            sa.Column("is_public", sa.Boolean(), server_default=sa.text("1"), nullable=False),
+            sa.Column("is_public", sa.Boolean(), server_default=sa.true(), nullable=False),
             sa.Column("created_by", sa.String(), sa.ForeignKey("app_user.id"), nullable=True),
             sa.Column("created_at", sa.String(), server_default=sa.func.now(), nullable=False),
         )
@@ -245,7 +259,7 @@ def upgrade() -> None:
             sa.Column("grade_pct", sa.Integer(), nullable=True),
             sa.Column("hours", sa.Integer(), nullable=True),
             sa.Column("issuer_name", sa.String(), nullable=True),
-            sa.Column("revoked", sa.Boolean(), server_default=sa.text("0"), nullable=False),
+            sa.Column("revoked", sa.Boolean(), server_default=sa.false(), nullable=False),
             sa.Column("revoked_at", sa.String(), nullable=True),
             sa.Column("metadata_json", sa.Text(), nullable=True),
         )
@@ -255,13 +269,11 @@ def downgrade() -> None:
     # Downgrade drops everything created in the initial baseline
     bind = op.get_bind()
     for t in [
-        "certificate", "user_badge", "badge", "resource", "course_document", 
-        "user_course_progress", "user_chapter_progress", "user_lesson_progress", 
-        "attempt_answer", "quiz_attempt", "option_choice", "question", 
-        "chapter_test_quiz", "chapter_test", "quiz", "lesson", "chapter", 
+        "certificate", "user_badge", "badge", "resource", "chunk_parent", "course_document",
+        "user_course_progress", "user_chapter_progress", "user_lesson_progress",
+        "attempt_answer", "quiz_attempt", "option_choice", "question",
+        "chapter_test_quiz", "chapter_test", "quiz", "lesson", "chapter",
         "course", "section", "app_user"
     ]:
         if _has_table(bind, t):
             op.drop_table(t)
-            
-            

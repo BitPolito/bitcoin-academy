@@ -3,6 +3,9 @@
 Revision ID: 0003
 Revises: 0002
 Create Date: 2026-06-11
+
+Nested heading tree (title, level, page span, parent-chunk anchors) extracted
+at ingest — structure source for course builder outline generation (Fase 1).
 """
 from typing import Sequence, Union
 from alembic import op

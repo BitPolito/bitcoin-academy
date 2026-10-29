@@ -16,7 +16,7 @@ depends_on = None
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = Inspector.from_engine(bind)
-    
+
     chapter_cols = [c["name"] for c in inspector.get_columns("chapter")]
     if "status" not in chapter_cols:
         op.add_column("chapter", sa.Column("status", sa.String(), nullable=True))
@@ -48,16 +48,16 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
     inspector = Inspector.from_engine(bind)
-    
+
     if inspector.has_table("generation_run"):
         op.drop_table("generation_run")
-        
+
     lesson_cols = [c["name"] for c in inspector.get_columns("lesson")]
     if "source_refs_json" in lesson_cols:
         op.drop_column("lesson", "source_refs_json")
     if "status" in lesson_cols:
         op.drop_column("lesson", "status")
-        
+
     chapter_cols = [c["name"] for c in inspector.get_columns("chapter")]
     if "status" in chapter_cols:
         op.drop_column("chapter", "status")
