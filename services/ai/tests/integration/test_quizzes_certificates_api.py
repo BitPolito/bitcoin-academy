@@ -269,6 +269,44 @@ class TestMyQuizAttempts:
         assert resp.status_code == 401
 
     @pytest.mark.integration
+    @pytest.mark.parametrize("scope", [QuizScope.LESSON, QuizScope.CHAPTER_TEST, QuizScope.COURSE])
+    def test_course_history_includes_each_scope_without_other_courses_or_users(self, client, db, scope):
+        from app.db.models import ChapterTest, OptionChoice, Question
+
+        user = make_user(db)
+        other_user = make_user(db)
+        course, lessons = make_course_with_lessons(db)
+        other_course, _ = make_course_with_lessons(db)
+        kwargs = {"course_id": course.id} if scope == QuizScope.COURSE else {}
+        if scope == QuizScope.LESSON:
+            kwargs["lesson_id"] = lessons[0].id
+        quiz = persist_quiz(db, _QUESTIONS, scope=scope, title="Scoped quiz", **kwargs)
+        if scope == QuizScope.CHAPTER_TEST:
+            chapter_test = ChapterTest(chapter_id=lessons[0].chapter_id, title="Chapter test")
+            chapter_test.quizzes.append(quiz)
+            db.add(chapter_test)
+            db.commit()
+
+        def submit(quiz, learner):
+            question = db.query(Question).filter_by(quiz_id=quiz.id).first()
+            option = db.query(OptionChoice).filter_by(question_id=question.id, is_correct=True).first()
+            response = client.post(
+                f"/api/quizzes/{quiz.id}/attempts",
+                json={"answers": {question.id: option.id}}, headers=_auth(learner.id),
+            )
+            assert response.status_code == 200
+            return response.json()["attempt_id"]
+
+        expected_attempt = submit(quiz, user)
+        submit(quiz, other_user)
+        other_quiz = persist_quiz(db, _QUESTIONS, scope=QuizScope.COURSE, title="Other course", course_id=other_course.id)
+        submit(other_quiz, user)
+        response = client.get(f"/api/users/me/quiz-attempts?course_id={course.id}", headers=_auth(user.id))
+        assert response.status_code == 200
+        assert [item["attempt_id"] for item in response.json()] == [expected_attempt]
+        assert len(client.get("/api/users/me/quiz-attempts", headers=_auth(user.id)).json()) == 2
+
+    @pytest.mark.integration
     def test_list_my_attempts_returns_persisted_attempt(self, client, db):
         from app.db.models import OptionChoice, Question
 
