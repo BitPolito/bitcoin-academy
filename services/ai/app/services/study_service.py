@@ -223,48 +223,57 @@ def _lacks_evidence(meta: ActionMeta, pack: EvidencePack) -> bool:
 
 
 _REF_PATTERN = re.compile(r'\[ref_(\d+)\]', re.IGNORECASE)
+# A marker cut off at the end of a streamed token: "[", "[re", "[ref_1", ...
+_PARTIAL_REF_PATTERN = re.compile(r'\[(?:r(?:e(?:f(?:_\d*)?)?)?)?\Z', re.IGNORECASE)
 
-def _parse_citations(text: str, pack: EvidencePack) -> tuple[str, List[SourceChunk]]:
-    """Extract [ref_N] markers, reorder cited sources, and remap inline markers (Issue #264).
 
-    Returns:
-        (remapped_text, source_chunks): The generated text with citations sequentially
-        renumbered starting from 1, and the ordered list of cited SourceChunks matching
-        those new numbers.
+class _CitationRenumberer:
+    """Renumber [ref_N] markers 1, 2, ... in order of first appearance (#264).
+
+    The client numbers the sources list from 1, and that list is ordered by
+    first citation, so the inline markers must use the same numbers. Works on
+    streamed tokens: a marker split across tokens is held back until it is
+    complete. Markers outside the evidence pack are left unchanged.
     """
-    cited_indices: list[int] = []
-    seen: set[int] = set()
-    old_to_new_map: dict[int, int] = {}
-    
-    # 1. Identify which chunks were cited, in order of first appearance
-    for m in _REF_PATTERN.finditer(text):
-        original_ref_num = int(m.group(1))
-        idx = original_ref_num - 1  # 0-based pack index
-        
-        if 0 <= idx < len(pack.chunks):
-            if original_ref_num not in old_to_new_map:
-                cited_indices.append(idx)
-                seen.add(idx)
-                # Map the old LLM-generated ref number to its new sequential 1-based index
-                old_to_new_map[original_ref_num] = len(cited_indices)
 
-    if not cited_indices:
-        # No markers found — return all pack chunks as citations (backward-compat)
-        source_chunks = pack.chunks
-        remapped_text = text
-    else:
-        source_chunks = [pack.chunks[i] for i in cited_indices]
-        # 2. Single-pass regex replacement to update the inline markers
-        def replace_ref(match: re.Match) -> str:
-            old_num = int(match.group(1))
-            if old_num in old_to_new_map:
-                new_num = old_to_new_map[old_num]
-                return f"[ref_{new_num}]"
-            return match.group(0)  # Unchanged if it was an invalid out-of-bounds citation
-            
-        remapped_text = _REF_PATTERN.sub(replace_ref, text)
+    def __init__(self, pack_size: int) -> None:
+        self._pack_size = pack_size
+        self._numbers: dict[int, int] = {}  # pack index -> new 1-based number
+        self._pending = ""
 
-    return remapped_text, [
+    @property
+    def cited_indices(self) -> list[int]:
+        """Pack indices of the cited chunks, in citation order."""
+        return list(self._numbers)
+
+    def feed(self, token: str) -> str:
+        text = self._pending + token
+        partial = _PARTIAL_REF_PATTERN.search(text)
+        cut = partial.start() if partial else len(text)
+        self._pending = text[cut:]
+        return _REF_PATTERN.sub(self._renumber, text[:cut])
+
+    def flush(self) -> str:
+        text, self._pending = self._pending, ""
+        return _REF_PATTERN.sub(self._renumber, text)
+
+    def _renumber(self, match: re.Match[str]) -> str:
+        idx = int(match.group(1)) - 1  # [ref_N] is 1-based
+        if not 0 <= idx < self._pack_size:
+            return match.group(0)
+        number = self._numbers.setdefault(idx, len(self._numbers) + 1)
+        return f"[ref_{number}]"
+
+
+def _cited_sources(pack: EvidencePack, cited_indices: list[int]) -> List[SourceChunk]:
+    """SourceChunks for the cited evidence, in citation order.
+
+    Falls back to all pack chunks when no [ref_N] markers are found — this
+    happens when the LLM ignores the citation instruction or when the action
+    does not require source grounding.
+    """
+    chunks = [pack.chunks[i] for i in cited_indices] if cited_indices else pack.chunks
+    return [
         SourceChunk(
             snippet=c.text,
             score=c.score,
@@ -274,8 +283,18 @@ def _parse_citations(text: str, pack: EvidencePack) -> tuple[str, List[SourceChu
             section=c.anchor.section or "",
             doc_id=c.anchor.doc_id,
         )
-        for c in source_chunks
+        for c in chunks
     ]
+
+
+def _parse_citations(text: str, pack: EvidencePack) -> tuple[str, List[SourceChunk]]:
+    """Renumber the [ref_N] markers in generated text and return the cited chunks.
+
+    Returns (text, sources): marker N in the returned text refers to sources[N - 1].
+    """
+    renumberer = _CitationRenumberer(len(pack.chunks))
+    remapped = renumberer.feed(text) + renumberer.flush()
+    return remapped, _cited_sources(pack, renumberer.cited_indices)
 
 
 async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple[str, EvidencePack]:
@@ -719,12 +738,16 @@ async def stream_dispatch(
         yield _cache_and_sentinel(answer, sources)
         return
 
-    # Streaming actions: stream tokens, accumulate for citation parsing + cache write
+    # Streaming actions: stream tokens, accumulate for citation parsing + cache write.
+    # Markers are renumbered as they stream, so the client sees the same
+    # numbers as the sources list and the cached answer.
+    renumberer = _CitationRenumberer(len(pack.chunks))
     accumulated: list[str] = []
     try:
         async for token in _stream_generate(action, question, pack.context_block()):
-            accumulated.append(token)
-            yield token
+            text = renumberer.feed(token)
+            accumulated.append(text)
+            yield text
     except httpx.HTTPError as exc:
         raise ExternalServiceError(
             message="Answer interrupted. Please retry.",
@@ -732,15 +755,19 @@ async def stream_dispatch(
         ) from exc
 
     if accumulated:
+        tail = renumberer.flush()
+        if tail:
+            accumulated.append(tail)
+            yield tail
         full_text = "".join(accumulated)
-        remapped_text, sources = _parse_citations(full_text, pack)
-        yield _cache_and_sentinel(remapped_text, sources)
+        sources = _cited_sources(pack, renumberer.cited_indices)
+        yield _cache_and_sentinel(full_text, sources)
     else:
         # Stream yielded nothing — fall back to buffered generate
         generated = await _generate(action, question, pack.context_block())
         if generated:
             remapped_text, sources = _parse_citations(generated, pack)
-            yield generated
+            yield remapped_text
             yield _cache_and_sentinel(remapped_text, sources)
         else:
             fallback = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER

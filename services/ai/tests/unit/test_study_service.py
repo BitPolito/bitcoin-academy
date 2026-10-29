@@ -117,6 +117,8 @@ def test_parse_citations_preserves_anchor_metadata():
     assert src.label == "whitepaper.pdf"
     assert src.page == 1
     assert src.doc_id == "DOC1"
+
+
 # ---------------------------------------------------------------------------
 # _generate
 # ---------------------------------------------------------------------------
