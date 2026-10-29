@@ -244,6 +244,83 @@ async def test_stream_dispatch_yields_tokens_progressively_for_a_streaming_actio
     assert chunks[-1].startswith(_CITATIONS_SENTINEL)
 
 
+def _pack_with_three_chunks():
+    from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk, EvidencePack
+
+    chunks = [
+        EvidenceChunk(
+            chunk_id=f"c{i}", text=f"passage {i}", score=0.9,
+            anchor=CitationAnchor(doc_id="DOC1", doc_name="notes.pdf", section="", page=i,
+                                  slide=None, chunk_id=f"c{i}", chunk_type="paragraph"),
+        )
+        for i in (1, 2, 3)
+    ]
+    return EvidencePack(
+        query="q", action="summarize", chunks=chunks, total_candidates=3,
+        ordering=[0, 1, 2], deduped_passages=[c.text for c in chunks],
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_dispatch_renumbers_streamed_citations_to_match_the_sources():
+    """#264: the client shows streamed text as is and numbers the sources from 1,
+    so markers must be renumbered while streaming, even when split across tokens."""
+    async def _fake_stream_generate(*args, **kwargs):
+        for tok in ["Halving [re", "f_3] and fees [ref_", "1]. Again [REF_3], bad [ref_9]."]:
+            yield tok
+
+    with patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached") as cache, \
+         patch.object(study_service, "_retrieve_multi", return_value=("", _pack_with_three_chunks())), \
+         patch.object(study_service, "_stream_generate", side_effect=_fake_stream_generate):
+        chunks = await _drain(
+            study_service.stream_dispatch("Summarize the halving", COURSE_ID, StudyAction.SUMMARIZE)
+        )
+
+    streamed = "".join(chunks[:-1])
+    assert streamed == "Halving [ref_1] and fees [ref_2]. Again [ref_1], bad [ref_9]."
+    sources = json.loads(chunks[-1][len(_CITATIONS_SENTINEL):])
+    assert [s["snippet"] for s in sources] == ["passage 3", "passage 1"]
+    assert cache.call_args.args[2]["answer"] == streamed
+
+
+@pytest.mark.asyncio
+async def test_stream_dispatch_flushes_a_trailing_partial_marker():
+    async def _fake_stream_generate(*args, **kwargs):
+        for tok in ["See [ref_2]", " and [ref"]:
+            yield tok
+
+    with patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"), \
+         patch.object(study_service, "_retrieve_multi", return_value=("", _pack_with_three_chunks())), \
+         patch.object(study_service, "_stream_generate", side_effect=_fake_stream_generate):
+        chunks = await _drain(
+            study_service.stream_dispatch("Summarize the halving", COURSE_ID, StudyAction.SUMMARIZE)
+        )
+
+    assert "".join(chunks[:-1]) == "See [ref_1] and [ref"
+
+
+@pytest.mark.asyncio
+async def test_stream_dispatch_buffered_fallback_yields_the_renumbered_text():
+    async def _empty_stream(*args, **kwargs):
+        return
+        yield  # pragma: no cover — makes this an async generator
+
+    with patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"), \
+         patch.object(study_service, "_retrieve_multi", return_value=("", _pack_with_three_chunks())), \
+         patch.object(study_service, "_stream_generate", side_effect=_empty_stream), \
+         patch.object(study_service, "_generate", new=AsyncMock(return_value="Fees [ref_2].")):
+        chunks = await _drain(
+            study_service.stream_dispatch("Summarize the halving", COURSE_ID, StudyAction.SUMMARIZE)
+        )
+
+    assert chunks[0] == "Fees [ref_1]."
+    sources = json.loads(chunks[-1][len(_CITATIONS_SENTINEL):])
+    assert [s["snippet"] for s in sources] == ["passage 2"]
+
+
 @pytest.mark.asyncio
 async def test_stream_dispatch_falls_back_to_buffered_generate_when_the_stream_yields_nothing():
     """QVAC /stream returning zero tokens (connection dropped, empty response)
