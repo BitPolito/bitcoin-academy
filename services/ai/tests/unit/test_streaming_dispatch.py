@@ -101,6 +101,38 @@ def _pack_with_one_chunk():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
+async def test_study_partial_stream_failure_is_reported_and_not_cached():
+    from app.core.errors import ExternalServiceError
+
+    async def broken_stream(*args, **kwargs):
+        yield "Partial answer"
+        raise httpx.ReadError("private upstream address")
+
+    chunks = []
+    with patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached") as cache, \
+         patch.object(study_service, "_retrieve_multi", return_value=("", _pack_with_one_chunk())), \
+         patch.object(study_service, "_stream_generate", side_effect=broken_stream):
+        with pytest.raises(ExternalServiceError, match="Answer interrupted. Please retry."):
+            async for chunk in study_service.stream_dispatch("Explain the source", COURSE_ID, StudyAction.EXPLAIN):
+                chunks.append(chunk)
+    assert chunks == ["Partial answer"]
+    cache.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ending", [[], [_sse("[ERROR] private upstream failure"), "data: [DONE]"]])
+async def test_study_upstream_partial_stream_requires_successful_completion(ending):
+    client = MagicMock()
+    client.stream = _FakeStreamContext(lines=[_sse("Partial answer"), *ending])
+    chunks = []
+    with patch.object(study_service, "_qvac_gen_client", client):
+        with pytest.raises(httpx.HTTPError):
+            async for chunk in study_service._stream_generate(StudyAction.EXPLAIN, "question", "source"):
+                chunks.append(chunk)
+    assert chunks == ["Partial answer"]
+
+@pytest.mark.asyncio
 async def test_stream_dispatch_rejects_a_too_short_query():
     with pytest.raises(ValueError):
         await _drain(study_service.stream_dispatch("hi", COURSE_ID, StudyAction.EXPLAIN))

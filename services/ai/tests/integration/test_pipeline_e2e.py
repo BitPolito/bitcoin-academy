@@ -46,10 +46,13 @@ def _try_import(module_name: str):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _run_pipeline(db, file_path: Path, course_id: str, filename: str) -> tuple:
+def _run_pipeline(
+    db, file_path: Path, course_id: str, filename: str, qvac_status: str = "indexed"
+) -> tuple:
     """Run pipeline.run() with an isolated QVAC ingest directory.
 
-    _qvac_ingest is patched so no HTTP call is made to the QVAC service.
+    _qvac_ingest is patched so no HTTP call is made to the QVAC service; it
+    returns qvac_status as the document's indexing_status.
     The JSONL file is still written to a temp directory (tests can inspect it
     separately if needed). Returns (doc_id, doc_record).
     """
@@ -90,7 +93,7 @@ def _run_pipeline(db, file_path: Path, course_id: str, filename: str) -> tuple:
                     yield db
 
                 # Patch _qvac_ingest to avoid requiring the QVAC service to be running
-                with patch("app.workers.pipeline._qvac_ingest"):
+                with patch("app.workers.pipeline._qvac_ingest", return_value=qvac_status):
                     with patch("app.workers.pipeline.get_db_context", _fake_db_ctx):
                         pipeline_mod.run(
                             document_id=doc_id,
@@ -274,6 +277,22 @@ def test_pipeline_pptx_chunk_count_positive(client, db):
     assert doc.chunk_count > 0
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize("suffix", [".md", ".txt"])
+def test_pipeline_text_file_becomes_ready_with_chunks(client, db, tmp_path, suffix):
+    _try_import("fastembed")
+    text = "# Bitcoin\n\n" + " ".join(["Bitcoin is a peer-to-peer electronic cash system."] * 40)
+    path = tmp_path / f"notes{suffix}"
+    path.write_text(text, encoding="utf-8")
+
+    course, _ = make_course_with_lessons(db)
+    _, doc = _run_pipeline(db, path, course.id, path.name)
+
+    assert doc.status == DocumentStatus.READY, doc.error_message
+    assert doc.chunk_count is not None
+    assert doc.chunk_count > 0
+
+
 # ---------------------------------------------------------------------------
 # Error handling — bad file path
 # ---------------------------------------------------------------------------
@@ -377,7 +396,7 @@ def test_pipeline_writes_qvac_jsonl_for_pdf(client, db):
                 def _fake_db_ctx():
                     yield db
 
-                with patch("app.workers.pipeline._qvac_ingest"):
+                with patch("app.workers.pipeline._qvac_ingest", return_value="indexed"):
                     with patch("app.workers.pipeline.get_db_context", _fake_db_ctx):
                         pipeline_mod.run(
                             document_id=doc_id, course_id=course.id,
@@ -426,7 +445,7 @@ def test_pipeline_qvac_jsonl_contains_only_paragraph_chunks(client, db):
                 def _fake_db_ctx():
                     yield db
 
-                with patch("app.workers.pipeline._qvac_ingest"):
+                with patch("app.workers.pipeline._qvac_ingest", return_value="indexed"):
                     with patch("app.workers.pipeline.get_db_context", _fake_db_ctx):
                         pipeline_mod.run(
                             document_id=doc_id, course_id=course.id,
@@ -482,7 +501,7 @@ def test_pipeline_qvac_ingest_called_with_course_id_as_workspace(client, db):
                 def _fake_db_ctx():
                     yield db
 
-                with patch("app.workers.pipeline._qvac_ingest") as mock_qvac:
+                with patch("app.workers.pipeline._qvac_ingest", return_value="indexed") as mock_qvac:
                     with patch("app.workers.pipeline.get_db_context", _fake_db_ctx):
                         pipeline_mod.run(
                             document_id=doc_id, course_id=course.id,
@@ -535,7 +554,7 @@ def test_pipeline_qvac_jsonl_has_required_fields(client, db):
                 def _fake_db_ctx():
                     yield db
 
-                with patch("app.workers.pipeline._qvac_ingest"):
+                with patch("app.workers.pipeline._qvac_ingest", return_value="indexed"):
                     with patch("app.workers.pipeline.get_db_context", _fake_db_ctx):
                         pipeline_mod.run(
                             document_id=doc_id, course_id=course.id,

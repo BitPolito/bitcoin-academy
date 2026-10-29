@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.db.models import UserRole
 from tests.conftest import make_course_with_lessons, make_user
 from tests.integration.test_pipeline_e2e import _run_pipeline
 
@@ -82,12 +83,11 @@ def test_empty_pdf_marks_error_not_stuck(db):
 
 
 @pytest.mark.integration
-def test_document_with_no_extractable_text_reaches_ready_with_zero_chunks(db):
+def test_document_with_no_extractable_text_marks_error(db):
     """A structurally valid PDF whose pages carry no text (a blank page, or a
-    page of only images) must NOT be treated as a failure. This is the
-    'document that parses but yields zero chunks' case the issue calls out —
-    it must reach a coherent, inspectable READY state with chunk_count == 0,
-    not error and not hang."""
+    page of only images, #263) has nothing to index: it must end in ERROR with
+    a message explaining that scanned PDFs are not supported, not in a READY
+    state that looks searchable."""
     import fitz
 
     doc_obj = fitz.open()
@@ -103,12 +103,90 @@ def test_document_with_no_extractable_text_reaches_ready_with_zero_chunks(db):
     finally:
         path.unlink(missing_ok=True)
 
-    assert doc.status == "ready", (
-        f"A blank document must still reach READY, not {doc.status}. "
-        f"error_message={doc.error_message!r}"
-    )
+    assert doc.status == "error"
+    assert doc.processing_stage == "error"
+    assert "No searchable text" in doc.error_message
     assert doc.chunk_count == 0
     assert doc.page_count == 1
+
+
+# ---------------------------------------------------------------------------
+# QVAC dense index failures — the document stays usable through BM25
+# ---------------------------------------------------------------------------
+
+_TEXT = "# Bitcoin\n\n" + "Bitcoin is a peer-to-peer electronic cash system. " * 40
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("qvac_status", ["qvac_pending", "qvac_failed"])
+def test_qvac_failure_keeps_document_ready_and_reports_indexing_status(db, tmp_path, qvac_status):
+    """Unreachable (pending) and rejected (failed) QVAC ingests both leave the
+    chunks and BM25 usable, so the document is READY and indexing_status says
+    which dense-index problem the UI must show."""
+    course, _ = make_course_with_lessons(db)
+    path = tmp_path / "notes.md"
+    path.write_text(_TEXT, encoding="utf-8")
+
+    _, doc = _run_pipeline(db, path, course.id, path.name, qvac_status=qvac_status)
+
+    assert doc.status == "ready"
+    assert doc.indexing_status == qvac_status
+    assert doc.chunk_count > 0
+    assert doc.error_message is None
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("qvac_status", "expected"), [
+    ("indexed", "indexed"),
+    ("qvac_failed", "qvac_failed"),
+])
+def test_reindex_updates_indexing_status_and_keeps_document_ready(
+    db, tmp_path, monkeypatch, qvac_status, expected
+):
+    from contextlib import contextmanager
+
+    import app.workers.pipeline as pipeline_mod
+    from app.db.models import CourseDocument
+
+    course, _ = make_course_with_lessons(db)
+    doc = CourseDocument(
+        course_id=course.id, filename="notes.md", mime_type="text/markdown", size=10,
+        status="ready", processing_stage="done", indexing_status="qvac_failed",
+    )
+    db.add(doc)
+    db.commit()
+    (tmp_path / f"{doc.id}_contingency.jsonl").write_text("{}\n")
+
+    @contextmanager
+    def _fake_db_ctx():
+        yield db
+
+    monkeypatch.setattr(pipeline_mod, "QVAC_INGEST_DIR", tmp_path)
+    monkeypatch.setattr(pipeline_mod, "get_db_context", _fake_db_ctx)
+    with patch("app.workers.pipeline._qvac_ingest", return_value=qvac_status) as mock_qvac:
+        pipeline_mod.reindex_qvac(doc.id, course.id)
+
+    db.refresh(doc)
+    assert mock_qvac.call_args.kwargs["rebuild"] is True
+    assert doc.status == "ready"
+    assert doc.indexing_status == expected
+
+
+@pytest.mark.integration
+def test_document_list_exposes_indexing_status(client, db):
+    from app.db.models import CourseDocument
+
+    course, _ = make_course_with_lessons(db)
+    user = make_user(db)
+    db.add(CourseDocument(
+        course_id=course.id, filename="notes.md", mime_type="text/markdown", size=10,
+        status="ready", processing_stage="done", indexing_status="qvac_failed",
+    ))
+    db.commit()
+
+    rows = client.get(f"/api/courses/{course.id}/documents", headers=_auth_header(user)).json()
+
+    assert rows[0]["indexing_status"] == "qvac_failed"
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +202,7 @@ def _auth_header(user) -> dict:
 @pytest.mark.integration
 def test_upload_rejects_an_unsupported_mime_type(client, db):
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
 
     response = client.post(
         f"/api/courses/{course.id}/documents",
@@ -141,7 +219,7 @@ def test_upload_rejects_an_unsupported_mime_type(client, db):
 @pytest.mark.integration
 def test_upload_rejects_a_file_over_the_size_limit(client, db):
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
     oversized = b"0" * (50 * 1024 * 1024 + 1)
 
     with patch("app.api.documents_api.document_service.create_document") as mock_create:
@@ -160,7 +238,7 @@ def test_upload_accepts_a_file_exactly_at_the_size_limit(client, db):
     """Boundary check: the limit is inclusive, not off-by-one in the wrong
     direction — a file of exactly 50 MB must not be rejected."""
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
     exactly_at_limit = b"%PDF-1.4\n" + b"0" * (50 * 1024 * 1024 - 9)
     assert len(exactly_at_limit) == 50 * 1024 * 1024
 

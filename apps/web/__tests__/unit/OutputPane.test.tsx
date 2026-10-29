@@ -279,6 +279,32 @@ describe('OutputPane', () => {
     });
   });
   describe('streaming study actions', () => {
+    it('marks a partial action interrupted and retries the same action and query', async () => {
+      const onActionResult = jest.fn();
+      mockStudyStream
+        .mockImplementationOnce(async (_course, _action, _query, onToken) => {
+          onToken('Partial answer');
+          throw new Error('Answer interrupted. Please retry.');
+        })
+        .mockImplementationOnce(async (_course, _action, _query, onToken, onCitations) => {
+          onToken('Complete answer');
+          onCitations([]);
+        });
+      render(<StrictMode><OutputPane {...defaultProps} onActionResult={onActionResult} /></StrictMode>);
+      fireEvent.change(screen.getByRole('textbox', { name: /message input/i }), { target: { value: 'Original question' } });
+      fireEvent.click(screen.getAllByRole('button', { name: /explain/i })[0]);
+      expect(await screen.findByText('Error: Answer interrupted. Please retry.')).toBeInTheDocument();
+      expect(screen.getByText('Partial answer')).toBeInTheDocument();
+      expect(screen.getByText('Interrupted')).toBeInTheDocument();
+      expect(onActionResult).not.toHaveBeenCalled();
+      fireEvent.change(screen.getByRole('textbox', { name: /message input/i }), { target: { value: 'Different question' } });
+      fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+      await waitFor(() => expect(screen.getByText('Complete answer')).toBeInTheDocument());
+      expect(mockStudyStream).toHaveBeenLastCalledWith('course-123', 'explain', 'Original question', expect.any(Function), expect.any(Function), 'tok', false);
+      expect(onActionResult).toHaveBeenCalledTimes(1);
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+
     it('renders the streamed answer under React StrictMode', async () => {
       // StrictMode invokes state updaters twice in development. An updater with
       // side effects dropped every token and showed "No response received.".
