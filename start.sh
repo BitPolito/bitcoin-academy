@@ -110,7 +110,7 @@ PIDS+=($!)
 log "Starting backend   → http://localhost:8000  (log: .logs/backend.log)"
 (
     cd "$ROOT/services/ai"
-    exec uv run uvicorn app.main:app --reload --port 8000
+    exec uv run --no-sync uvicorn app.main:app --reload --port 8000
 ) > "$LOG_DIR/backend.log" 2>&1 &
 PIDS+=($!)
 
@@ -139,7 +139,7 @@ if [[ -n "${REDIS_URL:-}" ]]; then
     log "Starting ARQ worker → Redis queue (log: .logs/arq.log)"
     (
         cd "$ROOT/services/ai"
-        exec uv run arq app.workers.arq_worker.WorkerSettings
+        exec uv run --no-sync arq app.workers.arq_worker.WorkerSettings
     ) > "$LOG_DIR/arq.log" 2>&1 &
     PIDS+=($!)
 fi

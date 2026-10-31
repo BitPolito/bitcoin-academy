@@ -40,14 +40,14 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 if ($Setup) {
     Write-Step "Running backend setup..."
     Push-Location "$Root\services\ai"
-    uv sync
+    uv sync --locked --extra dev
     if (-not (Test-Path ".env")) {
         if (Test-Path ".env.example") {
             Copy-Item ".env.example" ".env"
             Write-Step ".env created from .env.example"
         }
     }
-    uv run python -m app.db.init_db
+    uv run --no-sync python -m app.db.init_db
     Pop-Location
 
     foreach ($dir in @("$Root\apps\web", "$Root\workers\qvac-service")) {
@@ -95,7 +95,7 @@ $cmdWeb = "cd \`"$Root\apps\web\`"; npm run dev *> \`"$LogDir\frontend.log\`"; R
 Write-Step "Starting frontend -> http://localhost:3000"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $cmdWeb
 
-$cmdApi = "cd \`"$Root\services\ai\`"; uv run uvicorn app.main:app --reload --port 8000 *> \`"$LogDir\backend.log\`"; Read-Host 'Press Enter to close'"
+$cmdApi = "cd \`"$Root\services\ai\`"; uv run --no-sync uvicorn app.main:app --reload --port 8000 *> \`"$LogDir\backend.log\`"; Read-Host 'Press Enter to close'"
 Write-Step "Starting backend -> http://localhost:8000"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $cmdApi
 
@@ -114,7 +114,7 @@ if ([string]::IsNullOrWhiteSpace($RedisUrl) -and (Test-Path "$Root\services\ai\.
 }
 
 if (-not [string]::IsNullOrWhiteSpace($RedisUrl)) {
-    $cmdArq = "cd \`"$Root\services\ai\`"; uv run arq app.workers.arq_worker.WorkerSettings *> \`"$LogDir\arq.log\`"; Read-Host 'Press Enter to close'"
+    $cmdArq = "cd \`"$Root\services\ai\`"; uv run --no-sync arq app.workers.arq_worker.WorkerSettings *> \`"$LogDir\arq.log\`"; Read-Host 'Press Enter to close'"
     Write-Step "Starting ARQ worker -> Redis queue (REDIS_URL is set)"
     Start-Process powershell -ArgumentList "-NoExit", "-Command", $cmdArq
 }
