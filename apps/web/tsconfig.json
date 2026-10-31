@@ -50,8 +50,7 @@
     "src/**/*.ts",
     "src/globals.d.ts",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
-    "jsx-shim.d.ts"
+    ".next/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
