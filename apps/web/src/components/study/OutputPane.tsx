@@ -658,7 +658,7 @@ export function OutputPane({
                   </span>
                 </div>
                 <div className="b-thin rounded-lg p-4">
-                  <ReactMarkdown className="md-prose" remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                  <div className="md-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown></div>
                 </div>
               </div>
             );
@@ -929,3 +929,4 @@ export function OutputPane({
     </div>
   );
 }
+
