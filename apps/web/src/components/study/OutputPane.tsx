@@ -34,6 +34,7 @@ interface ActionStreamingMessage {
   action: StudyAction;
   query: string;
   content: string;
+  interrupted?: boolean;
 }
 
 type Message = ChatMessage | ActionMessage | ActionStreamingMessage;
@@ -294,6 +295,7 @@ export function OutputPane({
   // setMessages updater so it stays correct across React's concurrent-mode batching.
   const assistantIdxRef = useRef(-1);
   const [retryQuestion, setRetryQuestion] = useState<string | null>(null);
+  const [retryAction, setRetryAction] = useState<{ action: StudyAction; query: string } | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const { showToast } = useToast();
 
@@ -324,6 +326,7 @@ export function OutputPane({
     setLoading(true);
     setActiveAction(null);
     setRetryQuestion(null);
+    setRetryAction(null);
     setSessionRestored(false);
 
     // Add user + empty assistant messages atomically; capture assistant index inside
@@ -388,6 +391,11 @@ export function OutputPane({
   }
 
   function handleRetry() {
+    if (loading) return;
+    if (retryAction) {
+      void handleAction(retryAction.action, retryAction.query);
+      return;
+    }
     if (!retryQuestion || loading) return;
     executeSend(retryQuestion, { trimFailedPair: true });
   }
@@ -396,6 +404,8 @@ export function OutputPane({
     const query = queryOverride || input.trim() || selectedLesson?.title || 'this course material';
     setLoading(true);
     setActiveAction(action);
+    setRetryQuestion(null);
+    setRetryAction(null);
     setSessionRestored(false);
     setMessages((prev) => [...prev, { role: 'user', content: `[${action}] ${query}` }]);
     const t0 = Date.now();
@@ -435,7 +445,11 @@ export function OutputPane({
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Study action failed.';
         if (msg.includes('Troppe richieste')) showToast('Troppe richieste — riprova tra qualche secondo.', 'warn');
-        setMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${msg}` }]);
+        setMessages((prev) => [
+          ...(answer ? replaceLastStreaming(prev, (m) => ({ ...m, interrupted: true })) : prev),
+          { role: 'assistant', content: `Error: ${msg}` },
+        ]);
+        setRetryAction({ action, query });
         setLoading(false);
         setActiveAction(null);
         return;
@@ -639,7 +653,9 @@ export function OutputPane({
                     {msg.action.replace('_', ' ')}
                   </span>
                   <span className="font-mono text-[11px] opacity-60 truncate max-w-48">{msg.query}</span>
-                  <span className="font-mono text-[10px] opacity-40 animate-pulse ml-1">…</span>
+                  <span className={`font-mono text-[10px] opacity-40 ml-1 ${msg.interrupted ? '' : 'animate-pulse'}`}>
+                    {msg.interrupted ? 'Interrupted' : '…'}
+                  </span>
                 </div>
                 <div className="b-thin rounded-lg p-4">
                   <ReactMarkdown className="md-prose" remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
@@ -801,7 +817,7 @@ export function OutputPane({
                     </button>
                   </div>
                 )}
-                {msg.role === 'assistant' && retryQuestion !== null && isLast && (
+                {msg.role === 'assistant' && (retryQuestion !== null || retryAction !== null) && isLast && (
                   <div className="mt-2 pt-2 b-thin-t">
                     <button
                       onClick={handleRetry}

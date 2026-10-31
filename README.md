@@ -225,7 +225,7 @@ CPU-only torch build, because `uv.lock` resolves the CUDA wheels on Linux (#175)
 |---|---|---|
 | `localhost:3000` — connection refused | Services not started, or `.env.local` missing | Run the two `cp` commands in Quick Start, then `./start.sh` (or `./start.sh --setup` on first run) |
 | Port 3000 occupied by a stale process | Previous run exited without cleanup | `./start.sh` kills stale processes automatically; if running manually: `kill $(lsof -ti :3000)` |
-| QVAC service fails to start | Model download timed out on first run | Re-run `node src/server.js` — models are cached after the first successful download |
+| QVAC service fails to start | Model download timed out on first run | Re-run `node src/server.js` — models are cached in `~/.qvac/models` (the `qvac_models` volume in Docker) after the first successful download |
 | `/health` returns `database: disconnected` | `DATABASE_URL` missing or wrong | Check `services/ai/.env`; confirm PostgreSQL is running (or use the SQLite default for dev) |
 | Document stuck in `processing` forever | Without `REDIS_URL`: in-process background task failed. With `REDIS_URL`: Redis not running or ARQ worker not started | Without `REDIS_URL`: check `.logs/backend.log` for errors. With `REDIS_URL`: start Redis (`docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml up -d redis`), then start the ARQ worker (`./start.sh` / `.\start.ps1` or `cd services/ai && uv run --no-sync arq app.workers.arq_worker.WorkerSettings`) |
 | Frontend CORS error | `CORS_ORIGINS` missing the frontend origin | Add the frontend URL to `CORS_ORIGINS` in `services/ai/.env` |

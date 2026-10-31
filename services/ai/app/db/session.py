@@ -66,9 +66,10 @@ def init_db(bind: Optional[Engine] = None) -> None:
     with target.begin() as connection:
         alembic_cfg.attributes["connection"] = connection
         if not inspect(connection).get_table_names():
-            # A brand-new database. 0001 builds the *current* models, so later
-            # revisions would collide with tables it already created: build the
-            # schema once and record it as up to date instead.
+            # A brand-new database: build the current models in one step and
+            # record them as up to date instead of replaying every revision.
+            # `alembic upgrade head` reaches the same schema (see
+            # tests/integration/test_migrations.py).
             Base.metadata.create_all(connection)
             command.stamp(alembic_cfg, "head")
         else:

@@ -59,11 +59,13 @@ function LoginForm() {
       });
       if (result?.error) {
         const friendlyError =
-          result.error === 'TooManyRequests'
-            ? 'Troppe richieste — riprova tra qualche secondo.'
-            : result.error === 'CredentialsSignin'
-              ? 'Invalid email or password. Please try again.'
-              : 'An unexpected error occurred. Please try again.';
+          result.error === 'AccountLocked'
+            ? 'Your account is temporarily locked after repeated failed sign-in attempts. Please try again later.'
+            : result.error === 'TooManyRequests'
+              ? 'Too many sign-in attempts. Please try again later.'
+              : result.error === 'CredentialsSignin'
+                ? 'Invalid email or password. Please try again.'
+                : 'An unexpected error occurred. Please try again.';
         setErrors({ general: friendlyError });
       } else if (result?.ok) {
         router.push(callbackUrl);
@@ -200,9 +202,7 @@ function LoginForm() {
             <div className="w-full border-t form-divider-line" />
           </div>
           <div className="relative flex justify-center text-sm">
-            <span className="form-divider-text">
-              Don&apos;t have an account?
-            </span>
+            <span className="form-divider-text">Don&apos;t have an account?</span>
           </div>
         </div>
 

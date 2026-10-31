@@ -65,7 +65,7 @@ def _make_httpx_resp(json_data: dict, status_code: int = 200) -> MagicMock:
 def test_parse_citations_extracts_referenced_chunks():
     pack = _make_pack()
     text = "Bitcoin [ref_1] was described in 2008. Mining [ref_2] keeps it secure."
-    result = _parse_citations(text, pack)
+    remapped_text, result = _parse_citations(text, pack)
     assert len(result) == 2
     assert result[0].snippet == pack.chunks[0].text
     assert result[1].snippet == pack.chunks[1].text
@@ -75,7 +75,7 @@ def test_parse_citations_extracts_referenced_chunks():
 def test_parse_citations_falls_back_to_all_when_no_markers():
     pack = _make_pack()
     text = "Bitcoin is interesting but no citations here."
-    result = _parse_citations(text, pack)
+    remapped_text, result = _parse_citations(text, pack)
     # No [ref_N] markers → all chunks returned
     assert len(result) == len(pack.chunks)
 
@@ -84,7 +84,7 @@ def test_parse_citations_falls_back_to_all_when_no_markers():
 def test_parse_citations_deduplicates_repeated_refs():
     pack = _make_pack()
     text = "[ref_1] is cited again in [ref_1]."
-    result = _parse_citations(text, pack)
+    remapped_text, result = _parse_citations(text, pack)
     assert len(result) == 1
     assert result[0].snippet == pack.chunks[0].text
 
@@ -93,7 +93,7 @@ def test_parse_citations_deduplicates_repeated_refs():
 def test_parse_citations_ignores_out_of_range_refs():
     pack = _make_pack()
     text = "See [ref_99] for details."  # out of range
-    result = _parse_citations(text, pack)
+    remapped_text, result = _parse_citations(text, pack)
     # Falls back to all chunks (no valid ref found)
     assert len(result) == len(pack.chunks)
 
@@ -103,7 +103,7 @@ def test_parse_citations_ref_is_one_based():
     chunks = [_make_chunk("c1", "First chunk."), _make_chunk("c2", "Second chunk.")]
     pack = _make_pack(chunks=chunks)
     text = "The second passage [ref_2] covers mining."
-    result = _parse_citations(text, pack)
+    remapped_text, result = _parse_citations(text, pack)
     assert len(result) == 1
     assert result[0].snippet == "Second chunk."
 
@@ -112,7 +112,7 @@ def test_parse_citations_ref_is_one_based():
 def test_parse_citations_preserves_anchor_metadata():
     pack = _make_pack()
     text = "See [ref_1]."
-    result = _parse_citations(text, pack)
+    remapped_text, result = _parse_citations(text, pack)
     src = result[0]
     assert src.label == "whitepaper.pdf"
     assert src.page == 1
