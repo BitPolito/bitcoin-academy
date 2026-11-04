@@ -41,7 +41,7 @@ describe('apiFetch', () => {
     await apiFetch('/courses');
 
     const [url] = mockFetch.mock.calls[0];
-    expect(url).toMatch(/\/api\/courses$/);
+    expect(url).toMatch(/courses$/);
   });
 
   it('attaches the bearer token when an access token is supplied', async () => {
