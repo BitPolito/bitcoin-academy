@@ -14,7 +14,7 @@ FROM node:20-alpine AS dev
 WORKDIR /app
 ENV NODE_ENV=development
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 COPY . .
 EXPOSE 3000
 # Bind to 0.0.0.0, otherwise the port is not reachable from outside the container.
@@ -35,7 +35,7 @@ ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 COPY . .
 RUN npm run build
 
@@ -47,7 +47,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --legacy-peer-deps --omit=dev
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next ./.next
@@ -60,3 +60,4 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=5 \
     CMD wget -qO- http://localhost:3000/ >/dev/null 2>&1 || exit 1
 
 CMD ["npm", "start"]
+
