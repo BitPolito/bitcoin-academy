@@ -45,7 +45,7 @@ jobs:
         working-directory: services/ai
 
     env:
-      DATABASE_URL: postgresql://bitcoin_academy:bitcoin_academy@localhost:5432/bitcoin_academy
+      DATABASE_URL: postgresql+psycopg2://bitcoin_academy:bitcoin_academy@localhost:5432/bitcoin_academy
       SECRET_KEY: CI-AUTH-JWT-KEY-FOR-PIPELINE-ONLY-32!
       ENVIRONMENT: development
 
@@ -269,3 +269,4 @@ jobs:
             exit 1
           fi
           echo "All checks passed."
+
