@@ -92,7 +92,7 @@ services:
       - path: ../services/ai/.env
         required: false
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg2://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy}
       - SECRET_KEY=${SECRET_KEY:-CHANGE-ME-INSECURE-DEFAULT-32-CHARS!!}
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
@@ -135,7 +135,7 @@ services:
       - path: ../services/ai/.env
         required: false
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg2://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy}
       - SECRET_KEY=${SECRET_KEY:-CHANGE-ME-INSECURE-DEFAULT-32-CHARS!!}
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - QVAC_SERVICE_URL=http://qvac:3001
@@ -226,3 +226,4 @@ volumes:
   redis_data:
   caddy_data:
   caddy_config:
+

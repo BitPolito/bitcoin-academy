@@ -138,11 +138,17 @@ class TokenPayload(BaseModel):
 
 
 def get_password_hash(password: str) -> str:
-    return _bcrypt.hashpw(password.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
+    # bcrypt 5.0.0 raises ValueError for >72 bytes; explicitly truncate to preserve legacy behavior
+    pwd_bytes = password.encode('utf-8')[:72]
+    return _bcrypt.hashpw(pwd_bytes, _bcrypt.gensalt()).decode('utf-8')
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return _bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    try:
+        pwd_bytes = plain_password.encode('utf-8')[:72]
+        return _bcrypt.checkpw(pwd_bytes, hashed_password.encode('utf-8'))
+    except ValueError:
+        return False
 
 
 def create_access_token(
@@ -308,3 +314,4 @@ def validate_refresh_token(token: str) -> Optional[TokenPayload]:
         )
     except (KeyError, ValueError):
         return None
+
