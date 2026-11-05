@@ -81,10 +81,10 @@ class TestGenerateQuiz:
         with patch(
             "app.services.study_service.dispatch", new_callable=AsyncMock
         ) as mock_dispatch, patch(
-            "app.services.quiz_generation.generate_json", new_callable=AsyncMock
+            "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
         ) as mock_gj:
             mock_dispatch.return_value = _RETRIEVE_RESULT
-            mock_gj.return_value = {"questions": _QUESTIONS}
+            mock_gj.return_value = {"questions": _QUESTIONS, "trace": {"final_count": 1}}
 
             resp = client.post(
                 f"/api/courses/{course.id}/quizzes/generate",
@@ -97,6 +97,7 @@ class TestGenerateQuiz:
         assert "id" in body
         assert body["scope"] == QuizScope.COURSE
         assert len(body["questions"]) == 1
+        assert body["trace"] == {"final_count": 1}
         # No is_correct leak to the student-facing generate response
         for opt in body["questions"][0]["options"]:
             assert "is_correct" not in opt
@@ -113,10 +114,10 @@ class TestGenerateQuiz:
         with patch(
             "app.services.study_service.dispatch", new_callable=AsyncMock
         ) as mock_dispatch, patch(
-            "app.services.quiz_generation.generate_json", new_callable=AsyncMock
+            "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
         ) as mock_gj:
             mock_dispatch.return_value = _RETRIEVE_RESULT
-            mock_gj.return_value = {"questions": _QUESTIONS}
+            mock_gj.return_value = {"questions": _QUESTIONS, "trace": {"final_count": 1}}
 
             resp = client.post(
                 f"/api/courses/{course.id}/quizzes/generate",
@@ -125,8 +126,8 @@ class TestGenerateQuiz:
             )
 
         assert resp.status_code == 201
-        _, kwargs = mock_gj.call_args_list[0]
-        context_items = kwargs["context"]
+        args, _ = mock_gj.call_args_list[0]
+        context_items = args[1]
         assert any(item.get("chunk_id") == "chunk-1" for item in context_items)
 
     @pytest.mark.integration

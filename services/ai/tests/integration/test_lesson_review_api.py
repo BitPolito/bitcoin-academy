@@ -293,10 +293,10 @@ class TestRegenerateSpecificLessons:
         with patch(
             "app.services.lesson_service.generate_json", new_callable=_AsyncMock
         ) as mock_gj, patch(
-            "app.services.quiz_generation.generate_json", new_callable=_AsyncMock
+            "app.services.quiz_generation.quiz_harness.run", new_callable=_AsyncMock
         ) as mock_quiz_gj:
             mock_gj.side_effect = [content_result, judge_result]
-            mock_quiz_gj.return_value = None
+            mock_quiz_gj.return_value = {"questions": [], "trace": {"final_count": 0}}
             asyncio.run(
                 lesson_service.generate_course_content(
                     course_id=course.id, db=db_session, run_id=run.id, lesson_ids=[ls.id],

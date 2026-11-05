@@ -350,7 +350,7 @@ async def test_process_lesson_published_when_faithful():
     with patch(
         "app.services.lesson_service.generate_json", new_callable=AsyncMock
     ) as mock_gj, patch(
-        "app.services.quiz_generation.generate_json", new_callable=AsyncMock
+        "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
     ) as mock_quiz_gj:
         mock_gj.side_effect = [_CONTENT_RESULT, _JUDGE_PASS]
         mock_quiz_gj.return_value = _QUIZ_RESULT
@@ -378,7 +378,7 @@ async def test_process_lesson_needs_review_when_unfaithful():
     with patch(
         "app.services.lesson_service.generate_json", new_callable=AsyncMock
     ) as mock_gj, patch(
-        "app.services.quiz_generation.generate_json", new_callable=AsyncMock
+        "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
     ) as mock_quiz_gj:
         mock_gj.side_effect = [_CONTENT_RESULT, _JUDGE_FAIL]
         mock_quiz_gj.return_value = _QUIZ_RESULT

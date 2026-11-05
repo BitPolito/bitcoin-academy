@@ -200,10 +200,9 @@ async def generate_quiz(
         .order_by(Question.order_index)
         .all()
     )
-    return JSONResponse(
-        status_code=status.HTTP_201_CREATED,
-        content=_to_student_detail(quiz, questions, db).model_dump(),
-    )
+    response_body = _to_student_detail(quiz, questions, db).model_dump()
+    response_body["trace"] = quiz_data.get("trace")
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content=response_body)
 
 
 @router.get(

@@ -20,7 +20,6 @@ from app.db.models import (
     User,
     UserRole,
 )
-from app.services.qvac_structured import StructuredGenerationError
 from app.services.quiz_generation import generate_quiz_questions, persist_quiz
 
 
@@ -64,24 +63,20 @@ _QUESTIONS = [
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_generate_quiz_questions_returns_schema_result():
-    with patch(
-        "app.services.quiz_generation.generate_json", new_callable=AsyncMock
-    ) as mock_gj:
-        mock_gj.return_value = {"questions": _QUESTIONS}
-        result = await generate_quiz_questions("UTXO model", [{"label": "p1", "text": "..."}])
+async def test_generate_quiz_questions_delegates_to_harness():
+    with patch("app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = {"questions": _QUESTIONS, "trace": {"final_count": 1}}
+        result = await generate_quiz_questions("UTXO model", [{"label": "p1", "text": "...", "chunk_id": "c1"}])
 
-    assert result is not None
-    assert result["questions"][0]["concept_tag"] == "utxo-model"
+    assert result == {"questions": _QUESTIONS, "trace": {"final_count": 1}}
+    mock_run.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_generate_quiz_questions_returns_none_on_schema_failure():
-    with patch(
-        "app.services.quiz_generation.generate_json", new_callable=AsyncMock
-    ) as mock_gj:
-        mock_gj.side_effect = StructuredGenerationError("bad schema")
-        result = await generate_quiz_questions("UTXO model", [{"label": "p1", "text": "..."}])
+async def test_generate_quiz_questions_returns_none_when_harness_produces_nothing():
+    with patch("app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = {"questions": [], "trace": {"final_count": 0}}
+        result = await generate_quiz_questions("UTXO model", [{"label": "p1", "text": "...", "chunk_id": "c1"}])
 
     assert result is None
 
