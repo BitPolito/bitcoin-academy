@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from app.services.qvac_structured import LlmDisabledError, StructuredGenerationError
-from app.services.quiz_harness import _critique_one, _generate_one, _plan_targets
+from app.services.quiz_harness import _critique_one, _generate_one, _plan_targets, run
 
 _CONTEXT = [
     {"label": "p1", "text": "UTXO text", "chunk_id": "c1"},
@@ -192,3 +192,84 @@ async def test_critique_one_fails_closed_on_structured_generation_error():
 
     assert verdict["passed"] is False
     assert verdict["failed_criteria"] == ["critic unavailable"]
+
+
+@pytest.mark.asyncio
+async def test_run_all_pass_returns_every_question_with_no_repairs():
+    with patch("app.services.quiz_harness._plan_targets", new_callable=AsyncMock) as mock_plan, \
+         patch("app.services.quiz_harness._generate_one", new_callable=AsyncMock) as mock_gen, \
+         patch("app.services.quiz_harness._critique_one", new_callable=AsyncMock) as mock_crit:
+        mock_plan.return_value = [{"chunk_id": "c1", "cognitive_level": "recall"}] * 2
+        mock_gen.return_value = dict(_QUESTION)
+        mock_crit.return_value = {"passed": True, "failed_criteria": []}
+
+        result = await run("UTXO model", _CONTEXT, target_count=2)
+
+    assert len(result["questions"]) == 2
+    assert result["trace"]["repaired"] == 0
+    assert result["trace"]["final_count"] == 2
+    assert result["trace"]["calls_used"] == 1 + 2 + 2  # plan + 2 generate + 2 critique
+
+
+@pytest.mark.asyncio
+async def test_run_rejected_then_repaired_is_recorded_and_kept():
+    with patch("app.services.quiz_harness._plan_targets", new_callable=AsyncMock) as mock_plan, \
+         patch("app.services.quiz_harness._generate_one", new_callable=AsyncMock) as mock_gen, \
+         patch("app.services.quiz_harness._critique_one", new_callable=AsyncMock) as mock_crit:
+        mock_plan.return_value = [{"chunk_id": "c1", "cognitive_level": "recall"}]
+        mock_gen.return_value = dict(_QUESTION)
+        mock_crit.side_effect = [
+            {"passed": False, "failed_criteria": ["entailed"]},
+            {"passed": True, "failed_criteria": []},
+        ]
+
+        result = await run("UTXO model", _CONTEXT, target_count=1)
+
+    assert result["trace"]["repaired"] == 1
+    assert len(result["questions"]) == 1
+    assert result["trace"]["calls_used"] == 1 + 2 + 2  # plan + (generate+critique) x2
+
+
+@pytest.mark.asyncio
+async def test_run_retry_limit_reached_drops_the_question_with_reasons():
+    with patch("app.services.quiz_harness._plan_targets", new_callable=AsyncMock) as mock_plan, \
+         patch("app.services.quiz_harness._generate_one", new_callable=AsyncMock) as mock_gen, \
+         patch("app.services.quiz_harness._critique_one", new_callable=AsyncMock) as mock_crit:
+        mock_plan.return_value = [{"chunk_id": "c1", "cognitive_level": "recall"}]
+        mock_gen.return_value = dict(_QUESTION)
+        mock_crit.return_value = {"passed": False, "failed_criteria": ["entailed"]}
+
+        result = await run("UTXO model", _CONTEXT, target_count=1)
+
+    assert result["questions"] == []
+    assert result["trace"]["final_count"] == 0
+    assert len(result["trace"]["rejected"]) == 1
+    assert result["trace"]["rejected"][0]["reasons"] == ["entailed"]
+    # Exactly one repair attempt — no third generate/critique pass.
+    assert result["trace"]["calls_used"] == 1 + 2 + 2
+
+
+@pytest.mark.asyncio
+async def test_run_llm_disabled_at_plan_stage_returns_no_questions():
+    with patch("app.services.quiz_harness._plan_targets", new_callable=AsyncMock) as mock_plan:
+        mock_plan.side_effect = LlmDisabledError("disabled")
+
+        result = await run("UTXO model", _CONTEXT, target_count=2)
+
+    assert result["questions"] == []
+    assert result["trace"]["final_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_run_llm_disabled_mid_generate_drops_that_target_and_continues():
+    with patch("app.services.quiz_harness._plan_targets", new_callable=AsyncMock) as mock_plan, \
+         patch("app.services.quiz_harness._generate_one", new_callable=AsyncMock) as mock_gen, \
+         patch("app.services.quiz_harness._critique_one", new_callable=AsyncMock) as mock_crit:
+        mock_plan.return_value = [{"chunk_id": "c1", "cognitive_level": "recall"}] * 2
+        mock_gen.side_effect = [dict(_QUESTION), None]  # second target's generation failed
+        mock_crit.return_value = {"passed": True, "failed_criteria": []}
+
+        result = await run("UTXO model", _CONTEXT, target_count=2)
+
+    assert len(result["questions"]) == 1
+    assert len(result["trace"]["rejected"]) == 1

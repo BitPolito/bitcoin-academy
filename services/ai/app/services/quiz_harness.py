@@ -247,3 +247,116 @@ async def _critique_one(
         failed_criteria.append("duplicate")
 
     return {"passed": not failed_criteria, "failed_criteria": failed_criteria}
+
+
+HarnessResult = Dict[str, Any]
+
+DEFAULT_TARGET_COUNT = 4
+
+
+def _source_text_for(target: PlanTarget, context_items: List[Dict[str, str]]) -> str:
+    item = next(
+        (ci for ci in context_items if ci["chunk_id"] == target["chunk_id"]),
+        None,
+    )
+    return item["text"] if item is not None else ""
+
+
+async def run(
+    topic: str,
+    context_items: List[Dict[str, str]],
+    target_count: int = DEFAULT_TARGET_COUNT,
+) -> HarnessResult:
+    """Run the plan -> generate -> critique -> repair harness.
+
+    Produces at most `target_count` questions, each one passing through at
+    most two generate+critique rounds (an initial attempt and, on a failed
+    critique, exactly one repair attempt built from the critique's
+    `failed_criteria`). The call budget is therefore bounded by
+    `4 * target_count + 1` (plan, plus up to generate+critique twice per
+    target) — see `trace["calls_budget"]`.
+
+    A `None` generation result (an unresolvable chunk_id, a schema error, or
+    the LLM being disabled mid-run) is not retried: the same target and
+    context would almost certainly fail the same way again, so the target is
+    dropped immediately without spending a repair attempt or a critique call
+    on it.
+
+    `LlmDisabledError`/`StructuredGenerationError` at the plan stage end the
+    run immediately with no questions produced, since there is nothing yet to
+    degrade to. `topic` is accepted for interface symmetry with
+    `generate_quiz_questions` and is not otherwise used here yet.
+    """
+    trace: Dict[str, Any] = {
+        "targets_planned": 0,
+        "generated": 0,
+        "rejected": [],
+        "repaired": 0,
+        "final_count": 0,
+        "calls_used": 0,
+        "calls_budget": 4 * target_count + 1,
+    }
+    accepted: List[Dict[str, Any]] = []
+
+    try:
+        targets = await _plan_targets(context_items, target_count)
+        trace["calls_used"] += 1
+    except (LlmDisabledError, StructuredGenerationError) as exc:
+        trace["calls_used"] += 1
+        trace["rejected"].append({"stage": "plan", "reason": str(exc)})
+        trace["final_count"] = len(accepted)
+        return {"questions": accepted, "trace": trace}
+
+    trace["targets_planned"] = len(targets)
+
+    for target in targets:
+        source_text = _source_text_for(target, context_items)
+
+        try:
+            question = await _generate_one(target, context_items)
+        except LlmDisabledError:
+            question = None
+        trace["calls_used"] += 1
+
+        if question is None:
+            trace["rejected"].append({"question_preview": None, "reasons": ["generation failed"]})
+            continue
+
+        trace["generated"] += 1
+        verdict = await _critique_one(question, source_text, accepted)
+        trace["calls_used"] += 1
+
+        if verdict["passed"]:
+            accepted.append(question)
+            continue
+
+        # Exactly one repair attempt, informed by the critique's failed_criteria.
+        feedback = ", ".join(verdict["failed_criteria"])
+        try:
+            repaired_question = await _generate_one(target, context_items, feedback=feedback)
+        except LlmDisabledError:
+            repaired_question = None
+        trace["calls_used"] += 1
+
+        if repaired_question is None:
+            # A None from a repair generate must not trigger an extra critique call.
+            trace["rejected"].append({
+                "question_preview": question["prompt"] if question else None,
+                "reasons": verdict["failed_criteria"],
+            })
+            continue
+
+        repaired_verdict = await _critique_one(repaired_question, source_text, accepted)
+        trace["calls_used"] += 1
+
+        if repaired_verdict["passed"]:
+            accepted.append(repaired_question)
+            trace["repaired"] += 1
+        else:
+            trace["rejected"].append({
+                "question_preview": repaired_question["prompt"],
+                "reasons": repaired_verdict["failed_criteria"],
+            })
+
+    trace["final_count"] = len(accepted)
+    return {"questions": accepted, "trace": trace}
