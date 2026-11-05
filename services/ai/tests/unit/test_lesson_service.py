@@ -148,6 +148,7 @@ def test_load_context_returns_items():
     assert len(items) == 2
     assert items[0]["label"] == "p1"
     assert "Bitcoin" in items[0]["text"]
+    assert items[0]["chunk_id"] == "p1"
 
 
 def test_load_context_caps_at_max():

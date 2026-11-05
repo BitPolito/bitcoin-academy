@@ -162,14 +162,15 @@ async def generate_quiz(
         action=StudyAction.RETRIEVE,
     )
 
-    context_items = [
-        {"label": c.label or c.doc_id or f"ref_{i}", "text": c.snippet}
-        for i, c in enumerate(result.citations)
-    ]
-    if not context_items:
+    if result.evidence_pack is None or not result.evidence_pack.chunks:
         raise ValidationError_(
             "No source material found for this topic in the course. Try a broader query."
         )
+
+    context_items = [
+        {"label": c.anchor.doc_name, "text": c.text, "chunk_id": c.chunk_id}
+        for c in result.evidence_pack.chunks
+    ]
 
     quiz_data = await quiz_generation.generate_quiz_questions(body.query, context_items)
     if not quiz_data or not quiz_data.get("questions"):

@@ -190,7 +190,7 @@ def _load_context(lesson: Lesson, db: Session) -> Tuple[List[str], List[Dict[str
     used_ids: List[str] = []
     for cid in chunk_ids:
         if cid in rows:
-            context_items.append({"label": cid, "text": rows[cid].text})
+            context_items.append({"label": cid, "text": rows[cid].text, "chunk_id": cid})
             used_ids.append(cid)
     return used_ids, context_items
 
