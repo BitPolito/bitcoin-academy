@@ -3,9 +3,9 @@
 See docs/superpowers/specs/2026-11-05-quiz-agent-harness-design.md.
 """
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from app.services.qvac_structured import generate_json
+from app.services.qvac_structured import StructuredGenerationError, generate_json
 
 logger = logging.getLogger(__name__)
 
@@ -87,3 +87,84 @@ async def _plan_targets(context_items: List[Dict[str, str]], target_count: int) 
         targets.append({"chunk_id": chunk_id, "cognitive_level": level})
 
     return targets
+
+
+GENERATE_PROMPT_VERSION = "v1"
+
+_GENERATE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "required": ["prompt", "options", "correct_key", "concept_tag", "difficulty"],
+    "properties": {
+        "prompt": {"type": "string"},
+        "options": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {
+                "type": "object",
+                "required": ["key", "text"],
+                "properties": {
+                    "key": {"type": "string", "enum": ["A", "B", "C", "D"]},
+                    "text": {"type": "string"},
+                },
+            },
+        },
+        "correct_key": {"type": "string", "enum": ["A", "B", "C", "D"]},
+        "concept_tag": {"type": "string"},
+        "difficulty": {"type": "string", "enum": ["beginner", "intermediate", "advanced"]},
+    },
+}
+
+_GENERATE_SYSTEM = (
+    "You are an expert educator at BitPolito Academy creating one assessment question "
+    "from a single source passage.\n"
+    "RULES:\n"
+    "1. The question must test the cognitive level given in the task (recall / application "
+    "/ analysis), based ONLY on the provided passage.\n"
+    "2. All 4 options (A-D) must be plausible — wrong options should be conceptually close "
+    "but demonstrably wrong from the passage.\n"
+    "3. Exactly one option must be correct and directly supported by the passage.\n"
+    "4. Use exact technical terminology from the passage.\n"
+    "5. concept_tag: a short kebab-case slug for the concept tested.\n"
+    "6. difficulty: beginner / intermediate / advanced."
+)
+
+
+async def _generate_one(
+    target: PlanTarget,
+    context_items: List[Dict[str, str]],
+    *,
+    feedback: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Generate one question for target, scoped to its single source chunk.
+
+    Returns None (rather than propagating) on StructuredGenerationError, so the
+    caller can treat a failed target as needing repair or being dropped.
+    LlmDisabledError is not caught here and propagates to abort the run.
+    """
+    item = next(
+        (ci for ci in context_items if ci["chunk_id"] == target["chunk_id"]),
+        None,
+    )
+    context = [item] if item is not None else []
+
+    prompt = (
+        f"Write one {target['cognitive_level']}-level multiple-choice question from the "
+        "provided passage."
+    )
+    if feedback:
+        prompt += f"\nNote: the previous attempt was rejected — {feedback}"
+
+    try:
+        result = await generate_json(
+            prompt,
+            _GENERATE_SCHEMA,
+            context=context,
+            system_prompt=_GENERATE_SYSTEM,
+            generation_params={"temp": 0.3},
+            task_type="content_gen",
+        )
+    except StructuredGenerationError:
+        return None
+
+    return {**result, "chunk_id": target["chunk_id"]}
