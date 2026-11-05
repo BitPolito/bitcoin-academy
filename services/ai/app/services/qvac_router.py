@@ -39,6 +39,7 @@ LADDER_ROUTING: Dict[str, Tuple[str, str]] = {
     "content_gen": ("server", SERVER_MODEL),
     "judge": ("server", SERVER_MODEL),
     "precompute": ("server", SERVER_MODEL),
+    "quiz_plan": ("server", SERVER_MODEL),
 }
 
 

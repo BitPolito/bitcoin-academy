@@ -13,6 +13,7 @@ from app.services import qvac_router
     ("content_gen", qvac_router.SERVER_MODEL),
     ("judge", qvac_router.SERVER_MODEL),
     ("precompute", qvac_router.SERVER_MODEL),
+    ("quiz_plan", qvac_router.SERVER_MODEL),
 ])
 def test_server_task_types_route_to_server(task_type, expected_model):
     route = qvac_router.resolve(task_type)
