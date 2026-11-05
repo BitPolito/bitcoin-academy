@@ -216,10 +216,10 @@ jobs:
         run: docker build -t bitcoin-academy-api:ci ./services/ai
 
       - name: Build frontend image (production target)
-        run: docker build --target runner -t bitcoin-academy-web:ci ./apps/web
+        run: docker build --build-arg NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api --target runner -t bitcoin-academy-web:ci ./apps/web
 
       - name: Build frontend image (development target)
-        run: docker build --target dev -t bitcoin-academy-web:ci-dev ./apps/web
+        run: docker build --build-arg NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api --target dev -t bitcoin-academy-web:ci-dev ./apps/web
 
       - name: Build QVAC service image
         run: docker build -t bitcoin-academy-qvac:ci ./workers/qvac-service
