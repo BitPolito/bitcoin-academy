@@ -711,11 +711,16 @@ and produces the structured trace.
   `{"targets_planned": int, "generated": int, "rejected": List[Dict[str, Any]], "repaired": int,
   "final_count": int, "calls_used": int, "calls_budget": int}`; `async def run(topic: str,
   context_items: List[Dict[str, str]], target_count: int = DEFAULT_TARGET_COUNT) ->
-  HarnessResult`. Never raises for `StructuredGenerationError`/per-target `LlmDisabledError`;
-  re-raises `LlmDisabledError` only if it happens at the plan stage (nothing has been produced yet,
-  so there is nothing to degrade to — matches `generate_quiz_questions`'s existing contract of
-  letting `LlmDisabledError` propagate, see `lesson_service.process_lesson`'s `except
-  LlmDisabledError: raise`). Consumed by Task 7's `quiz_generation.generate_quiz_questions`.
+  HarnessResult`. Never raises — `LlmDisabledError` at the plan stage is caught the same as
+  `StructuredGenerationError` and turned into a graceful empty `HarnessResult` with a reason in
+  the trace, per this plan's own Global Constraints ("never raise out of the harness"). **Correction
+  (ruled during Task 5's implementation, see SDD ledger):** an earlier draft of this paragraph said
+  `run()` should re-raise `LlmDisabledError` at the plan stage to match
+  `generate_quiz_questions`'s pre-harness contract; that contradicted this task's own verbatim
+  test (`test_run_llm_disabled_at_plan_stage_returns_no_questions`, which asserts a graceful
+  return, not `pytest.raises`) and was an authoring error, not a deliberate choice — the graceful
+  path is what's implemented and is correct. Consumed by Task 7's
+  `quiz_generation.generate_quiz_questions`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -821,13 +826,19 @@ async def run(
 ```
 
 Implementer writes the body following the design doc's orchestration exactly: call
-`_plan_targets`, letting `LlmDisabledError`/`StructuredGenerationError` from it end the run
+`_plan_targets`, catching `LlmDisabledError`/`StructuredGenerationError` from it to end the run
 immediately with `{"questions": [], "trace": {..., "rejected": [{"stage": "plan", "reason":
-str(exc)}]}}`; otherwise iterate the returned targets, for each one calling `_generate_one` then (if
-it returned a question) `_critique_one` against the already-`accepted` list; on a failed critique
-or a `None` generation result, attempt exactly one repair (`_generate_one(target, context_items,
-feedback=...)` built from `failed_criteria`, then `_critique_one` again if the repair generated a
-question); append to `accepted` on any pass, otherwise to `trace["rejected"]` with a
+str(exc)}]}}` (**correction, ruled during Task 5** — catch, do not propagate; see the Interfaces
+block above); otherwise iterate the returned targets, for each one calling `_generate_one` then (if
+it returned a question) `_critique_one` against the already-`accepted` list; on a failed critique,
+attempt exactly one repair (`_generate_one(target, context_items, feedback=...)` built from
+`failed_criteria`, then `_critique_one` again if the repair generated a
+question); a `None` from the *initial* generate call (not the repair attempt) is dropped
+immediately with no repair — repair is reserved for a question that generated but failed critique
+(**correction, ruled during Task 5** — the verbatim test
+`test_run_llm_disabled_mid_generate_drops_that_target_and_continues` requires this: it mocks
+exactly 2 `_generate_one` calls for 2 targets, which a repair-on-None path would exceed); append
+to `accepted` on any pass, otherwise to `trace["rejected"]` with a
 `question_preview` (the rejected question's `"prompt"` if one exists, else `None`) and `"reasons"`;
 increment `trace["calls_used"]` once per `_plan_targets`/`_generate_one`/`_critique_one` call
 actually made (a `None` from a previous repair generate must not trigger an extra critique call —
