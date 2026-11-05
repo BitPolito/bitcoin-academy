@@ -19,10 +19,11 @@ os.environ["QVAC_SERVICE_URL"] = "http://127.0.0.1:9"
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.db import session as app_session
 from app.db.models import (
     Badge,
     Base,
@@ -37,6 +38,24 @@ from app.db.session import get_db
 from app.main import app
 
 TEST_DB_URL = "sqlite:///:memory:"
+
+_WRITE_VERBS = ("INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER")
+
+
+@pytest.fixture(autouse=True)
+def _application_database_is_untouched():
+    """DATABASE_URL may point at a developer's real database: tests must not
+    write to it. Auth tests once dropped every table there in teardown (#299)."""
+    writes: list[str] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith(_WRITE_VERBS):
+            writes.append(statement.strip().splitlines()[0])
+
+    event.listen(app_session.engine, "before_cursor_execute", _record)
+    yield
+    event.remove(app_session.engine, "before_cursor_execute", _record)
+    assert not writes, f"Test wrote to the application database: {writes[:3]}"
 
 
 @pytest.fixture(scope="function")
