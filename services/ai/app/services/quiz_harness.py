@@ -5,6 +5,8 @@ See docs/superpowers/specs/2026-11-05-quiz-agent-harness-design.md.
 import logging
 from typing import Any, Dict, List, Optional
 
+import httpx
+
 from app.services.qvac_structured import LlmDisabledError, StructuredGenerationError, generate_json
 
 logger = logging.getLogger(__name__)
@@ -138,12 +140,14 @@ async def _generate_one(
 ) -> Optional[Dict[str, Any]]:
     """Generate one question for target, scoped to its single source chunk.
 
-    Returns None (rather than propagating) on StructuredGenerationError, so the
-    caller can treat a failed target as needing repair or being dropped. The
-    same applies if target["chunk_id"] does not match any context_items entry:
-    we must not fall back to a context-free generate_json call, since that
-    would silently produce an ungrounded question while still being tagged
-    with target["chunk_id"] on the way out.
+    Returns None (rather than propagating) on StructuredGenerationError or a
+    transport-level httpx.HTTPError (e.g. a connection error or a non-2xx
+    response that survived generate_json's own retries), so the caller can
+    treat a failed target as needing repair or being dropped. The same
+    applies if target["chunk_id"] does not match any context_items entry: we
+    must not fall back to a context-free generate_json call, since that would
+    silently produce an ungrounded question while still being tagged with
+    target["chunk_id"] on the way out.
     LlmDisabledError is not caught here and propagates to abort the run.
     """
     item = next(
@@ -170,7 +174,7 @@ async def _generate_one(
             generation_params={"temp": 0.3},
             task_type="content_gen",
         )
-    except StructuredGenerationError:
+    except (StructuredGenerationError, httpx.HTTPError):
         return None
 
     return {**result, "chunk_id": target["chunk_id"]}
@@ -216,11 +220,12 @@ async def _critique_one(
 ) -> CritiqueVerdict:
     """Judge one generated question against the five quality criteria.
 
-    Fails closed: if the critic is unavailable (LlmDisabledError) or returns
-    an unparsable response (StructuredGenerationError), the question is
-    treated as a failure, not a pass — it is never silently accepted just
-    because we could not critique it. Mirrors
-    lesson_service._judge_groundedness's fail-closed pattern.
+    Fails closed: if the critic is unavailable (LlmDisabledError), returns an
+    unparsable response (StructuredGenerationError), or a transport-level
+    error occurs (httpx.HTTPError), the question is treated as a failure, not
+    a pass — it is never silently accepted just because we could not
+    critique it. Mirrors lesson_service._judge_groundedness's fail-closed
+    pattern.
     """
     accepted_prompts = [q["prompt"] for q in accepted_questions]
     prompt = (
@@ -239,7 +244,7 @@ async def _critique_one(
             generation_params={"temp": 0.1},
             task_type="quiz_critique",
         )
-    except (LlmDisabledError, StructuredGenerationError):
+    except (LlmDisabledError, StructuredGenerationError, httpx.HTTPError):
         return {"passed": False, "failed_criteria": ["critic unavailable"]}
 
     failed_criteria = [name for name in _CRITIQUE_CRITERIA if not result.get(name, False)]
@@ -260,6 +265,29 @@ def _source_text_for(target: PlanTarget, context_items: List[Dict[str, str]]) ->
         None,
     )
     return item["text"] if item is not None else ""
+
+
+def _rejection(
+    *,
+    stage: str,
+    chunk_id: Optional[str],
+    cognitive_level: Optional[str],
+    question_preview: Optional[str],
+    reasons: List[str],
+) -> Dict[str, Any]:
+    """Build one trace["rejected"] entry in the single uniform shape used by
+    every rejection path (plan-stage failure, generation failure, or a
+    critique failure on either the initial or repair attempt), so a trace
+    consumer never has to branch on which keys a rejected entry happens to
+    carry.
+    """
+    return {
+        "stage": stage,
+        "chunk_id": chunk_id,
+        "cognitive_level": cognitive_level,
+        "question_preview": question_preview,
+        "reasons": reasons,
+    }
 
 
 async def run(
@@ -301,9 +329,12 @@ async def run(
     try:
         targets = await _plan_targets(context_items, target_count)
         trace["calls_used"] += 1
-    except (LlmDisabledError, StructuredGenerationError) as exc:
+    except (LlmDisabledError, StructuredGenerationError, httpx.HTTPError) as exc:
         trace["calls_used"] += 1
-        trace["rejected"].append({"stage": "plan", "reason": str(exc)})
+        trace["rejected"].append(_rejection(
+            stage="plan", chunk_id=None, cognitive_level=None,
+            question_preview=None, reasons=[str(exc)],
+        ))
         trace["final_count"] = len(accepted)
         return {"questions": accepted, "trace": trace}
 
@@ -314,12 +345,16 @@ async def run(
 
         try:
             question = await _generate_one(target, context_items)
-        except LlmDisabledError:
+        except (LlmDisabledError, StructuredGenerationError, httpx.HTTPError):
             question = None
         trace["calls_used"] += 1
 
         if question is None:
-            trace["rejected"].append({"question_preview": None, "reasons": ["generation failed"]})
+            trace["rejected"].append(_rejection(
+                stage="generate", chunk_id=target["chunk_id"],
+                cognitive_level=target["cognitive_level"],
+                question_preview=None, reasons=["generation failed"],
+            ))
             continue
 
         trace["generated"] += 1
@@ -334,16 +369,17 @@ async def run(
         feedback = ", ".join(verdict["failed_criteria"])
         try:
             repaired_question = await _generate_one(target, context_items, feedback=feedback)
-        except LlmDisabledError:
+        except (LlmDisabledError, StructuredGenerationError, httpx.HTTPError):
             repaired_question = None
         trace["calls_used"] += 1
 
         if repaired_question is None:
             # A None from a repair generate must not trigger an extra critique call.
-            trace["rejected"].append({
-                "question_preview": question["prompt"] if question else None,
-                "reasons": verdict["failed_criteria"],
-            })
+            trace["rejected"].append(_rejection(
+                stage="generate", chunk_id=target["chunk_id"],
+                cognitive_level=target["cognitive_level"],
+                question_preview=None, reasons=["generation failed"],
+            ))
             continue
 
         repaired_verdict = await _critique_one(repaired_question, source_text, accepted)
@@ -353,10 +389,12 @@ async def run(
             accepted.append(repaired_question)
             trace["repaired"] += 1
         else:
-            trace["rejected"].append({
-                "question_preview": repaired_question["prompt"],
-                "reasons": repaired_verdict["failed_criteria"],
-            })
+            trace["rejected"].append(_rejection(
+                stage="critique", chunk_id=target["chunk_id"],
+                cognitive_level=target["cognitive_level"],
+                question_preview=repaired_question["prompt"],
+                reasons=repaired_verdict["failed_criteria"],
+            ))
 
     trace["final_count"] = len(accepted)
     return {"questions": accepted, "trace": trace}

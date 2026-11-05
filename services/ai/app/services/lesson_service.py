@@ -96,10 +96,11 @@ _JUDGE_SCHEMA: Dict[str, Any] = {
     },
 }
 
-# Quiz schema/system-prompt live in quiz_generation.py — shared with the
-# study-page ad-hoc quiz endpoint (see quizzes_api.py). Keeping a single
-# generator avoids the free-text-parsing/DB-persisted split that used to
-# exist between the two call sites.
+# Quiz generation is owned by the quiz_harness module (plan -> generate ->
+# critique -> repair), reached through quiz_generation.generate_quiz_questions
+# — shared with the study-page ad-hoc quiz endpoint (see quizzes_api.py).
+# Keeping a single generator avoids the free-text-parsing/DB-persisted split
+# that used to exist between the two call sites.
 
 # ---------------------------------------------------------------------------
 # System prompts
@@ -269,7 +270,8 @@ async def _judge_groundedness(
 async def _generate_quiz_data(
     lesson: Lesson, context_items: List[Dict[str, str]]
 ) -> Optional[Dict[str, Any]]:
-    """Call /generate_json (via quiz_generation.py) to produce MCQ quiz data."""
+    """Run the quiz_harness plan/generate/critique/repair loop (via
+    quiz_generation.generate_quiz_questions) to produce MCQ quiz data."""
     return await quiz_generation.generate_quiz_questions(lesson.title, context_items)
 
 

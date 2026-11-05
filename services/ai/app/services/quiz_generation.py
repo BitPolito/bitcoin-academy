@@ -26,16 +26,21 @@ _DEFAULT_TARGET_COUNT = quiz_harness.DEFAULT_TARGET_COUNT
 async def generate_quiz_questions(
     topic: str,
     context_items: List[Dict[str, str]],
-) -> Optional[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """Run the plan/generate/critique/repair harness to produce MCQ quiz data.
 
-    Returns None (rather than raising) when the harness produces zero
-    questions — quiz generation is treated as best-effort by all current
-    callers.
+    Always returns the full `{"questions": [...], "trace": {...}}` dict from
+    the harness, even when `questions` is empty — the trace is most valuable
+    exactly in that case (issue #134's "surface rejected questions"
+    acceptance criterion), and callers that check `.get("questions")` or do
+    `if quiz_data:` already treat an empty-questions dict as "no quiz" since
+    it is still truthy, so this never changes caller behaviour.
     """
     result = await quiz_harness.run(topic, context_items, target_count=_DEFAULT_TARGET_COUNT)
     if not result["questions"]:
-        return None
+        logger.warning(
+            "Quiz generation for '%s' produced no questions: %s", topic, result["trace"]
+        )
     return result
 
 
@@ -116,6 +121,7 @@ def persist_quiz(
             order_index=order_idx,
             concept_tag=q_data.get("concept_tag"),
             difficulty=q_data.get("difficulty"),
+            source_ref=q_data.get("chunk_id"),
         )
         db.add(question)
         db.flush()

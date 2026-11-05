@@ -73,12 +73,30 @@ async def test_generate_quiz_questions_delegates_to_harness():
 
 
 @pytest.mark.asyncio
-async def test_generate_quiz_questions_returns_none_when_harness_produces_nothing():
+async def test_generate_quiz_questions_returns_empty_dict_when_harness_produces_nothing():
+    """The trace matters most exactly when questions is empty (issue #134), so
+    generate_quiz_questions must never collapse this case to None — callers
+    need the trace to see *why* generation produced nothing."""
     with patch("app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock) as mock_run:
         mock_run.return_value = {"questions": [], "trace": {"final_count": 0}}
         result = await generate_quiz_questions("UTXO model", [{"label": "p1", "text": "...", "chunk_id": "c1"}])
 
-    assert result is None
+    assert result == {"questions": [], "trace": {"final_count": 0}}
+
+
+@pytest.mark.asyncio
+async def test_generate_quiz_questions_logs_trace_when_no_questions():
+    # Patch the module logger directly rather than relying on the stdlib
+    # logging/caplog machinery, which other tests in the suite can leave in
+    # a state (e.g. a disabled logger via alembic's fileConfig) unrelated to
+    # the behaviour under test here.
+    with patch("app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock) as mock_run, \
+         patch("app.services.quiz_generation.logger") as mock_logger:
+        mock_run.return_value = {"questions": [], "trace": {"rejected": ["reason"]}}
+        await generate_quiz_questions("UTXO model", [{"label": "p1", "text": "...", "chunk_id": "c1"}])
+
+    mock_logger.warning.assert_called_once()
+    assert "UTXO model" in mock_logger.warning.call_args.args
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +122,17 @@ def test_persist_quiz_creates_rows_with_concept_tags():
     assert len(opts) == 4
     correct = [o for o in opts if o.is_correct]
     assert len(correct) == 1
+
+
+def test_persist_quiz_persists_source_ref_from_chunk_id():
+    db, course, chapter = _make_db()
+    questions_with_chunk_id = [{**_QUESTIONS[0], "chunk_id": "chunk-42"}]
+    quiz = persist_quiz(
+        db, questions_with_chunk_id, scope=QuizScope.COURSE, title="Quiz: UTXO", course_id=course.id,
+    )
+
+    question = db.query(Question).filter(Question.quiz_id == quiz.id).first()
+    assert question.source_ref == "chunk-42"
 
 
 def test_persist_quiz_returns_none_for_empty_questions():

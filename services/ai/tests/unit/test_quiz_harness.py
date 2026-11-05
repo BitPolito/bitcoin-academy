@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -127,6 +128,18 @@ async def test_generate_one_returns_none_for_unresolvable_chunk_id():
 
 
 @pytest.mark.asyncio
+async def test_generate_one_returns_none_on_httpx_transport_error():
+    """A transient transport error (e.g. a connection error surviving
+    generate_json's own retries) must drop this one target, not propagate —
+    same contract as StructuredGenerationError."""
+    with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
+        mock_gj.side_effect = httpx.ConnectError("boom")
+        question = await _generate_one(_TARGET, _CONTEXT)
+
+    assert question is None
+
+
+@pytest.mark.asyncio
 async def test_critique_one_passes_when_all_criteria_met():
     with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
         mock_gj.return_value = {
@@ -188,6 +201,18 @@ async def test_critique_one_fails_closed_on_llm_disabled():
 async def test_critique_one_fails_closed_on_structured_generation_error():
     with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
         mock_gj.side_effect = StructuredGenerationError("bad schema")
+        verdict = await _critique_one(_QUESTION, "UTXO text", [])
+
+    assert verdict["passed"] is False
+    assert verdict["failed_criteria"] == ["critic unavailable"]
+
+
+@pytest.mark.asyncio
+async def test_critique_one_fails_closed_on_httpx_transport_error():
+    """Same fail-closed contract as LlmDisabledError/StructuredGenerationError:
+    a transient transport error must never be silently treated as a pass."""
+    with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
+        mock_gj.side_effect = httpx.ConnectError("boom")
         verdict = await _critique_one(_QUESTION, "UTXO text", [])
 
     assert verdict["passed"] is False
@@ -273,3 +298,74 @@ async def test_run_llm_disabled_mid_generate_drops_that_target_and_continues():
 
     assert len(result["questions"]) == 1
     assert len(result["trace"]["rejected"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_generate_one_raising_llm_disabled_drops_that_target_and_continues():
+    """A per-target LlmDisabledError raised by _generate_one itself (as
+    opposed to _generate_one returning None, covered above) must be caught at
+    the call site and treated like any other per-target failure — drop and
+    continue — never propagate out of run(). Only a plan-stage failure aborts
+    the whole run, and even that does so gracefully (see
+    test_run_llm_disabled_at_plan_stage_returns_no_questions)."""
+    with patch("app.services.quiz_harness._plan_targets", new_callable=AsyncMock) as mock_plan, \
+         patch("app.services.quiz_harness._generate_one", new_callable=AsyncMock) as mock_gen, \
+         patch("app.services.quiz_harness._critique_one", new_callable=AsyncMock) as mock_crit:
+        mock_plan.return_value = [{"chunk_id": "c1", "cognitive_level": "recall"}] * 2
+        mock_gen.side_effect = [dict(_QUESTION), LlmDisabledError("disabled mid-run")]
+        mock_crit.return_value = {"passed": True, "failed_criteria": []}
+
+        result = await run("UTXO model", _CONTEXT, target_count=2)
+
+    assert len(result["questions"]) == 1
+    assert len(result["trace"]["rejected"]) == 1
+    assert result["trace"]["rejected"][0]["stage"] == "generate"
+
+
+@pytest.mark.asyncio
+async def test_run_repair_generate_returns_none_drops_question_without_a_third_pass():
+    """When the REPAIR generate call (not the initial one) returns None, the
+    question must be dropped and no second repair attempted — _generate_one
+    is called exactly twice (initial + one repair) and _critique_one exactly
+    once (the initial critique; no critique call for the failed repair)."""
+    with patch("app.services.quiz_harness._plan_targets", new_callable=AsyncMock) as mock_plan, \
+         patch("app.services.quiz_harness._generate_one", new_callable=AsyncMock) as mock_gen, \
+         patch("app.services.quiz_harness._critique_one", new_callable=AsyncMock) as mock_crit:
+        mock_plan.return_value = [{"chunk_id": "c1", "cognitive_level": "recall"}]
+        mock_gen.side_effect = [dict(_QUESTION), None]  # initial generate ok, repair generate fails
+        mock_crit.return_value = {"passed": False, "failed_criteria": ["entailed"]}
+
+        result = await run("UTXO model", _CONTEXT, target_count=1)
+
+    assert result["questions"] == []
+    assert mock_gen.await_count == 2
+    assert mock_crit.await_count == 1
+    assert len(result["trace"]["rejected"]) == 1
+    assert result["trace"]["rejected"][0]["stage"] == "generate"
+    assert result["trace"]["rejected"][0]["reasons"] == ["generation failed"]
+
+
+@pytest.mark.asyncio
+async def test_run_end_to_end_with_generate_json_mocked_directly():
+    """Wires the real _plan_targets/_generate_one/_critique_one together — not
+    just run()'s own orchestration logic in isolation — by mocking
+    generate_json itself with one plan response, one generate response, and
+    one passing critique response, in call order, for a single target."""
+    plan_response = {"targets": [{"passage_index": 1, "cognitive_level": "recall"}]}
+    generate_response = dict(_QUESTION)
+    critique_response = {
+        "entailed": True, "distractors_plausible": True, "single_defensible": True,
+        "requires_course_material": True, "duplicate": False,
+    }
+
+    with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
+        mock_gj.side_effect = [plan_response, generate_response, critique_response]
+
+        result = await run("UTXO model", _CONTEXT, target_count=1)
+
+    assert mock_gj.await_count == 3
+    assert len(result["questions"]) == 1
+    assert result["questions"][0]["chunk_id"] == "c1"
+    assert result["trace"]["final_count"] == 1
+    assert result["trace"]["repaired"] == 0
+    assert result["trace"]["rejected"] == []

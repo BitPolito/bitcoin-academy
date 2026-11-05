@@ -154,8 +154,11 @@ async def generate_quiz(
     from app.schemas.study_schemas import StudyAction  # noqa: PLC0415
     from app.services import study_service  # noqa: PLC0415
 
-    # Retrieval-only: no LLM call for the sources, so quiz generation costs
-    # exactly one /generate_json call instead of a retrieval-answer + reparse.
+    # Retrieval-only: no LLM call for the sources themselves. Quiz generation
+    # below goes through the plan -> generate -> critique -> repair harness
+    # (quiz_harness.run), a bounded multi-call loop of up to 4*N+1 calls (17
+    # for the default N=4 target count) rather than a single /generate_json
+    # call — see docs/superpowers/specs/2026-11-05-quiz-agent-harness-design.md.
     result = await study_service.dispatch(
         question=body.query,
         course_id=course_id,
