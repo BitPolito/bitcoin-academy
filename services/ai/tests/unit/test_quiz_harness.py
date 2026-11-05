@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from app.services.qvac_structured import LlmDisabledError, StructuredGenerationError
-from app.services.quiz_harness import _generate_one, _plan_targets
+from app.services.quiz_harness import _critique_one, _generate_one, _plan_targets
 
 _CONTEXT = [
     {"label": "p1", "text": "UTXO text", "chunk_id": "c1"},
@@ -124,3 +124,71 @@ async def test_generate_one_returns_none_for_unresolvable_chunk_id():
 
     assert question is None
     mock_gj.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_critique_one_passes_when_all_criteria_met():
+    with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
+        mock_gj.return_value = {
+            "entailed": True, "distractors_plausible": True, "single_defensible": True,
+            "requires_course_material": True, "duplicate": False,
+        }
+        verdict = await _critique_one(_QUESTION, "UTXO text", [])
+
+    assert verdict == {"passed": True, "failed_criteria": []}
+
+
+@pytest.mark.asyncio
+async def test_critique_one_reports_each_failed_criterion():
+    with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
+        mock_gj.return_value = {
+            "entailed": False, "distractors_plausible": True, "single_defensible": True,
+            "requires_course_material": True, "duplicate": True,
+        }
+        verdict = await _critique_one(_QUESTION, "UTXO text", [])
+
+    assert verdict["passed"] is False
+    assert set(verdict["failed_criteria"]) == {"entailed", "duplicate"}
+
+
+@pytest.mark.asyncio
+async def test_critique_one_handles_missing_fields_defensively():
+    with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
+        mock_gj.return_value = {"entailed": True}  # worker returned a partial object
+        verdict = await _critique_one(_QUESTION, "UTXO text", [])
+
+    assert verdict["passed"] is False
+    assert "distractors_plausible" in verdict["failed_criteria"]
+
+
+@pytest.mark.asyncio
+async def test_critique_one_passes_accepted_questions_as_duplicate_context():
+    with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
+        mock_gj.return_value = {
+            "entailed": True, "distractors_plausible": True, "single_defensible": True,
+            "requires_course_material": True, "duplicate": False,
+        }
+        await _critique_one(_QUESTION, "UTXO text", [{"prompt": "Earlier question?"}])
+
+    prompt_arg = mock_gj.call_args.args[0]
+    assert "Earlier question?" in prompt_arg
+
+
+@pytest.mark.asyncio
+async def test_critique_one_fails_closed_on_llm_disabled():
+    with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
+        mock_gj.side_effect = LlmDisabledError("disabled")
+        verdict = await _critique_one(_QUESTION, "UTXO text", [])
+
+    assert verdict["passed"] is False
+    assert verdict["failed_criteria"] == ["critic unavailable"]
+
+
+@pytest.mark.asyncio
+async def test_critique_one_fails_closed_on_structured_generation_error():
+    with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
+        mock_gj.side_effect = StructuredGenerationError("bad schema")
+        verdict = await _critique_one(_QUESTION, "UTXO text", [])
+
+    assert verdict["passed"] is False
+    assert verdict["failed_criteria"] == ["critic unavailable"]

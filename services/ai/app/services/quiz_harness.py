@@ -5,7 +5,7 @@ See docs/superpowers/specs/2026-11-05-quiz-agent-harness-design.md.
 import logging
 from typing import Any, Dict, List, Optional
 
-from app.services.qvac_structured import StructuredGenerationError, generate_json
+from app.services.qvac_structured import LlmDisabledError, StructuredGenerationError, generate_json
 
 logger = logging.getLogger(__name__)
 
@@ -174,3 +174,76 @@ async def _generate_one(
         return None
 
     return {**result, "chunk_id": target["chunk_id"]}
+
+
+CritiqueVerdict = Dict[str, Any]
+
+CRITIQUE_PROMPT_VERSION = "v1"
+
+_CRITIQUE_CRITERIA = (
+    "entailed", "distractors_plausible", "single_defensible", "requires_course_material",
+)
+# "duplicate" is tracked separately — it's the one criterion where True is the failure, not False.
+
+_CRITIQUE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "required": ["entailed", "distractors_plausible", "single_defensible",
+                 "requires_course_material", "duplicate"],
+    "properties": {
+        "entailed": {"type": "boolean"},
+        "distractors_plausible": {"type": "boolean"},
+        "single_defensible": {"type": "boolean"},
+        "requires_course_material": {"type": "boolean"},
+        "duplicate": {"type": "boolean"},
+    },
+}
+
+_CRITIQUE_SYSTEM = (
+    "You are a critic judging one multiple-choice question against its source passage and "
+    "the other questions already accepted into this quiz.\n"
+    "entailed: the correct answer is directly supported by the passage.\n"
+    "distractors_plausible: every wrong option is plausible but demonstrably wrong from the "
+    "passage — not absurd, not another correct answer.\n"
+    "single_defensible: exactly one option is correct; no other option could also be "
+    "defended as correct.\n"
+    "requires_course_material: the question cannot be answered from general knowledge alone.\n"
+    "duplicate: true if this question tests the same fact as one of the other questions shown."
+)
+
+
+async def _critique_one(
+    question: Dict[str, Any], source_text: str, accepted_questions: List[Dict[str, Any]],
+) -> CritiqueVerdict:
+    """Judge one generated question against the five quality criteria.
+
+    Fails closed: if the critic is unavailable (LlmDisabledError) or returns
+    an unparsable response (StructuredGenerationError), the question is
+    treated as a failure, not a pass — it is never silently accepted just
+    because we could not critique it. Mirrors
+    lesson_service._judge_groundedness's fail-closed pattern.
+    """
+    accepted_prompts = [q["prompt"] for q in accepted_questions]
+    prompt = (
+        f"Question: {question['prompt']}\n"
+        f"Options: {question['options']}\n"
+        f"Correct key: {question['correct_key']}\n"
+        f"Other questions already accepted into this quiz: {accepted_prompts}"
+    )
+
+    try:
+        result = await generate_json(
+            prompt,
+            _CRITIQUE_SCHEMA,
+            context=[{"label": "source", "text": source_text}],
+            system_prompt=_CRITIQUE_SYSTEM,
+            generation_params={"temp": 0.1},
+            task_type="quiz_critique",
+        )
+    except (LlmDisabledError, StructuredGenerationError):
+        return {"passed": False, "failed_criteria": ["critic unavailable"]}
+
+    failed_criteria = [name for name in _CRITIQUE_CRITERIA if not result.get(name, False)]
+    if result.get("duplicate", True):
+        failed_criteria.append("duplicate")
+
+    return {"passed": not failed_criteria, "failed_criteria": failed_criteria}
