@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { getCourses, createCourse, MVP_COURSES_LIMIT, type Course } from '@/lib/services/courses';
+import { getCourses, createCourse, type Course } from '@/lib/services/courses';
 import { getDocumentListRows } from '@/lib/api/documents';
 import { CourseCard } from '@/components/courses/CourseCard';
 import { CreateCourseModal } from '@/components/courses/CreateCourseModal';
@@ -21,6 +21,9 @@ export default function CoursesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [courses, setCourses] = useState<Course[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [docStats, setDocStats] = useState<Record<string | number, DocStats>>({});
   const [globalStats, setGlobalStats] = useState({ docs: 0, indexed: 0, processing: 0 });
   const [loading, setLoading] = useState(true);
@@ -39,6 +42,34 @@ export default function CoursesPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  async function fetchDocStats(data: Course[], token?: string) {
+    const docsResults = await Promise.allSettled(
+      data.map((c) => getDocumentListRows(String(c.id), token))
+    );
+
+    const statsMap: Record<string | number, DocStats> = {};
+    let totalDocs = 0,
+      totalIndexed = 0,
+      totalProcessing = 0;
+    docsResults.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        const docs = r.value;
+        const stats: DocStats = {
+          total: docs.length,
+          ready: docs.filter((d) => d.status === 'ready').length,
+          processing: docs.filter((d) => d.status === 'processing' || d.status === 'uploading')
+            .length,
+          error: docs.filter((d) => d.status === 'error').length,
+        };
+        statsMap[data[i].id] = stats;
+        totalDocs += stats.total;
+        totalIndexed += stats.ready;
+        totalProcessing += stats.processing;
+      }
+    });
+    return { statsMap, totalDocs, totalIndexed, totalProcessing };
+  }
+
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/login');
@@ -48,35 +79,17 @@ export default function CoursesPage() {
 
     const token = session?.user?.accessToken;
 
-    async function fetchAll() {
+    async function fetchFirstPage() {
       try {
-        const data = await getCourses(0, MVP_COURSES_LIMIT, token);
-        setCourses(data);
+        const page = await getCourses(null, undefined, token);
+        setCourses(page.items);
+        setNextCursor(page.nextCursor);
+        setHasMore(page.hasMore);
 
-        const docsResults = await Promise.allSettled(
-          data.map((c) => getDocumentListRows(String(c.id), token))
+        const { statsMap, totalDocs, totalIndexed, totalProcessing } = await fetchDocStats(
+          page.items,
+          token
         );
-
-        const statsMap: Record<string | number, DocStats> = {};
-        let totalDocs = 0,
-          totalIndexed = 0,
-          totalProcessing = 0;
-        docsResults.forEach((r, i) => {
-          if (r.status === 'fulfilled') {
-            const docs = r.value;
-            const stats: DocStats = {
-              total: docs.length,
-              ready: docs.filter((d) => d.status === 'ready').length,
-              processing: docs.filter((d) => d.status === 'processing' || d.status === 'uploading')
-                .length,
-              error: docs.filter((d) => d.status === 'error').length,
-            };
-            statsMap[data[i].id] = stats;
-            totalDocs += stats.total;
-            totalIndexed += stats.ready;
-            totalProcessing += stats.processing;
-          }
-        });
         setDocStats(statsMap);
         setGlobalStats({ docs: totalDocs, indexed: totalIndexed, processing: totalProcessing });
       } catch (err) {
@@ -85,8 +98,35 @@ export default function CoursesPage() {
         setLoading(false);
       }
     }
-    fetchAll();
+    fetchFirstPage();
   }, [status, session, router]);
+
+  async function handleLoadMore() {
+    if (!hasMore || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const token = session?.user?.accessToken;
+      const page = await getCourses(nextCursor, undefined, token);
+      setCourses((prev) => [...prev, ...page.items]);
+      setNextCursor(page.nextCursor);
+      setHasMore(page.hasMore);
+
+      const { statsMap, totalDocs, totalIndexed, totalProcessing } = await fetchDocStats(
+        page.items,
+        token
+      );
+      setDocStats((prev) => ({ ...prev, ...statsMap }));
+      setGlobalStats((prev) => ({
+        docs: prev.docs + totalDocs,
+        indexed: prev.indexed + totalIndexed,
+        processing: prev.processing + totalProcessing,
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load more courses');
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   async function handleCreate(title: string, description?: string) {
     const created = await createCourse(title, description, session?.user?.accessToken);
@@ -207,20 +247,34 @@ export default function CoursesPage() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {courses.map((course) => (
-            <CourseCard key={course.id} course={course} stats={docStats[course.id] ?? null} />
-          ))}
-          {/* Create course card */}
-          <button
-            onClick={() => setShowCreate(true)}
-            className="b-hard rounded-lg p-6 stripes hover-card flex flex-col items-center justify-center min-h-[238px] text-center w-full"
-          >
-            <div className="font-mono text-3xl leading-none mb-2">+</div>
-            <div className="font-medium">Create new course</div>
-            <div className="font-mono text-[11px] opacity-70 mt-1">⌘N</div>
-          </button>
-        </div>
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {courses.map((course) => (
+              <CourseCard key={course.id} course={course} stats={docStats[course.id] ?? null} />
+            ))}
+            {/* Create course card */}
+            <button
+              onClick={() => setShowCreate(true)}
+              className="b-hard rounded-lg p-6 stripes hover-card flex flex-col items-center justify-center min-h-[238px] text-center w-full"
+            >
+              <div className="font-mono text-3xl leading-none mb-2">+</div>
+              <div className="font-medium">Create new course</div>
+              <div className="font-mono text-[11px] opacity-70 mt-1">⌘N</div>
+            </button>
+          </div>
+
+          {hasMore && (
+            <div className="flex justify-center mt-8">
+              <button
+                onClick={handleLoadMore}
+                disabled={loadingMore}
+                className="font-mono text-[11px] tracking-[0.18em] uppercase px-5 h-9 rounded-md b-hard disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading…' : 'Load more'}
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {showCreate && (

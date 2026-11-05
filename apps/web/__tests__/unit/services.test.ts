@@ -54,34 +54,43 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('courses service', () => {
-  it('requests the course list with pagination parameters', async () => {
-    mockFetch.mockResolvedValue(jsonResponse([]));
+  it('requests a page with a cursor and limit', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ items: [], next_cursor: null, has_more: false }));
 
-    await getCourses(10, 25);
+    await getCourses('some-cursor', 25);
 
-    expect(lastCall().url).toContain('/courses?skip=10&limit=25');
+    const url = lastCall().url;
+    expect(url).toContain('cursor=some-cursor');
+    expect(url).toContain('limit=25');
   });
 
-  it('defaults to the first page when no parameters are given', async () => {
-    mockFetch.mockResolvedValue(jsonResponse([]));
+  it('defaults to the first page with the default page size when no cursor is given', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ items: [], next_cursor: null, has_more: false }));
 
     await getCourses();
 
-    expect(lastCall().url).toContain('skip=0');
-    expect(lastCall().url).toContain('limit=100');
+    const url = lastCall().url;
+    expect(url).not.toContain('cursor=');
+    expect(url).toContain('limit=20');
   });
 
-  it('returns the course list unchanged', async () => {
+  it('maps the snake_case envelope to camelCase', async () => {
     const courses = [{ id: 1, title: 'Bitcoin' }];
-    mockFetch.mockResolvedValue(jsonResponse(courses));
+    mockFetch.mockResolvedValue(
+      jsonResponse({ items: courses, next_cursor: 'abc123', has_more: true }),
+    );
 
-    await expect(getCourses()).resolves.toEqual(courses);
+    await expect(getCourses()).resolves.toEqual({
+      items: courses,
+      nextCursor: 'abc123',
+      hasMore: true,
+    });
   });
 
   it('forwards the access token when listing courses', async () => {
-    mockFetch.mockResolvedValue(jsonResponse([]));
+    mockFetch.mockResolvedValue(jsonResponse({ items: [], next_cursor: null, has_more: false }));
 
-    await getCourses(0, 100, 'token-1');
+    await getCourses(null, 20, 'token-1');
 
     expect(lastCall().init.headers.Authorization).toBe('Bearer token-1');
   });
