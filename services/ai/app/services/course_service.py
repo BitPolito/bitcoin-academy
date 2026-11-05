@@ -1,14 +1,42 @@
 """Course service - business logic for course and lesson retrieval."""
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
 from app.db.models import Course, Lesson
 from app.repositories import course_repo
+from app.schemas.pagination import decode_cursor, encode_cursor
 
 
 def list_courses(db: Session, skip: int = 0, limit: int = 100) -> List[Course]:
     return course_repo.get_all_courses(db, skip=skip, limit=limit)
+
+
+def list_courses_page(
+    db: Session, cursor: Optional[str], limit: int,
+) -> Tuple[List[Course], Optional[str], bool]:
+    """Returns (items, next_cursor, has_more) for one page of the course list.
+
+    Raises ValueError if *cursor* is present but malformed — the caller
+    (courses_api) maps that to a 422.
+    """
+    decoded = decode_cursor(cursor) if cursor is not None else None
+    rows = course_repo.get_courses_page(db, decoded, limit)
+
+    has_more = len(rows) > limit
+    items = rows[:limit]
+
+    next_cursor = None
+    if has_more and items:
+        last = items[-1]
+        # created_at is Optional in the type only because it's a nullable
+        # column at the DB level for migration-compatibility reasons; every
+        # row reaching this point was either created with an explicit
+        # timestamp (course_repo.create_course) or backfilled by migration
+        # 0009 — it is never actually None in practice.
+        assert last.created_at is not None, f"Course {last.id} has no created_at"
+        next_cursor = encode_cursor(last.created_at, last.id)
+    return items, next_cursor, has_more
 
 
 def get_course(db: Session, course_id: str) -> Optional[Course]:

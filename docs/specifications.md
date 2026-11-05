@@ -29,6 +29,15 @@ and tracked as an individual document.
 keyed by `course_id`. Upload accepts PDF, PPTX and DOCX (DOCX exceeds the original requirement).
 Every file is persisted as a `CourseDocument` row with its own lifecycle.
 
+**Course list pagination (#73).** `GET /api/courses` is cursor-paginated — keyset on
+`(created_at, id)`, newest first — rather than offset-based, so a page stays stable under
+concurrent inserts (an offset page can skip or repeat rows when the underlying set changes between
+requests, which a cursor cannot). The response is an envelope `{items, next_cursor, has_more}`;
+`next_cursor` is an opaque, base64-encoded token, capped `limit` (default 20, max 100). The frontend
+loads the course grid incrementally via a "Load more" control that appends pages rather than
+replacing them, preserving scroll position. Document lists and study-session lists are not yet
+paginated with the same convention — the issue's other two surfaces remain open follow-up work.
+
 ---
 
 ### 2. Multi-file upload and per-file tracking — ✅ Implemented

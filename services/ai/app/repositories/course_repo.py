@@ -1,5 +1,6 @@
 """Course repository - data access for course aggregate."""
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -80,7 +81,17 @@ def _get_or_create_default_section(db: Session) -> str:
 
 def create_course(db: Session, title: str, description: Optional[str] = None) -> Course:
     section_id = _get_or_create_default_section(db)
-    course = Course(title=title, description=description, section_id=section_id)
+    course = Course(
+        title=title,
+        description=description,
+        section_id=section_id,
+        # Explicit ISO-8601 string rather than the column's func.now()
+        # default — matches the pattern already used for Quiz.created_at
+        # (see quiz_generation.persist_quiz), since relying on the DB
+        # function's native return type risks a format that doesn't sort
+        # correctly as a string across SQLite/Postgres.
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
     db.add(course)
     db.commit()
     db.refresh(course)
@@ -88,7 +99,42 @@ def create_course(db: Session, title: str, description: Optional[str] = None) ->
 
 
 def get_all_courses(db: Session, skip: int = 0, limit: int = 100) -> List[Course]:
-    return db.query(Course).filter(Course.is_active == True).offset(skip).limit(limit).all()
+    return (
+        db.query(Course)
+        .filter(Course.is_active == True)
+        .order_by(Course.created_at.desc(), Course.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+def get_courses_page(
+    db: Session, cursor: Optional[Tuple[str, str]], limit: int,
+) -> List[Course]:
+    """Keyset-paginated course list, newest first.
+
+    Fetches limit + 1 rows so the caller can tell whether another page
+    exists without a separate COUNT query. *cursor* is the (created_at, id)
+    of the last item on the previous page — rows are filtered to strictly
+    before it in (created_at DESC, id DESC) order, expressed as an
+    explicit OR/AND rather than SQLAlchemy's tuple_() to avoid relying on
+    row-value comparison support that varies across SQLite versions.
+    """
+    query = db.query(Course).filter(Course.is_active == True)
+    if cursor is not None:
+        cursor_created_at, cursor_id = cursor
+        query = query.filter(
+            or_(
+                Course.created_at < cursor_created_at,
+                (Course.created_at == cursor_created_at) & (Course.id < cursor_id),
+            )
+        )
+    return (
+        query.order_by(Course.created_at.desc(), Course.id.desc())
+        .limit(limit + 1)
+        .all()
+    )
 
 
 def get_course_by_id(db: Session, course_id: str) -> Optional[Course]:

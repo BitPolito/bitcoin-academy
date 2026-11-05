@@ -6,6 +6,7 @@ from typing import List, Optional
 from sqlalchemy import (
     Boolean,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -118,6 +119,7 @@ class Section(Base):
 
 class Course(Base):
     __tablename__ = "course"
+    __table_args__ = (Index("ix_course_created_at_id", "created_at", "id"),)
 
     id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid.uuid4())
@@ -126,6 +128,7 @@ class Course(Base):
     title: Mapped[str] = mapped_column(String)
     description: Mapped[Optional[str]] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[Optional[str]] = mapped_column(String, default=func.now())
 
     section: Mapped["Section"] = relationship(back_populates="courses")
     chapters: Mapped[List["Chapter"]] = relationship(back_populates="course")
