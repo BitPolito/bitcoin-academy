@@ -8,10 +8,10 @@ Two query sets:
   copyrighted: it is never committed, so this set runs locally only.
 
 Usage:
-    uv run python tests/test_rag.py                                  # technical set
-    uv run python tests/test_rag.py --set bitcoin-standard --course <id>
-    uv run python tests/test_rag.py --metrics-only --output before.json
-    uv run python tests/test_rag.py --query "What is Bitcoin?"
+    uv run --no-sync python tests/test_rag.py                                  # technical set
+    uv run --no-sync python tests/test_rag.py --set bitcoin-standard --course <id>
+    uv run --no-sync python tests/test_rag.py --metrics-only --output before.json
+    uv run --no-sync python tests/test_rag.py --query "What is Bitcoin?"
 
 Runs 76 curated queries (35 book-specific + 41 technical) through the full retrieval pipeline and prints a
 color-coded report. Saves full JSON results to --output (default: rag_test_results.json).
