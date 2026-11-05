@@ -114,3 +114,13 @@ async def test_generate_one_returns_none_on_structured_generation_error():
         question = await _generate_one(_TARGET, _CONTEXT)
 
     assert question is None
+
+
+@pytest.mark.asyncio
+async def test_generate_one_returns_none_for_unresolvable_chunk_id():
+    unresolvable_target = {"chunk_id": "does-not-exist", "cognitive_level": "recall"}
+    with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
+        question = await _generate_one(unresolvable_target, _CONTEXT)
+
+    assert question is None
+    mock_gj.assert_not_called()

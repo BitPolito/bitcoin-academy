@@ -139,14 +139,20 @@ async def _generate_one(
     """Generate one question for target, scoped to its single source chunk.
 
     Returns None (rather than propagating) on StructuredGenerationError, so the
-    caller can treat a failed target as needing repair or being dropped.
+    caller can treat a failed target as needing repair or being dropped. The
+    same applies if target["chunk_id"] does not match any context_items entry:
+    we must not fall back to a context-free generate_json call, since that
+    would silently produce an ungrounded question while still being tagged
+    with target["chunk_id"] on the way out.
     LlmDisabledError is not caught here and propagates to abort the run.
     """
     item = next(
         (ci for ci in context_items if ci["chunk_id"] == target["chunk_id"]),
         None,
     )
-    context = [item] if item is not None else []
+    if item is None:
+        return None
+    context = [item]
 
     prompt = (
         f"Write one {target['cognitive_level']}-level multiple-choice question from the "
