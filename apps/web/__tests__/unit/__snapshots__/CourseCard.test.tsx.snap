@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`CourseCard snapshot: renders consistently 1`] = `
 <div>
@@ -16,6 +16,7 @@ exports[`CourseCard snapshot: renders consistently 1`] = `
     </div>
     <div
       class="stripes b-thin rounded-md mb-4 relative overflow-hidden"
+      style="aspect-ratio: 16/7;"
     >
       <div
         class="absolute inset-0 flex items-center justify-center"
