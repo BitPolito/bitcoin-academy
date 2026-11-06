@@ -1,6 +1,6 @@
 """Agent harness for quiz generation — plan -> generate -> critique -> repair.
 
-See docs/superpowers/specs/2026-11-05-quiz-agent-harness-design.md.
+See docs/quiz-agent-harness-design.md.
 """
 import logging
 from typing import Any, Dict, List, Optional
@@ -48,10 +48,11 @@ _PLAN_SYSTEM = (
 async def _plan_targets(context_items: List[Dict[str, str]], target_count: int) -> List[PlanTarget]:
     """Select target_count (chunk_id, cognitive_level) pairs from context_items.
 
-    Always returns exactly target_count targets. An invalid or missing
-    passage_index from the model is corrected by round-robin assignment over
-    context_items rather than trusted — the model never needs to reproduce a
-    chunk_id string correctly.
+    Always returns exactly target_count targets. Invalid, missing, or repeated
+    passage indices from the model are corrected by round-robin assignment over
+    unused context_items rather than trusted — the model never needs to
+    reproduce a chunk_id string correctly. A passage is reused only after all
+    available passages have been used once.
     """
     prompt = (
         f"Select exactly {target_count} target passages for a quiz out of the "
@@ -68,6 +69,22 @@ async def _plan_targets(context_items: List[Dict[str, str]], target_count: int) 
 
     raw_targets = result.get("targets", [])
     targets: List[PlanTarget] = []
+    used_indices: set[int] = set()
+    fallback_index = 0
+
+    def next_unused_index() -> int:
+        """Choose the next source passage, resetting only after a full cycle."""
+        nonlocal fallback_index
+        if len(used_indices) == len(context_items):
+            used_indices.clear()
+
+        for offset in range(len(context_items)):
+            candidate = (fallback_index + offset) % len(context_items)
+            if candidate not in used_indices:
+                fallback_index = (candidate + 1) % len(context_items)
+                return candidate
+
+        raise RuntimeError("No unused quiz passage available")
 
     for i in range(target_count):
         if i < len(raw_targets):
@@ -78,10 +95,12 @@ async def _plan_targets(context_items: List[Dict[str, str]], target_count: int) 
             idx = None
             level = None
 
-        if isinstance(idx, int) and 1 <= idx <= len(context_items):
-            chunk_id = context_items[idx - 1]["chunk_id"]
-        else:
-            chunk_id = context_items[i % len(context_items)]["chunk_id"]
+        planned_index = idx - 1 if isinstance(idx, int) and 1 <= idx <= len(context_items) else None
+        if planned_index is None or planned_index in used_indices:
+            planned_index = next_unused_index()
+
+        used_indices.add(planned_index)
+        chunk_id = context_items[planned_index]["chunk_id"]
 
         if level not in _COGNITIVE_LEVELS:
             level = "recall"
@@ -220,12 +239,12 @@ async def _critique_one(
 ) -> CritiqueVerdict:
     """Judge one generated question against the five quality criteria.
 
-    Fails closed: if the critic is unavailable (LlmDisabledError), returns an
-    unparsable response (StructuredGenerationError), or a transport-level
-    error occurs (httpx.HTTPError), the question is treated as a failure, not
-    a pass — it is never silently accepted just because we could not
-    critique it. Mirrors lesson_service._judge_groundedness's fail-closed
-    pattern.
+    Fails closed: if the critic returns an unparsable response
+    (StructuredGenerationError), or a transport-level error occurs
+    (httpx.HTTPError), the question is treated as a failure, not a pass — it
+    is never silently accepted just because we could not critique it.
+    LlmDisabledError deliberately propagates so callers can distinguish a
+    disabled service from an individual failed question.
     """
     accepted_prompts = [q["prompt"] for q in accepted_questions]
     prompt = (
@@ -244,7 +263,7 @@ async def _critique_one(
             generation_params={"temp": 0.1},
             task_type="quiz_critique",
         )
-    except (LlmDisabledError, StructuredGenerationError, httpx.HTTPError):
+    except (StructuredGenerationError, httpx.HTTPError):
         return {"passed": False, "failed_criteria": ["critic unavailable"]}
 
     failed_criteria = [name for name in _CRITIQUE_CRITERIA if not result.get(name, False)]
@@ -304,16 +323,17 @@ async def run(
     `4 * target_count + 1` (plan, plus up to generate+critique twice per
     target) — see `trace["calls_budget"]`.
 
-    A `None` generation result (an unresolvable chunk_id, a schema error, or
-    the LLM being disabled mid-run) is not retried: the same target and
-    context would almost certainly fail the same way again, so the target is
-    dropped immediately without spending a repair attempt or a critique call
-    on it.
+    A `None` generation result (an unresolvable chunk_id or a schema error)
+    is not retried: the same target and context would almost certainly fail
+    the same way again, so the target is dropped immediately without spending
+    a repair attempt or a critique call on it.
 
-    `LlmDisabledError`/`StructuredGenerationError` at the plan stage end the
-    run immediately with no questions produced, since there is nothing yet to
-    degrade to. `topic` is accepted for interface symmetry with
-    `generate_quiz_questions` and is not otherwise used here yet.
+    LlmDisabledError propagates from planning, generation, repair, and
+    critique so the endpoint can report that the LLM is disabled. Per-question
+    StructuredGenerationError and httpx.HTTPError failures are recorded in
+    the trace and allow later targets to proceed. `topic` is accepted for
+    interface symmetry with `generate_quiz_questions` and is not otherwise
+    used here yet.
     """
     trace: Dict[str, Any] = {
         "targets_planned": 0,
@@ -329,7 +349,7 @@ async def run(
     try:
         targets = await _plan_targets(context_items, target_count)
         trace["calls_used"] += 1
-    except (LlmDisabledError, StructuredGenerationError, httpx.HTTPError) as exc:
+    except (StructuredGenerationError, httpx.HTTPError) as exc:
         trace["calls_used"] += 1
         trace["rejected"].append(_rejection(
             stage="plan", chunk_id=None, cognitive_level=None,
@@ -345,7 +365,7 @@ async def run(
 
         try:
             question = await _generate_one(target, context_items)
-        except (LlmDisabledError, StructuredGenerationError, httpx.HTTPError):
+        except (StructuredGenerationError, httpx.HTTPError):
             question = None
         trace["calls_used"] += 1
 
@@ -369,7 +389,7 @@ async def run(
         feedback = ", ".join(verdict["failed_criteria"])
         try:
             repaired_question = await _generate_one(target, context_items, feedback=feedback)
-        except (LlmDisabledError, StructuredGenerationError, httpx.HTTPError):
+        except (StructuredGenerationError, httpx.HTTPError):
             repaired_question = None
         trace["calls_used"] += 1
 

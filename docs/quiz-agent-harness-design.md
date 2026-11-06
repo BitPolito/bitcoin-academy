@@ -25,9 +25,8 @@ levels to test, generate one question per target, critique each against explicit
   the single old prompt happened to sample it.
 - A structured trace (targets planned, generated, rejected with reasons, repaired, final count)
   returned to the caller, so quality issues are debuggable without re-reading logs.
-- Degrade honestbly when generation is unavailable: fewer questions or a clear error, never
-  malformed output (matches existing `generate_quiz_questions` contract of returning `None`/fewer
-  items rather than raising on the caller).
+- Degrade honestly when an individual generation or critique request fails: return fewer questions,
+  never malformed output. A disabled LLM is an operational error and propagates to the caller.
 
 ## Non-goals / anti-goals
 
@@ -236,9 +235,8 @@ module, i.e. `app.services.quiz_harness.generate_json`, with `AsyncMock`):
   the extra repair calls.
 - Retry limit reached: repair critique also fails; assert the question is dropped, appears in
   `trace.rejected` with its final reasons, and the loop does not attempt a third pass.
-- LLM disabled: `generate_json` raises `LlmDisabledError` at the plan stage; assert the harness
-  returns no questions with a clear reason rather than raising, matching
-  `generate_quiz_questions`'s existing `None`-on-failure contract.
+- LLM disabled: `generate_json` raises `LlmDisabledError`; assert the harness propagates it from
+  planning, generation, and critique so the caller can report the disabled service.
 - Persistence path (`persist_quiz`) is untested here since it is unchanged — existing
   `test_quiz_generation.py` coverage stands.
 

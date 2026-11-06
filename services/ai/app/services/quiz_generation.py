@@ -33,8 +33,9 @@ async def generate_quiz_questions(
     the harness, even when `questions` is empty — the trace is most valuable
     exactly in that case (issue #134's "surface rejected questions"
     acceptance criterion), and callers that check `.get("questions")` or do
-    `if quiz_data:` already treat an empty-questions dict as "no quiz" since
-    it is still truthy, so this never changes caller behaviour.
+    callers must inspect `.get("questions")`; the result dict itself remains
+    truthy even when it contains no questions. `persist_quiz` safely returns
+    None for an empty question list.
     """
     result = await quiz_harness.run(topic, context_items, target_count=_DEFAULT_TARGET_COUNT)
     if not result["questions"]:

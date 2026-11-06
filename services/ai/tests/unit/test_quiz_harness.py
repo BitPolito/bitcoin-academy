@@ -55,6 +55,29 @@ async def test_plan_targets_reuses_chunks_when_target_count_exceeds_available():
 
 
 @pytest.mark.asyncio
+async def test_plan_targets_deduplicates_repeated_model_passages_before_reusing():
+    with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
+        mock_gj.return_value = {"targets": [
+            {"passage_index": 1, "cognitive_level": "recall"},
+            {"passage_index": 1, "cognitive_level": "application"},
+            {"passage_index": 1, "cognitive_level": "analysis"},
+            {"passage_index": 1, "cognitive_level": "recall"},
+        ]}
+        targets = await _plan_targets(
+            _CONTEXT + [
+                {"label": "p3", "text": "Script text", "chunk_id": "c3"},
+                {"label": "p4", "text": "Node text", "chunk_id": "c4"},
+            ],
+            target_count=4,
+        )
+
+    assert [target["chunk_id"] for target in targets] == ["c1", "c2", "c3", "c4"]
+    assert [target["cognitive_level"] for target in targets] == [
+        "recall", "application", "analysis", "recall",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_plan_targets_propagates_llm_disabled():
     with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
         mock_gj.side_effect = LlmDisabledError("disabled")
@@ -140,6 +163,14 @@ async def test_generate_one_returns_none_on_httpx_transport_error():
 
 
 @pytest.mark.asyncio
+async def test_generate_one_propagates_llm_disabled():
+    with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
+        mock_gj.side_effect = LlmDisabledError("disabled")
+        with pytest.raises(LlmDisabledError):
+            await _generate_one(_TARGET, _CONTEXT)
+
+
+@pytest.mark.asyncio
 async def test_critique_one_passes_when_all_criteria_met():
     with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
         mock_gj.return_value = {
@@ -188,13 +219,11 @@ async def test_critique_one_passes_accepted_questions_as_duplicate_context():
 
 
 @pytest.mark.asyncio
-async def test_critique_one_fails_closed_on_llm_disabled():
+async def test_critique_one_propagates_llm_disabled():
     with patch("app.services.quiz_harness.generate_json", new_callable=AsyncMock) as mock_gj:
         mock_gj.side_effect = LlmDisabledError("disabled")
-        verdict = await _critique_one(_QUESTION, "UTXO text", [])
-
-    assert verdict["passed"] is False
-    assert verdict["failed_criteria"] == ["critic unavailable"]
+        with pytest.raises(LlmDisabledError):
+            await _critique_one(_QUESTION, "UTXO text", [])
 
 
 @pytest.mark.asyncio
@@ -275,18 +304,16 @@ async def test_run_retry_limit_reached_drops_the_question_with_reasons():
 
 
 @pytest.mark.asyncio
-async def test_run_llm_disabled_at_plan_stage_returns_no_questions():
+async def test_run_propagates_llm_disabled_at_plan_stage():
     with patch("app.services.quiz_harness._plan_targets", new_callable=AsyncMock) as mock_plan:
         mock_plan.side_effect = LlmDisabledError("disabled")
 
-        result = await run("UTXO model", _CONTEXT, target_count=2)
-
-    assert result["questions"] == []
-    assert result["trace"]["final_count"] == 0
+        with pytest.raises(LlmDisabledError):
+            await run("UTXO model", _CONTEXT, target_count=2)
 
 
 @pytest.mark.asyncio
-async def test_run_llm_disabled_mid_generate_drops_that_target_and_continues():
+async def test_run_none_generation_drops_that_target_and_continues():
     with patch("app.services.quiz_harness._plan_targets", new_callable=AsyncMock) as mock_plan, \
          patch("app.services.quiz_harness._generate_one", new_callable=AsyncMock) as mock_gen, \
          patch("app.services.quiz_harness._critique_one", new_callable=AsyncMock) as mock_crit:
@@ -301,13 +328,7 @@ async def test_run_llm_disabled_mid_generate_drops_that_target_and_continues():
 
 
 @pytest.mark.asyncio
-async def test_run_generate_one_raising_llm_disabled_drops_that_target_and_continues():
-    """A per-target LlmDisabledError raised by _generate_one itself (as
-    opposed to _generate_one returning None, covered above) must be caught at
-    the call site and treated like any other per-target failure — drop and
-    continue — never propagate out of run(). Only a plan-stage failure aborts
-    the whole run, and even that does so gracefully (see
-    test_run_llm_disabled_at_plan_stage_returns_no_questions)."""
+async def test_run_propagates_llm_disabled_from_generation():
     with patch("app.services.quiz_harness._plan_targets", new_callable=AsyncMock) as mock_plan, \
          patch("app.services.quiz_harness._generate_one", new_callable=AsyncMock) as mock_gen, \
          patch("app.services.quiz_harness._critique_one", new_callable=AsyncMock) as mock_crit:
@@ -315,11 +336,21 @@ async def test_run_generate_one_raising_llm_disabled_drops_that_target_and_conti
         mock_gen.side_effect = [dict(_QUESTION), LlmDisabledError("disabled mid-run")]
         mock_crit.return_value = {"passed": True, "failed_criteria": []}
 
-        result = await run("UTXO model", _CONTEXT, target_count=2)
+        with pytest.raises(LlmDisabledError):
+            await run("UTXO model", _CONTEXT, target_count=2)
 
-    assert len(result["questions"]) == 1
-    assert len(result["trace"]["rejected"]) == 1
-    assert result["trace"]["rejected"][0]["stage"] == "generate"
+
+@pytest.mark.asyncio
+async def test_run_propagates_llm_disabled_from_critique():
+    with patch("app.services.quiz_harness._plan_targets", new_callable=AsyncMock) as mock_plan, \
+         patch("app.services.quiz_harness._generate_one", new_callable=AsyncMock) as mock_gen, \
+         patch("app.services.quiz_harness._critique_one", new_callable=AsyncMock) as mock_crit:
+        mock_plan.return_value = [{"chunk_id": "c1", "cognitive_level": "recall"}]
+        mock_gen.return_value = dict(_QUESTION)
+        mock_crit.side_effect = LlmDisabledError("disabled during critique")
+
+        with pytest.raises(LlmDisabledError):
+            await run("UTXO model", _CONTEXT, target_count=1)
 
 
 @pytest.mark.asyncio
