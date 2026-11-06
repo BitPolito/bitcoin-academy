@@ -1,14 +1,42 @@
 """Course service - business logic for course and lesson retrieval."""
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
 from app.db.models import Course, Lesson
 from app.repositories import course_repo
+from app.schemas.pagination import encode_cursor
 
 
-def list_courses(db: Session, skip: int = 0, limit: int = 100) -> List[Course]:
-    return course_repo.get_all_courses(db, skip=skip, limit=limit)
+def list_courses_page(
+    db: Session, cursor: Optional[Tuple[str, str]], limit: int,
+) -> Tuple[List[Course], Optional[str], bool]:
+    """Returns (items, next_cursor, has_more) for one page of the course list.
+
+    *cursor* is an already-decoded (created_at, id) pair — decoding (and
+    its ValueError-on-malformed-input contract) is the controller's job,
+    so this function's own errors are never mistaken for a bad cursor.
+    """
+    rows = course_repo.get_courses_page(db, cursor, limit)
+
+    has_more = len(rows) > limit
+    items = rows[:limit]
+
+    next_cursor = None
+    if has_more and items:
+        last = items[-1]
+        # created_at is Optional in the type only because it's a nullable
+        # column at the DB level for migration-compatibility reasons; every
+        # row reaching this point was either created with an explicit
+        # timestamp (course_repo.create_course) or backfilled by migration
+        # 0009 — it is never actually None in practice. Checked explicitly
+        # rather than via `assert`, which disappears under `python -O` and
+        # would otherwise let a None silently become the literal string
+        # "None" in the cursor, producing a wrong (not failing) next page.
+        if last.created_at is None:
+            raise RuntimeError(f"Course {last.id} has no created_at — backfill migration 0009 gap")
+        next_cursor = encode_cursor(last.created_at, last.id)
+    return items, next_cursor, has_more
 
 
 def get_course(db: Session, course_id: str) -> Optional[Course]:
