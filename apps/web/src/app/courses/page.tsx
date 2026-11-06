@@ -28,6 +28,7 @@ export default function CoursesPage() {
   const [globalStats, setGlobalStats] = useState({ docs: 0, indexed: 0, processing: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [_filter] = useState<Filter>('all');
   const [showCreate, setShowCreate] = useState(false);
 
@@ -70,6 +71,8 @@ export default function CoursesPage() {
     return { statsMap, totalDocs, totalIndexed, totalProcessing };
   }
 
+  const accessToken = session?.user?.accessToken;
+
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/login');
@@ -77,7 +80,7 @@ export default function CoursesPage() {
     }
     if (status !== 'authenticated') return;
 
-    const token = session?.user?.accessToken;
+    const token = accessToken;
 
     async function fetchFirstPage() {
       try {
@@ -99,21 +102,25 @@ export default function CoursesPage() {
       }
     }
     fetchFirstPage();
-  }, [status, session, router]);
+    // accessToken, not session, so next-auth's refetchOnWindowFocus (a new
+    // session object on every tab focus, same token) doesn't re-run this
+    // and wipe out pages already loaded via "Load more".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, accessToken, router]);
 
   async function handleLoadMore() {
     if (!hasMore || loadingMore) return;
     setLoadingMore(true);
+    setLoadMoreError(null);
     try {
-      const token = session?.user?.accessToken;
-      const page = await getCourses(nextCursor, undefined, token);
+      const page = await getCourses(nextCursor, undefined, accessToken);
       setCourses((prev) => [...prev, ...page.items]);
       setNextCursor(page.nextCursor);
       setHasMore(page.hasMore);
 
       const { statsMap, totalDocs, totalIndexed, totalProcessing } = await fetchDocStats(
         page.items,
-        token
+        accessToken
       );
       setDocStats((prev) => ({ ...prev, ...statsMap }));
       setGlobalStats((prev) => ({
@@ -122,15 +129,19 @@ export default function CoursesPage() {
         processing: prev.processing + totalProcessing,
       }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load more courses');
+      // A failed "load more" keeps every course already shown — only the
+      // retry control for this one page disappears, not the whole grid.
+      setLoadMoreError(err instanceof Error ? err.message : 'Failed to load more courses');
     } finally {
       setLoadingMore(false);
     }
   }
 
   async function handleCreate(title: string, description?: string) {
-    const created = await createCourse(title, description, session?.user?.accessToken);
-    setCourses((prev) => [...prev, created]);
+    const created = await createCourse(title, description, accessToken);
+    // List is newest-first; prepend rather than append so the just-created
+    // course appears where it will also land after a reload.
+    setCourses((prev) => [created, ...prev]);
     router.push(`/courses/${created.id}`);
   }
 
@@ -264,13 +275,18 @@ export default function CoursesPage() {
           </div>
 
           {hasMore && (
-            <div className="flex justify-center mt-8">
+            <div className="flex flex-col items-center gap-2 mt-8">
+              {loadMoreError && (
+                <p className="text-sm" style={{ color: '#b3261e' }}>
+                  {loadMoreError}
+                </p>
+              )}
               <button
                 onClick={handleLoadMore}
                 disabled={loadingMore}
                 className="font-mono text-[11px] tracking-[0.18em] uppercase px-5 h-9 rounded-md b-hard disabled:opacity-50"
               >
-                {loadingMore ? 'Loading…' : 'Load more'}
+                {loadingMore ? 'Loading…' : loadMoreError ? 'Retry' : 'Load more'}
               </button>
             </div>
           )}

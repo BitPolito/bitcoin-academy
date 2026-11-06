@@ -11,7 +11,7 @@ from app.db.models import UserRole
 from app.middleware.auth import CurrentUser, get_current_user, require_instructor
 from app.services import course_service
 from app.schemas.course_schemas import CourseSchema, LessonSchema
-from app.schemas.pagination import CursorPage
+from app.schemas.pagination import CursorPage, decode_cursor
 from app.core.errors import NotFoundError, ValidationError_
 
 router = APIRouter(prefix="/api", tags=["Courses"])
@@ -57,14 +57,18 @@ def get_courses(
     concurrent inserts — an offset page can skip or repeat rows when the
     underlying set changes between requests (see issue #73).
     """
-    try:
-        items, next_cursor, has_more = course_service.list_courses_page(
-            db, cursor=cursor, limit=limit,
-        )
-    except ValueError:
-        raise ValidationError_(
-            message="Invalid cursor.", details={"cursor": cursor},
-        )
+    decoded_cursor = None
+    if cursor is not None:
+        try:
+            decoded_cursor = decode_cursor(cursor)
+        except ValueError:
+            raise ValidationError_(
+                message="Invalid cursor.", details={"cursor": cursor},
+            )
+
+    items, next_cursor, has_more = course_service.list_courses_page(
+        db, cursor=decoded_cursor, limit=limit,
+    )
     return CursorPage(items=items, next_cursor=next_cursor, has_more=has_more)
 
 

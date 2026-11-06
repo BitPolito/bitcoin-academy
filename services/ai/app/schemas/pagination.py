@@ -28,7 +28,23 @@ def encode_cursor(created_at: str, id_: str) -> str:
 
 
 def decode_cursor(cursor: str) -> Tuple[str, str]:
-    """Raises ValueError on a malformed cursor — callers should map this to a 422."""
-    raw = base64.urlsafe_b64decode(cursor.encode())
-    data = json.loads(raw)
-    return data["created_at"], data["id"]
+    """Raises ValueError on any malformed cursor — callers map that to a 422.
+
+    Everything this does to an attacker-controlled string can fail in more
+    ways than base64/JSON decoding errors (both already ValueError
+    subclasses): a well-formed-but-wrong-shaped payload can raise KeyError
+    (missing field) or TypeError (not a dict, or a field of the wrong type).
+    Normalize all of it to ValueError so the controller has one exception
+    to catch, rather than a 500 slipping through on any shape it didn't
+    anticipate.
+    """
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode())
+        data = json.loads(raw)
+        created_at = data["created_at"]
+        id_ = data["id"]
+    except (KeyError, TypeError) as exc:
+        raise ValueError(f"Malformed cursor: {exc}") from exc
+    if not isinstance(created_at, str) or not isinstance(id_, str):
+        raise ValueError("Malformed cursor: created_at and id must be strings")
+    return created_at, id_

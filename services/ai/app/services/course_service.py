@@ -5,23 +5,19 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Course, Lesson
 from app.repositories import course_repo
-from app.schemas.pagination import decode_cursor, encode_cursor
-
-
-def list_courses(db: Session, skip: int = 0, limit: int = 100) -> List[Course]:
-    return course_repo.get_all_courses(db, skip=skip, limit=limit)
+from app.schemas.pagination import encode_cursor
 
 
 def list_courses_page(
-    db: Session, cursor: Optional[str], limit: int,
+    db: Session, cursor: Optional[Tuple[str, str]], limit: int,
 ) -> Tuple[List[Course], Optional[str], bool]:
     """Returns (items, next_cursor, has_more) for one page of the course list.
 
-    Raises ValueError if *cursor* is present but malformed — the caller
-    (courses_api) maps that to a 422.
+    *cursor* is an already-decoded (created_at, id) pair — decoding (and
+    its ValueError-on-malformed-input contract) is the controller's job,
+    so this function's own errors are never mistaken for a bad cursor.
     """
-    decoded = decode_cursor(cursor) if cursor is not None else None
-    rows = course_repo.get_courses_page(db, decoded, limit)
+    rows = course_repo.get_courses_page(db, cursor, limit)
 
     has_more = len(rows) > limit
     items = rows[:limit]
@@ -33,8 +29,12 @@ def list_courses_page(
         # column at the DB level for migration-compatibility reasons; every
         # row reaching this point was either created with an explicit
         # timestamp (course_repo.create_course) or backfilled by migration
-        # 0009 — it is never actually None in practice.
-        assert last.created_at is not None, f"Course {last.id} has no created_at"
+        # 0009 — it is never actually None in practice. Checked explicitly
+        # rather than via `assert`, which disappears under `python -O` and
+        # would otherwise let a None silently become the literal string
+        # "None" in the cursor, producing a wrong (not failing) next page.
+        if last.created_at is None:
+            raise RuntimeError(f"Course {last.id} has no created_at — backfill migration 0009 gap")
         next_cursor = encode_cursor(last.created_at, last.id)
     return items, next_cursor, has_more
 

@@ -98,17 +98,6 @@ def create_course(db: Session, title: str, description: Optional[str] = None) ->
     return course
 
 
-def get_all_courses(db: Session, skip: int = 0, limit: int = 100) -> List[Course]:
-    return (
-        db.query(Course)
-        .filter(Course.is_active == True)
-        .order_by(Course.created_at.desc(), Course.id.desc())
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
-
-
 def get_courses_page(
     db: Session, cursor: Optional[Tuple[str, str]], limit: int,
 ) -> List[Course]:
