@@ -2,8 +2,6 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.db.session import engine, SessionLocal
-from app.db.models import Base
 from app.main import app
 from app.core.rate_limit import limiter
 
@@ -12,23 +10,11 @@ client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def setup_database():
-    """Set up a fresh database and disable rate limiting for each test."""
+def setup_database(client):
+    """Use tests/conftest.py client. Its engine is in-memory, not DATABASE_URL."""
     limiter.enabled = False
-    Base.metadata.create_all(bind=engine)
     yield
-    Base.metadata.drop_all(bind=engine)
     limiter.enabled = True
-
-
-@pytest.fixture
-def db_session():
-    """Provide a database session for tests."""
-    session = SessionLocal()
-    try:
-        yield session
-    finally:
-        session.close()
 
 
 class TestRegistration:

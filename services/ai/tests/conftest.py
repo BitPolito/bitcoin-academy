@@ -8,6 +8,7 @@ connection, which makes the in-memory database visible across threads (needed
 because FastAPI runs endpoints in a thread pool).
 """
 import os
+import re
 import uuid
 
 # The suite must never reach a real QVAC service. Several tests assert the
@@ -19,10 +20,11 @@ os.environ["QVAC_SERVICE_URL"] = "http://127.0.0.1:9"
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.db import session as app_session
 from app.db.models import (
     Badge,
     Base,
@@ -37,6 +39,37 @@ from app.db.session import get_db
 from app.main import app
 
 TEST_DB_URL = "sqlite:///:memory:"
+
+# A leading WITH clause hides the real verb. The group is optional, so a bare
+# INSERT still matches, and a WITH ... SELECT does not.
+_WRITE_SQL = re.compile(
+    r"^\s*(?:WITH\s+(?:RECURSIVE\s+)?.+?\)\s*)?"
+    r"(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|REPLACE|TRUNCATE)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+@pytest.fixture(autouse=True)
+def _application_database_is_untouched():
+    """DATABASE_URL may point at a developer's real database: tests must not
+    write to it. Auth tests once dropped every table there in teardown (#299).
+
+    The listener raises before cursor.execute, so the statement never reaches
+    the database. An assertion at teardown would report the write too late.
+    """
+
+    def _block(conn, cursor, statement, parameters, context, executemany):
+        if statement and _WRITE_SQL.match(statement):
+            raise AssertionError(
+                "Test tried to write to the application database: "
+                + statement.strip().splitlines()[0]
+            )
+
+    event.listen(app_session.engine, "before_cursor_execute", _block)
+    try:
+        yield
+    finally:
+        event.remove(app_session.engine, "before_cursor_execute", _block)
 
 
 @pytest.fixture(scope="function")
