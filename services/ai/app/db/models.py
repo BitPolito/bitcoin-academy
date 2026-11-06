@@ -527,3 +527,50 @@ class Certificate(Base):
 
     user: Mapped["User"] = relationship(back_populates="certificates")
     course: Mapped["Course"] = relationship(back_populates="certificates")
+
+
+# 13. Study sessions (server-side persistence of study history — issue #136)
+class StudySession(Base):
+    """A discrete study session: one user working on one course."""
+
+    __tablename__ = "study_session"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(ForeignKey("app_user.id"))
+    course_id: Mapped[str] = mapped_column(ForeignKey("course.id"))
+    title: Mapped[Optional[str]] = mapped_column(String)
+    started_at: Mapped[str] = mapped_column(String, default=func.now())
+    last_active_at: Mapped[str] = mapped_column(
+        String, default=func.now(), onupdate=func.now()
+    )
+
+    turns: Mapped[List["StudyTurn"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="StudyTurn.created_at",
+    )
+
+
+class StudyTurn(Base):
+    """One query/answer exchange within a study session."""
+
+    __tablename__ = "study_turn"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("study_session.id", ondelete="CASCADE")
+    )
+    action: Mapped[str] = mapped_column(String)
+    query: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text)
+    # JSON-encoded list of citation anchors (doc/page/slide/chunk_id/snippet).
+    citations_json: Mapped[str] = mapped_column(Text, default="[]")
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    model_tier: Mapped[Optional[str]] = mapped_column(String)
+    created_at: Mapped[str] = mapped_column(String, default=func.now())
+
+    session: Mapped["StudySession"] = relationship(back_populates="turns")
