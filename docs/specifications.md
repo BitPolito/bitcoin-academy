@@ -376,8 +376,40 @@ the authenticated learner's attempts.
 The Study source pane links to a saved lesson quiz. Lesson quizzes and chapter
 tests share one authenticated answer-submission form, which displays the server's
 passing threshold, score and corrections. A missing saved quiz shows an explicit
-unavailable state instead of submitting an ad-hoc Study action. Generated question
-quality remains tracked separately in #134.
+unavailable state instead of submitting an ad-hoc Study action.
+
+**Quiz question quality (#134).** Both quiz callers (the course builder's
+per-lesson quizzes and the study page's ad-hoc topic quizzes) generate
+questions through an agent harness (`quiz_harness.py`) rather than a single
+schema-validated model call. For a target of `N` questions, the harness runs:
+
+1. **Plan** (1 call) — selects `N` `(chunk_id, cognitive_level)` targets from
+   the available source passages, spread across distinct passages and
+   cognitive levels (recall / application / analysis).
+2. **Generate** (up to `N` calls) — one question per target, scoped to that
+   target's single source passage.
+3. **Critique** (up to `N` calls) — each generated question is checked
+   against five criteria: the answer is entailed by the cited source chunk;
+   every distractor is plausible but demonstrably wrong; exactly one option
+   is defensible; the question is not answerable from general knowledge
+   alone; the question does not duplicate another already accepted into the
+   same quiz. A critique failure is recorded by the specific criterion it
+   failed.
+4. **Repair** (up to `2N` calls) — a question that fails critique is
+   regenerated once, with the failed criteria fed back as explicit feedback,
+   then re-critiqued; whatever that second verdict is, it is final.
+
+The loop is bounded by construction at `4*N + 1` calls (17 for the default
+`N=4`), never unbounded. Every returned question carries a resolvable source
+chunk id, now persisted on the `Question` row as well as in the API payload.
+If the harness cannot reach the target count, it returns fewer questions
+(or none) rather than malformed output, and reports why in a `trace` object
+(targets planned, generated, rejected with reasons, repaired, final count,
+calls used/budget). `POST /courses/{course_id}/quizzes/generate` returns this
+`trace` as an additive field alongside the generated quiz; the course-builder
+path logs it instead of surfacing it in the UI. A manual review of 20
+generated questions against real course material is a follow-up to this
+implementation, tracked in #134.
 
 ---
 

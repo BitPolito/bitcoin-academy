@@ -10,6 +10,7 @@ import pytest
 
 from app.core.config import create_access_token
 from app.db.models import Quiz, QuizScope
+from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk, EvidencePack
 from app.services.quiz_generation import persist_quiz
 from app.services.study_service import DispatchResult, SourceChunk
 from tests.conftest import make_course_with_lessons, make_user
@@ -39,6 +40,23 @@ _RETRIEVE_RESULT = DispatchResult(
     answer="",
     citations=[SourceChunk(snippet="A UTXO is an unspent transaction output.", score=0.9, label="p1")],
     retrieval_used=True,
+    evidence_pack=EvidencePack(
+        query="UTXO model basics",
+        action="retrieve",
+        chunks=[
+            EvidenceChunk(
+                chunk_id="chunk-1",
+                text="A UTXO is an unspent transaction output.",
+                score=0.9,
+                anchor=CitationAnchor(
+                    doc_id="doc-1", doc_name="p1", chunk_id="chunk-1", chunk_type="text",
+                ),
+            )
+        ],
+        total_candidates=1,
+        ordering=[0],
+        deduped_passages=["A UTXO is an unspent transaction output."],
+    ),
 )
 
 
@@ -63,10 +81,10 @@ class TestGenerateQuiz:
         with patch(
             "app.services.study_service.dispatch", new_callable=AsyncMock
         ) as mock_dispatch, patch(
-            "app.services.quiz_generation.generate_json", new_callable=AsyncMock
+            "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
         ) as mock_gj:
             mock_dispatch.return_value = _RETRIEVE_RESULT
-            mock_gj.return_value = {"questions": _QUESTIONS}
+            mock_gj.return_value = {"questions": _QUESTIONS, "trace": {"final_count": 1}}
 
             resp = client.post(
                 f"/api/courses/{course.id}/quizzes/generate",
@@ -79,6 +97,7 @@ class TestGenerateQuiz:
         assert "id" in body
         assert body["scope"] == QuizScope.COURSE
         assert len(body["questions"]) == 1
+        assert body["trace"] == {"final_count": 1}
         # No is_correct leak to the student-facing generate response
         for opt in body["questions"][0]["options"]:
             assert "is_correct" not in opt
@@ -86,6 +105,30 @@ class TestGenerateQuiz:
         quiz = db.query(Quiz).filter(Quiz.id == body["id"]).first()
         assert quiz is not None
         assert quiz.course_id == course.id
+
+    @pytest.mark.integration
+    def test_generate_quiz_uses_evidence_pack_chunk_id(self, client, db):
+        user = make_user(db)
+        course, _ = make_course_with_lessons(db)
+
+        with patch(
+            "app.services.study_service.dispatch", new_callable=AsyncMock
+        ) as mock_dispatch, patch(
+            "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
+        ) as mock_gj:
+            mock_dispatch.return_value = _RETRIEVE_RESULT
+            mock_gj.return_value = {"questions": _QUESTIONS, "trace": {"final_count": 1}}
+
+            resp = client.post(
+                f"/api/courses/{course.id}/quizzes/generate",
+                json={"query": "UTXO model basics"},
+                headers=_auth(user.id),
+            )
+
+        assert resp.status_code == 201
+        args, _ = mock_gj.call_args_list[0]
+        context_items = args[1]
+        assert any(item.get("chunk_id") == "chunk-1" for item in context_items)
 
     @pytest.mark.integration
     def test_generate_quiz_422_when_no_source_material(self, client, db):

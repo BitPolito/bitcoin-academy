@@ -16,96 +16,33 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models import OptionChoice, Question, QuestionType, Quiz, QuizAttempt, QuizScope
-from app.services.qvac_structured import StructuredGenerationError, generate_json
+from app.services import quiz_harness
 
 logger = logging.getLogger(__name__)
 
-QUIZ_PROMPT_VERSION = "v2"  # v2 = adds concept_tag/difficulty to the schema
-
-QUIZ_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "required": ["questions"],
-    "properties": {
-        "questions": {
-            "type": "array",
-            "minItems": 3,
-            "maxItems": 4,
-            "items": {
-                "type": "object",
-                "required": [
-                    "prompt", "options", "correct_key", "concept_tag", "difficulty",
-                ],
-                "properties": {
-                    "prompt": {"type": "string"},
-                    "options": {
-                        "type": "array",
-                        "minItems": 4,
-                        "maxItems": 4,
-                        "items": {
-                            "type": "object",
-                            "required": ["key", "text"],
-                            "properties": {
-                                "key": {"type": "string", "enum": ["A", "B", "C", "D"]},
-                                "text": {"type": "string"},
-                            },
-                        },
-                    },
-                    "correct_key": {"type": "string", "enum": ["A", "B", "C", "D"]},
-                    "concept_tag": {
-                        "type": "string",
-                        "description": "short slug for the concept being tested, e.g. 'utxo-model'",
-                    },
-                    "difficulty": {
-                        "type": "string",
-                        "enum": ["beginner", "intermediate", "advanced"],
-                    },
-                },
-            },
-        }
-    },
-}
-
-QUIZ_SYSTEM = (
-    "You are an expert educator at BitPolito Academy creating assessment questions.\n"
-    "RULES:\n"
-    "1. Create 3-4 multiple-choice questions based ONLY on the provided source passages.\n"
-    "2. Each question tests conceptual understanding, not trivial recall.\n"
-    "3. All 4 options (A-D) must be plausible — wrong options should be conceptually close.\n"
-    "4. The correct answer must be directly supported by the source text.\n"
-    "5. Use exact technical terminology from the document.\n"
-    "6. concept_tag: a short kebab-case slug identifying the single concept the question "
-    "tests (e.g. 'utxo-model', 'proof-of-work', 'block-subsidy') — reuse the same tag "
-    "across questions that test the same concept.\n"
-    "7. difficulty: rate the question beginner / intermediate / advanced."
-)
+_DEFAULT_TARGET_COUNT = quiz_harness.DEFAULT_TARGET_COUNT
 
 
 async def generate_quiz_questions(
     topic: str,
     context_items: List[Dict[str, str]],
-) -> Optional[Dict[str, Any]]:
-    """Call /generate_json to produce MCQ quiz data with concept tags.
+) -> Dict[str, Any]:
+    """Run the plan/generate/critique/repair harness to produce MCQ quiz data.
 
-    Returns None (rather than raising) on schema-validation failure — quiz
-    generation is treated as best-effort by all current callers.
+    Always returns the full `{"questions": [...], "trace": {...}}` dict from
+    the harness, even when `questions` is empty — the trace is most valuable
+    exactly in that case (issue #134's "surface rejected questions"
+    acceptance criterion), and callers that check `.get("questions")` or do
+    callers must inspect `.get("questions")`; the result dict itself remains
+    truthy even when it contains no questions. `persist_quiz` safely returns
+    None for an empty question list.
     """
-    prompt = (
-        f'Generate a quiz on: "{topic}". '
-        "Create 3-4 multiple-choice questions that test understanding of the key concepts "
-        "in the provided source passages."
-    )
-    try:
-        return await generate_json(
-            prompt,
-            QUIZ_SCHEMA,
-            context=context_items,
-            system_prompt=QUIZ_SYSTEM,
-            generation_params={"temp": 0.3},
-            task_type="content_gen",
+    result = await quiz_harness.run(topic, context_items, target_count=_DEFAULT_TARGET_COUNT)
+    if not result["questions"]:
+        logger.warning(
+            "Quiz generation for '%s' produced no questions: %s", topic, result["trace"]
         )
-    except StructuredGenerationError as exc:
-        logger.warning("Quiz generation failed for topic '%s': %s", topic, exc)
-        return None
+    return result
 
 
 def persist_quiz(
@@ -185,6 +122,7 @@ def persist_quiz(
             order_index=order_idx,
             concept_tag=q_data.get("concept_tag"),
             difficulty=q_data.get("difficulty"),
+            source_ref=q_data.get("chunk_id"),
         )
         db.add(question)
         db.flush()
