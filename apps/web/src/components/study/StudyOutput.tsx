@@ -83,7 +83,7 @@ export function StudyOutput({ result, courseId }: StudyOutputProps) {
           ) : result.action === 'open_questions' ? (
             <QuestionsOutput text={result.answer} />
           ) : (
-            <ReactMarkdown className="md-prose" remarkPlugins={[remarkGfm]}>{result.answer}</ReactMarkdown>
+            <div className="md-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{result.answer}</ReactMarkdown></div>
           )}
         </div>
       )}
@@ -385,7 +385,7 @@ function OralOutput({ text }: { text: string }) {
 
   if (questions.length === 0) {
     return (
-      <ReactMarkdown className="md-prose" remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <div className="md-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown></div>
     );
   }
 
@@ -412,3 +412,4 @@ function QuestionsOutput({ text }: { text: string }) {
     </div>
   );
 }
+

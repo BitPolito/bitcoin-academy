@@ -1,9 +1,29 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-blue-dark: #001CE0;
+  --color-surface: #F9F9F9;
+  --color-ink-soft: #0a1a4a;
+  --color-rule: #E4E6F2;
+  --color-rule-soft: #EFF1F8;
+  --color-ok: #1a7f3a;
+  --color-warn: #a55a00;
+  --color-err: #b3261e;
+  --color-bitcoin: #F7931A;
+  --font-sans: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --container-8xl: 1480px;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
 
 /* ── JetBrains Mono ────────────────────────────────────────────────── */
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+
+
+
+
 
 /* ── Base ─────────────────────────────────────────────────────────── */
 html {
@@ -308,3 +328,4 @@ button:not(.btn-primary):not(.btn-ghost):active:not(:disabled) {
   bottom: 0; right: 0;
   border-bottom: 2px solid; border-right: 2px solid;
 }
+
