@@ -112,7 +112,7 @@ cp services/ai/.env.example services/ai/.env
 cp apps/web/.env.example     apps/web/.env.local
 
 # Create root .env with the Postgres URL used by docker-compose variable substitution
-echo "DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy" > .env
+echo "DATABASE_URL=postgresql+psycopg2://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy" > .env
 
 # Start (dev mode — hot reload, ports exposed)
 docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml up --build
