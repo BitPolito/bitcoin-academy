@@ -2,14 +2,14 @@ import type { AuthOptions } from 'next-auth';
 import type { JWT } from 'next-auth/jwt';
 import CredentialsProvider from 'next-auth/providers/credentials';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { API_BASE_URL } from '@/lib/api';
 const ACCESS_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 min — must match backend ACCESS_TOKEN_EXPIRE_MINUTES
 const REFRESH_BUFFER_MS = 60 * 1000; // refresh 1 min before expiry
 const refreshFlights = new Map<string, Promise<JWT>>();
 
 async function refreshAccessToken(token: JWT): Promise<JWT> {
   try {
-    const res = await fetch(`${API_URL}/api/auth/refresh`, {
+    const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: token.refreshToken }),
@@ -59,7 +59,7 @@ export const authOptions: AuthOptions = {
         }
 
         try {
-          const res = await fetch(`${API_URL}/api/auth/login`, {
+          const res = await fetch(`${API_BASE_URL}/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
