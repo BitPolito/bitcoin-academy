@@ -1,8 +1,8 @@
 /**
  * Schema-validated JSON generation on the local LLM.
  *
- * @qvac/sdk 0.9.x exposes no GBNF grammar or response_format, so validity is
- * enforced service-side: low-temperature prompting, robust JSON extraction
+ * Validity is enforced service-side (the SDK's `responseFormat` grammar
+ * constraint, available since 0.23, is not used yet): low-temperature prompting, robust JSON extraction
  * (code fences, <think> blocks, surrounding prose), validation against a
  * JSON-Schema subset, and bounded retries that feed the validation errors
  * back to the model. Callers (course builder outline/lesson jobs) get either
