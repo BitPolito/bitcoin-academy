@@ -381,3 +381,43 @@ def test_study_request_rejects_a_two_character_query():
     from app.schemas.study_schemas import StudyDispatchRequest
     with pytest.raises(ValidationError):
         StudyDispatchRequest(query="ab", action=StudyAction.EXPLAIN)
+        
+        
+# ---------------------------------------------------------------------------
+# Refusal & Unsupported Citation Suppression (Issue #291)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_parse_citations_refusal_clears_citations():
+    pack = _make_pack()
+    
+    text = "This specific point is not covered in the provided material. I cannot compare them."
+    result_text, citations = _parse_citations(text, pack)
+    
+    assert result_text == text
+    assert citations == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_stream_dispatch_refusal_clears_citations():
+    from app.services.study_service import stream_dispatch, _CITATIONS_SENTINEL
+
+    async def mock_stream(*args, **kwargs):
+        yield "This specific point is not "
+        yield "covered in the provided material."
+        
+    with patch("app.services.study_service._retrieve_multi", new_callable=AsyncMock) as mock_ret, \
+         patch("app.services.study_service._stream_generate", mock_stream), \
+         patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"):
+        
+        pack = _make_pack()
+        mock_ret.return_value = ("", pack)
+        
+        # Action MUST be a streaming action like COMPARE (not ORAL/QUIZ which are buffered)
+        gen = stream_dispatch("Compare X and Y", "COURSE1", StudyAction.COMPARE)
+        outputs = [chunk async for chunk in gen]
+        
+        # The last chunk should be the sentinel payload containing exactly an empty JSON array
+        assert outputs[-1] == _CITATIONS_SENTINEL + "[]"

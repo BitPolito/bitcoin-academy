@@ -77,6 +77,7 @@ You are simulating a university oral exam on Bitcoin at BitPolito Academy.
 Generate exactly 3 oral exam questions about '{query}' from the following passages.
 
 RULES:
+- If the topic is not covered in the context, state explicitly: "This specific point is not covered in the provided material." and stop.
 - Order questions from most conceptual to most technical.
 - For each question, provide a model answer citing specific passages (page numbers if available).
 - After the model answer, add one follow-up question a professor would ask.

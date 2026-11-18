@@ -113,18 +113,20 @@ _SYSTEM_PROMPTS = {
         "You are simulating a university oral exam on Bitcoin at BitPolito Academy.\n"
         "Generate exactly 3 oral exam questions drawn from the provided context.\n"
         "RULES:\n"
-        "1. Order questions from most conceptual to most technical.\n"
-        "2. For each question, provide a model answer that a well-prepared student should give,"
+        "1. If the topic is not covered in the context, state explicitly: "
+        "\"This specific point is not covered in the provided material.\" and stop.\n"
+        "2. Order questions from most conceptual to most technical.\n"
+        "3. For each question, provide a model answer that a well-prepared student should give,"
         " citing supporting passages as [ref_N].\n"
-        "3. After the model answer, add one follow-up question that a professor would ask"
+        "4. After the model answer, add one follow-up question that a professor would ask"
         " to probe deeper understanding.\n"
-        "4. Use exact Bitcoin terminology from the document.\n"
-        "5. CRITICAL — use EXACTLY these labels on their own lines, with a colon, no variations:\n"
+        "5. Use exact Bitcoin terminology from the document.\n"
+        "6. CRITICAL — use EXACTLY these labels on their own lines, with a colon, no variations:\n"
         "   Q1: / Q2: / Q3:\n"
         "   Model answer:\n"
         "   Follow-up:\n"
         "   Any other label will break the parser that students use to see their results.\n"
-        "6. Format:\n"
+        "7. Format:\n"
         "Q1: <question>\n"
         "Model answer: <answer with [ref_N] citations>\n"
         "Follow-up: <deeper question as a question ending with ?>\n"
@@ -147,15 +149,17 @@ _SYSTEM_PROMPTS = {
         "You are an expert Bitcoin tutor at BitPolito Academy.\n"
         "Using ONLY the provided context, produce a structured comparison of the requested concepts.\n"
         "RULES:\n"
-        "1. First, identify exactly 3–4 comparison dimensions that are relevant to BOTH concepts"
+        "1. If the requested concepts are not covered in the context, state explicitly: "
+        "\"This specific point is not covered in the provided material.\" and stop.\n"
+        "2. First, identify exactly 3–4 comparison dimensions that are relevant to BOTH concepts"
         " and that appear in the source material. List them explicitly as:\n"
         "   **Dimensions: <dim1>, <dim2>, <dim3>[, <dim4>]**\n"
-        "2. Then produce a Markdown table with one row per dimension and one column per concept.\n"
+        "3. Then produce a Markdown table with one row per dimension and one column per concept.\n"
         "   | Dimension | Concept A | Concept B |\n"
         "   |---|---|---|\n"
         "   Fill every cell with a concise value drawn from the context.\n"
-        "3. Use exact technical terms from the document; cite sources inline as [ref_N].\n"
-        "4. Conclude with a 1-paragraph synthesis drawing out the most important"
+        "4. Use exact technical terms from the document; cite sources inline as [ref_N].\n"
+        "5. Conclude with a 1-paragraph synthesis drawing out the most important"
         " trade-off or distinction, citing [ref_N]."
     ),
 }
@@ -292,6 +296,9 @@ def _parse_citations(text: str, pack: EvidencePack) -> tuple[str, List[SourceChu
 
     Returns (text, sources): marker N in the returned text refers to sources[N - 1].
     """
+    if "This specific point is not covered in the provided material" in text:
+        return text, []
+        
     renumberer = _CitationRenumberer(len(pack.chunks))
     remapped = renumberer.feed(text) + renumberer.flush()
     return remapped, _cited_sources(pack, renumberer.cited_indices)
@@ -760,7 +767,12 @@ async def stream_dispatch(
             accumulated.append(tail)
             yield tail
         full_text = "".join(accumulated)
-        sources = _cited_sources(pack, renumberer.cited_indices)
+        
+        if "This specific point is not covered in the provided material" in full_text:
+            sources = []
+        else:
+            sources = _cited_sources(pack, renumberer.cited_indices)
+            
         yield _cache_and_sentinel(full_text, sources)
     else:
         # Stream yielded nothing — fall back to buffered generate
