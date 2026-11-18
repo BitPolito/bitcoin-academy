@@ -40,6 +40,11 @@ from app.main import app
 
 TEST_DB_URL = "sqlite:///:memory:"
 
+_LEADING_SQL_COMMENTS = re.compile(
+    r"^(?:\s|--[^\n]*(?:\n|$)|/\*.*?\*/)+",
+    re.DOTALL,
+)
+
 # A leading WITH clause hides the real verb. The group is optional, so a bare
 # INSERT still matches, and a WITH ... SELECT does not.
 _WRITE_SQL = re.compile(
@@ -59,7 +64,7 @@ def _application_database_is_untouched():
     """
 
     def _block(conn, cursor, statement, parameters, context, executemany):
-        if statement and _WRITE_SQL.match(statement):
+        if statement and _WRITE_SQL.match(_LEADING_SQL_COMMENTS.sub("", statement)):
             raise AssertionError(
                 "Test tried to write to the application database: "
                 + statement.strip().splitlines()[0]
