@@ -311,6 +311,9 @@ account lockout after repeated failures, `admin`/`student` roles, rate limiting,
 and audit middleware. Development accounts are seeded automatically, and seeding refuses to run
 when `ENVIRONMENT=production`.
 
+NextAuth login and token refresh use the shared API base URL. In Docker,
+`API_BASE_URL=http://api:8000/api` routes these server requests to the API service.
+
 The authenticated top bar offers Sign out using the existing NextAuth session flow.
 Login distinguishes account lockout from general request throttling without promising
 a retry in seconds; server diagnostics are not shown in the login error.
