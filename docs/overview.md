@@ -191,6 +191,7 @@ follow, and are not strictly ordered relative to each other.
 |---|---|
 | [`overview.md`](overview.md) | This document — vision, scope, architecture |
 | [`specifications.md`](specifications.md) | Functional requirements with implementation status |
+| [`quiz-agent-harness-design.md`](quiz-agent-harness-design.md) | Design for bounded, grounded quiz generation |
 | [`agent-memory-plan.md`](agent-memory-plan.md) | Inference ladder, hardware tiers, and persistent student-memory roadmap |
 | [`../AGENTS.md`](../AGENTS.md) | Contribution workflow, branching, PR and merge rules |
 | [`../README.md`](../README.md) | Setup, configuration, testing, troubleshooting |
