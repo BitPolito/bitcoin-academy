@@ -72,12 +72,12 @@ def test_parse_citations_extracts_referenced_chunks():
 
 
 @pytest.mark.unit
-def test_parse_citations_falls_back_to_all_when_no_markers():
+def test_parse_citations_returns_empty_when_no_markers():
     pack = _make_pack()
     text = "Bitcoin is interesting but no citations here."
     remapped_text, result = _parse_citations(text, pack)
-    # No [ref_N] markers → all chunks returned
-    assert len(result) == len(pack.chunks)
+    # No [ref_N] markers -> no unrelated chunks attached (#291)
+    assert result == []
 
 
 @pytest.mark.unit
@@ -94,8 +94,8 @@ def test_parse_citations_ignores_out_of_range_refs():
     pack = _make_pack()
     text = "See [ref_99] for details."  # out of range
     remapped_text, result = _parse_citations(text, pack)
-    # Falls back to all chunks (no valid ref found)
-    assert len(result) == len(pack.chunks)
+    # No valid ref found -> no unrelated chunks attached (#291)
+    assert result == []
 
 
 @pytest.mark.unit
@@ -381,8 +381,8 @@ def test_study_request_rejects_a_two_character_query():
     from app.schemas.study_schemas import StudyDispatchRequest
     with pytest.raises(ValidationError):
         StudyDispatchRequest(query="ab", action=StudyAction.EXPLAIN)
-        
-        
+
+
 # ---------------------------------------------------------------------------
 # Refusal & Unsupported Citation Suppression (Issue #291)
 # ---------------------------------------------------------------------------
@@ -390,10 +390,10 @@ def test_study_request_rejects_a_two_character_query():
 @pytest.mark.unit
 def test_parse_citations_refusal_clears_citations():
     pack = _make_pack()
-    
+
     text = "This specific point is not covered in the provided material. I cannot compare them."
     result_text, citations = _parse_citations(text, pack)
-    
+
     assert result_text == text
     assert citations == []
 
@@ -406,18 +406,69 @@ async def test_stream_dispatch_refusal_clears_citations():
     async def mock_stream(*args, **kwargs):
         yield "This specific point is not "
         yield "covered in the provided material."
-        
+
     with patch("app.services.study_service._retrieve_multi", new_callable=AsyncMock) as mock_ret, \
          patch("app.services.study_service._stream_generate", mock_stream), \
          patch("app.services.cache_service.get_cached", return_value=None), \
          patch("app.services.cache_service.set_cached"):
-        
+
         pack = _make_pack()
         mock_ret.return_value = ("", pack)
-        
+
         # Action MUST be a streaming action like COMPARE (not ORAL/QUIZ which are buffered)
         gen = stream_dispatch("Compare X and Y", "COURSE1", StudyAction.COMPARE)
         outputs = [chunk async for chunk in gen]
-        
+
         # The last chunk should be the sentinel payload containing exactly an empty JSON array
         assert outputs[-1] == _CITATIONS_SENTINEL + "[]"
+
+
+@pytest.mark.unit
+def test_parse_citations_partial_answer_preserves_and_renumbers_citations():
+    """Partially supported answers keep cited sources and renumber markers (#291)."""
+    chunks = [_make_chunk("c1", "Mining secures blocks."), _make_chunk("c2", "UTXOs are outputs.")]
+    pack = _make_pack(chunks=chunks)
+    text = (
+        "UTXOs are outputs [ref_2]. Mining secures blocks [ref_1]. "
+        "This specific point is not covered in the provided material."
+    )
+    remapped_text, result = _parse_citations(text, pack)
+    assert "[ref_1]" in remapped_text
+    assert "[ref_2]" in remapped_text
+    assert remapped_text.startswith("UTXOs are outputs [ref_1].")
+    assert len(result) == 2
+    assert result[0].snippet == "UTXOs are outputs."
+    assert result[1].snippet == "Mining secures blocks."
+
+
+@pytest.mark.unit
+def test_parse_citations_differently_worded_refusal_clears_citations():
+    pack = _make_pack()
+    text = "The provided material does not cover photosynthesis."
+    remapped_text, result = _parse_citations(text, pack)
+    assert remapped_text == text
+    assert result == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_stream_dispatch_oral_refusal_clears_citations_and_skips_cache():
+    from app.services.study_service import stream_dispatch, _CITATIONS_SENTINEL, _REFUSAL_SENTENCE
+
+    with patch("app.services.study_service._retrieve_multi", new_callable=AsyncMock) as mock_ret, \
+         patch("app.services.study_service._generate", new_callable=AsyncMock, return_value=_REFUSAL_SENTENCE), \
+         patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached") as mock_set_cached:
+
+        mock_ret.return_value = ("", _make_pack())
+        chunks = [
+            c async for c in stream_dispatch(
+                question="Explain photosynthesis in detail",
+                course_id="course-1",
+                action=StudyAction.ORAL,
+            )
+        ]
+
+        assert chunks[0] == _REFUSAL_SENTENCE
+        assert chunks[-1] == _CITATIONS_SENTINEL + "[]"
+        mock_set_cached.assert_not_called()

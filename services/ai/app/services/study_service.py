@@ -54,6 +54,9 @@ _qvac_gen_client = httpx.AsyncClient(
 # System prompts per action
 # ---------------------------------------------------------------------------
 
+_REFUSAL_SENTENCE = "This specific point is not covered in the provided material."
+
+
 _SYSTEM_PROMPTS = {
     StudyAction.EXPLAIN: (
         "You are an expert Bitcoin tutor at BitPolito Academy, helping university students"
@@ -67,7 +70,7 @@ _SYSTEM_PROMPTS = {
         "3. Cite every factual claim with its source passage as [ref_N] inline"
         " (e.g. 'The block subsidy halves every 210 000 blocks [ref_2].').\n"
         "4. If a topic is not covered in the context, state explicitly:"
-        " \"This specific point is not covered in the provided material.\"\n"
+        f" \"{_REFUSAL_SENTENCE}\"\n"
         "5. Write in a pedagogical tone: clear, structured, building from fundamentals"
         " to details. Aim for 2–4 focused paragraphs — expand only when the topic genuinely"
         " requires it.\n"
@@ -114,7 +117,7 @@ _SYSTEM_PROMPTS = {
         "Generate exactly 3 oral exam questions drawn from the provided context.\n"
         "RULES:\n"
         "1. If the topic is not covered in the context, state explicitly: "
-        "\"This specific point is not covered in the provided material.\" and stop.\n"
+        f"\"{_REFUSAL_SENTENCE}\" and stop.\n"
         "2. Order questions from most conceptual to most technical.\n"
         "3. For each question, provide a model answer that a well-prepared student should give,"
         " citing supporting passages as [ref_N].\n"
@@ -150,7 +153,7 @@ _SYSTEM_PROMPTS = {
         "Using ONLY the provided context, produce a structured comparison of the requested concepts.\n"
         "RULES:\n"
         "1. If the requested concepts are not covered in the context, state explicitly: "
-        "\"This specific point is not covered in the provided material.\" and stop.\n"
+        f"\"{_REFUSAL_SENTENCE}\" and stop.\n"
         "2. First, identify exactly 3–4 comparison dimensions that are relevant to BOTH concepts"
         " and that appear in the source material. List them explicitly as:\n"
         "   **Dimensions: <dim1>, <dim2>, <dim3>[, <dim4>]**\n"
@@ -272,11 +275,10 @@ class _CitationRenumberer:
 def _cited_sources(pack: EvidencePack, cited_indices: list[int]) -> List[SourceChunk]:
     """SourceChunks for the cited evidence, in citation order.
 
-    Falls back to all pack chunks when no [ref_N] markers are found — this
-    happens when the LLM ignores the citation instruction or when the action
-    does not require source grounding.
+    Returns an empty list when no valid [ref_N] markers are present so
+    ungrounded answers or refusals never attach unrelated passages (#291).
     """
-    chunks = [pack.chunks[i] for i in cited_indices] if cited_indices else pack.chunks
+    chunks = [pack.chunks[i] for i in cited_indices]
     return [
         SourceChunk(
             snippet=c.text,
@@ -296,9 +298,6 @@ def _parse_citations(text: str, pack: EvidencePack) -> tuple[str, List[SourceChu
 
     Returns (text, sources): marker N in the returned text refers to sources[N - 1].
     """
-    if "This specific point is not covered in the provided material" in text:
-        return text, []
-        
     renumberer = _CitationRenumberer(len(pack.chunks))
     remapped = renumberer.feed(text) + renumberer.flush()
     return remapped, _cited_sources(pack, renumberer.cited_indices)
@@ -718,11 +717,14 @@ async def stream_dispatch(
 
     def _cache_and_sentinel(answer: str, sources: List[SourceChunk]) -> str:
         citations_raw = [dataclasses.asdict(s) for s in sources]
-        set_cached(cache_key, course_id, {
-            "answer": answer,
-            "citations": citations_raw,
-            "retrieval_used": bool(sources),
-        })
+        # Match dispatch(): do not cache ungrounded/refusal responses so a
+        # document uploaded later can answer the same question.
+        if sources or not meta.retrieval_required:
+            set_cached(cache_key, course_id, {
+                "answer": answer,
+                "citations": citations_raw,
+                "retrieval_used": bool(sources),
+            })
         return _CITATIONS_SENTINEL + json.dumps(citations_raw)
 
     # Retrieve-only or rag_only: emit context block as a single chunk, then citations
@@ -767,12 +769,8 @@ async def stream_dispatch(
             accumulated.append(tail)
             yield tail
         full_text = "".join(accumulated)
-        
-        if "This specific point is not covered in the provided material" in full_text:
-            sources = []
-        else:
-            sources = _cited_sources(pack, renumberer.cited_indices)
-            
+        sources = _cited_sources(pack, renumberer.cited_indices)
+
         yield _cache_and_sentinel(full_text, sources)
     else:
         # Stream yielded nothing — fall back to buffered generate
