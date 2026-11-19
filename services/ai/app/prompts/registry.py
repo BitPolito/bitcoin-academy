@@ -27,7 +27,7 @@ class Prompt:
 
 
 def _build_registry() -> Dict[str, Prompt]:
-    from app.services import lesson_service, outline_service, quiz_generation, study_service
+    from app.services import lesson_service, outline_service, quiz_generation, quiz_harness, study_service
 
     entries: Dict[str, Prompt] = {
         "outline_map": Prompt(
@@ -43,7 +43,13 @@ def _build_registry() -> Dict[str, Prompt]:
             "judge", lesson_service.CONTENT_PROMPT_VERSION, lesson_service._JUDGE_SYSTEM,
         ),
         "quiz_gen": Prompt(
-            "quiz_gen", quiz_generation.QUIZ_PROMPT_VERSION, quiz_generation.QUIZ_SYSTEM,
+            "quiz_gen", quiz_harness.GENERATE_PROMPT_VERSION, quiz_harness._GENERATE_SYSTEM,
+        ),
+        "quiz_plan": Prompt(
+            "quiz_plan", quiz_harness.PLAN_PROMPT_VERSION, quiz_harness._PLAN_SYSTEM,
+        ),
+        "quiz_critique": Prompt(
+            "quiz_critique", quiz_harness.CRITIQUE_PROMPT_VERSION, quiz_harness._CRITIQUE_SYSTEM,
         ),
     }
     for action, text in study_service._SYSTEM_PROMPTS.items():
