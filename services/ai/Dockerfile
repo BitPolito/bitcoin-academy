@@ -2,9 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# pyproject declares `packages = ["app"]` and `readme = "README.md"`, so both must
-# exist before the install: with only pyproject.toml present, setuptools fails
-# with "package directory 'app' does not exist" and the image cannot be built.
+# Copy the package source and project README before installing the project.
 COPY pyproject.toml README.md ./
 COPY app ./app
 # sentence-transformers (the CrossEncoder fallback reranker) depends on torch, and
