@@ -11,6 +11,7 @@ from app.prompts.registry import Prompt
 
 EXPECTED_NAMES = {
     "outline_map", "outline_reduce", "content_gen", "judge", "quiz_gen",
+    "quiz_plan", "quiz_critique",
     "study_explain", "study_summarize", "study_open_questions", "study_quiz",
     "study_oral", "study_derive", "study_compare",
 }
@@ -51,10 +52,22 @@ def test_judge_version_matches_lesson_service_constant():
     assert get_prompt("judge").system == lesson_service._JUDGE_SYSTEM
 
 
-def test_quiz_gen_version_matches_quiz_generation_constant():
-    from app.services import quiz_generation
-    assert get_prompt("quiz_gen").version == quiz_generation.QUIZ_PROMPT_VERSION
-    assert get_prompt("quiz_gen").system == quiz_generation.QUIZ_SYSTEM
+def test_quiz_gen_version_matches_quiz_harness_constant():
+    from app.services import quiz_harness
+    assert get_prompt("quiz_gen").version == quiz_harness.GENERATE_PROMPT_VERSION
+    assert get_prompt("quiz_gen").system == quiz_harness._GENERATE_SYSTEM
+
+
+def test_quiz_plan_version_matches_quiz_harness_constant():
+    from app.services import quiz_harness
+    assert get_prompt("quiz_plan").version == quiz_harness.PLAN_PROMPT_VERSION
+    assert get_prompt("quiz_plan").system == quiz_harness._PLAN_SYSTEM
+
+
+def test_quiz_critique_version_matches_quiz_harness_constant():
+    from app.services import quiz_harness
+    assert get_prompt("quiz_critique").version == quiz_harness.CRITIQUE_PROMPT_VERSION
+    assert get_prompt("quiz_critique").system == quiz_harness._CRITIQUE_SYSTEM
 
 
 def test_outline_prompts_version_match_outline_service_constant():

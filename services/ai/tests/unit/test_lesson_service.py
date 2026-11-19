@@ -148,6 +148,7 @@ def test_load_context_returns_items():
     assert len(items) == 2
     assert items[0]["label"] == "p1"
     assert "Bitcoin" in items[0]["text"]
+    assert items[0]["chunk_id"] == "p1"
 
 
 def test_load_context_caps_at_max():
@@ -349,7 +350,7 @@ async def test_process_lesson_published_when_faithful():
     with patch(
         "app.services.lesson_service.generate_json", new_callable=AsyncMock
     ) as mock_gj, patch(
-        "app.services.quiz_generation.generate_json", new_callable=AsyncMock
+        "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
     ) as mock_quiz_gj:
         mock_gj.side_effect = [_CONTENT_RESULT, _JUDGE_PASS]
         mock_quiz_gj.return_value = _QUIZ_RESULT
@@ -377,7 +378,7 @@ async def test_process_lesson_needs_review_when_unfaithful():
     with patch(
         "app.services.lesson_service.generate_json", new_callable=AsyncMock
     ) as mock_gj, patch(
-        "app.services.quiz_generation.generate_json", new_callable=AsyncMock
+        "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
     ) as mock_quiz_gj:
         mock_gj.side_effect = [_CONTENT_RESULT, _JUDGE_FAIL]
         mock_quiz_gj.return_value = _QUIZ_RESULT
