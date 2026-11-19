@@ -1,13 +1,19 @@
 import { apiFetch } from '@/lib/api';
 
-// MVP limit: pagination not implemented. Acceptable for expected scale (5–10 courses).
-// When real pagination is needed, replace getCourses calls with a paginated version.
-export const MVP_COURSES_LIMIT = 100;
+export const DEFAULT_COURSES_PAGE_SIZE = 20;
 
 export interface Course {
   id: number;
   title: string;
   description?: string;
+}
+
+// Cursor-paginated envelope from GET /api/courses — see issue #73.
+// next_cursor is an opaque token; callers must not parse or construct it.
+export interface CoursePage {
+  items: Course[];
+  nextCursor: string | null;
+  hasMore: boolean;
 }
 
 export interface Lesson {
@@ -20,10 +26,18 @@ export interface CourseWithLessons extends Course {
   lessons: Lesson[];
 }
 
-export async function getCourses(skip = 0, limit = 100, accessToken?: string): Promise<Course[]> {
-  return apiFetch<Course[]>(`/courses?skip=${skip}&limit=${limit}`, {
-    accessToken,
-  });
+export async function getCourses(
+  cursor?: string | null,
+  limit = DEFAULT_COURSES_PAGE_SIZE,
+  accessToken?: string,
+): Promise<CoursePage> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  const page = await apiFetch<{ items: Course[]; next_cursor: string | null; has_more: boolean }>(
+    `/courses?${params.toString()}`,
+    { accessToken },
+  );
+  return { items: page.items, nextCursor: page.next_cursor, hasMore: page.has_more };
 }
 
 export async function getCourse(courseId: string, accessToken?: string): Promise<Course> {

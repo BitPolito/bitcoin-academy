@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { getCourses, createCourse, MVP_COURSES_LIMIT, type Course } from '@/lib/services/courses';
+import { getCourses, createCourse, type Course } from '@/lib/services/courses';
 import { getDocumentListRows } from '@/lib/api/documents';
 import { CourseCard } from '@/components/courses/CourseCard';
 import { CreateCourseModal } from '@/components/courses/CreateCourseModal';
@@ -21,10 +21,14 @@ export default function CoursesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [courses, setCourses] = useState<Course[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [docStats, setDocStats] = useState<Record<string | number, DocStats>>({});
   const [globalStats, setGlobalStats] = useState({ docs: 0, indexed: 0, processing: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [_filter] = useState<Filter>('all');
   const [showCreate, setShowCreate] = useState(false);
 
@@ -39,6 +43,36 @@ export default function CoursesPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  async function fetchDocStats(data: Course[], token?: string) {
+    const docsResults = await Promise.allSettled(
+      data.map((c) => getDocumentListRows(String(c.id), token))
+    );
+
+    const statsMap: Record<string | number, DocStats> = {};
+    let totalDocs = 0,
+      totalIndexed = 0,
+      totalProcessing = 0;
+    docsResults.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        const docs = r.value;
+        const stats: DocStats = {
+          total: docs.length,
+          ready: docs.filter((d) => d.status === 'ready').length,
+          processing: docs.filter((d) => d.status === 'processing' || d.status === 'uploading')
+            .length,
+          error: docs.filter((d) => d.status === 'error').length,
+        };
+        statsMap[data[i].id] = stats;
+        totalDocs += stats.total;
+        totalIndexed += stats.ready;
+        totalProcessing += stats.processing;
+      }
+    });
+    return { statsMap, totalDocs, totalIndexed, totalProcessing };
+  }
+
+  const accessToken = session?.user?.accessToken;
+
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/login');
@@ -46,37 +80,19 @@ export default function CoursesPage() {
     }
     if (status !== 'authenticated') return;
 
-    const token = session?.user?.accessToken;
+    const token = accessToken;
 
-    async function fetchAll() {
+    async function fetchFirstPage() {
       try {
-        const data = await getCourses(0, MVP_COURSES_LIMIT, token);
-        setCourses(data);
+        const page = await getCourses(null, undefined, token);
+        setCourses(page.items);
+        setNextCursor(page.nextCursor);
+        setHasMore(page.hasMore);
 
-        const docsResults = await Promise.allSettled(
-          data.map((c) => getDocumentListRows(String(c.id), token))
+        const { statsMap, totalDocs, totalIndexed, totalProcessing } = await fetchDocStats(
+          page.items,
+          token
         );
-
-        const statsMap: Record<string | number, DocStats> = {};
-        let totalDocs = 0,
-          totalIndexed = 0,
-          totalProcessing = 0;
-        docsResults.forEach((r, i) => {
-          if (r.status === 'fulfilled') {
-            const docs = r.value;
-            const stats: DocStats = {
-              total: docs.length,
-              ready: docs.filter((d) => d.status === 'ready').length,
-              processing: docs.filter((d) => d.status === 'processing' || d.status === 'uploading')
-                .length,
-              error: docs.filter((d) => d.status === 'error').length,
-            };
-            statsMap[data[i].id] = stats;
-            totalDocs += stats.total;
-            totalIndexed += stats.ready;
-            totalProcessing += stats.processing;
-          }
-        });
         setDocStats(statsMap);
         setGlobalStats({ docs: totalDocs, indexed: totalIndexed, processing: totalProcessing });
       } catch (err) {
@@ -85,12 +101,47 @@ export default function CoursesPage() {
         setLoading(false);
       }
     }
-    fetchAll();
-  }, [status, session, router]);
+    fetchFirstPage();
+    // accessToken, not session, so next-auth's refetchOnWindowFocus (a new
+    // session object on every tab focus, same token) doesn't re-run this
+    // and wipe out pages already loaded via "Load more".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, accessToken, router]);
+
+  async function handleLoadMore() {
+    if (!hasMore || loadingMore) return;
+    setLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const page = await getCourses(nextCursor, undefined, accessToken);
+      setCourses((prev) => [...prev, ...page.items]);
+      setNextCursor(page.nextCursor);
+      setHasMore(page.hasMore);
+
+      const { statsMap, totalDocs, totalIndexed, totalProcessing } = await fetchDocStats(
+        page.items,
+        accessToken
+      );
+      setDocStats((prev) => ({ ...prev, ...statsMap }));
+      setGlobalStats((prev) => ({
+        docs: prev.docs + totalDocs,
+        indexed: prev.indexed + totalIndexed,
+        processing: prev.processing + totalProcessing,
+      }));
+    } catch (err) {
+      // A failed "load more" keeps every course already shown — only the
+      // retry control for this one page disappears, not the whole grid.
+      setLoadMoreError(err instanceof Error ? err.message : 'Failed to load more courses');
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   async function handleCreate(title: string, description?: string) {
-    const created = await createCourse(title, description, session?.user?.accessToken);
-    setCourses((prev) => [...prev, created]);
+    const created = await createCourse(title, description, accessToken);
+    // List is newest-first; prepend rather than append so the just-created
+    // course appears where it will also land after a reload.
+    setCourses((prev) => [created, ...prev]);
     router.push(`/courses/${created.id}`);
   }
 
@@ -207,20 +258,39 @@ export default function CoursesPage() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {courses.map((course) => (
-            <CourseCard key={course.id} course={course} stats={docStats[course.id] ?? null} />
-          ))}
-          {/* Create course card */}
-          <button
-            onClick={() => setShowCreate(true)}
-            className="b-hard rounded-lg p-6 stripes hover-card flex flex-col items-center justify-center min-h-[238px] text-center w-full"
-          >
-            <div className="font-mono text-3xl leading-none mb-2">+</div>
-            <div className="font-medium">Create new course</div>
-            <div className="font-mono text-[11px] opacity-70 mt-1">⌘N</div>
-          </button>
-        </div>
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {courses.map((course) => (
+              <CourseCard key={course.id} course={course} stats={docStats[course.id] ?? null} />
+            ))}
+            {/* Create course card */}
+            <button
+              onClick={() => setShowCreate(true)}
+              className="b-hard rounded-lg p-6 stripes hover-card flex flex-col items-center justify-center min-h-[238px] text-center w-full"
+            >
+              <div className="font-mono text-3xl leading-none mb-2">+</div>
+              <div className="font-medium">Create new course</div>
+              <div className="font-mono text-[11px] opacity-70 mt-1">⌘N</div>
+            </button>
+          </div>
+
+          {hasMore && (
+            <div className="flex flex-col items-center gap-2 mt-8">
+              {loadMoreError && (
+                <p className="text-sm" style={{ color: '#b3261e' }}>
+                  {loadMoreError}
+                </p>
+              )}
+              <button
+                onClick={handleLoadMore}
+                disabled={loadingMore}
+                className="font-mono text-[11px] tracking-[0.18em] uppercase px-5 h-9 rounded-md b-hard disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading…' : loadMoreError ? 'Retry' : 'Load more'}
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {showCreate && (

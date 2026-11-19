@@ -11,6 +11,7 @@ from app.db.models import UserRole
 from app.middleware.auth import CurrentUser, get_current_user, require_instructor
 from app.services import course_service
 from app.schemas.course_schemas import CourseSchema, LessonSchema
+from app.schemas.pagination import CursorPage, decode_cursor
 from app.core.errors import NotFoundError, ValidationError_
 
 router = APIRouter(prefix="/api", tags=["Courses"])
@@ -41,15 +42,34 @@ def create_course(
     return course_service.create_course(db, title=body.title, description=body.description)
 
 
-@router.get("/courses", response_model=List[CourseSchema])
+@router.get("/courses", response_model=CursorPage[CourseSchema])
 def get_courses(
-    skip: int = Query(default=0, ge=0, le=1000, description="Number of courses to skip"),
-    limit: int = Query(default=100, ge=1, le=100, description="Maximum number of courses to return"),
+    cursor: str | None = Query(
+        default=None, description="Opaque cursor from a previous page's next_cursor"
+    ),
+    limit: int = Query(default=20, ge=1, le=100, description="Maximum number of courses to return"),
     db: Session = Depends(get_db),
     _current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Get a list of all available courses."""
-    return course_service.list_courses(db, skip=skip, limit=limit)
+    """List available courses, newest first, keyset-paginated by (created_at, id).
+
+    Cursor-based rather than offset-based so pages stay stable under
+    concurrent inserts — an offset page can skip or repeat rows when the
+    underlying set changes between requests (see issue #73).
+    """
+    decoded_cursor = None
+    if cursor is not None:
+        try:
+            decoded_cursor = decode_cursor(cursor)
+        except ValueError:
+            raise ValidationError_(
+                message="Invalid cursor.", details={"cursor": cursor},
+            )
+
+    items, next_cursor, has_more = course_service.list_courses_page(
+        db, cursor=decoded_cursor, limit=limit,
+    )
+    return CursorPage(items=items, next_cursor=next_cursor, has_more=has_more)
 
 
 @router.get("/courses/{course_id}", response_model=CourseSchema)
