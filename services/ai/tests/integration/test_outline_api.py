@@ -660,3 +660,119 @@ def test_delete_chapter_with_lessons_requires_explicit_choice(client, db, review
     assert confirmed.status_code == 200
     assert db.query(Lesson).filter_by(id=lesson_id).first() is None
     assert db.query(Quiz).filter_by(id=quiz_id).first() is None
+
+
+# ---------------------------------------------------------------------------
+# POST /api/courses/{id}/outline/generate — rung 0 of the inference ladder
+# (issue #137/#161): skip map-reduce entirely when the source documents,
+# prompt version and model are unchanged since the last successful run.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_generate_outline_rung0_cache_hit_skips_map_reduce(client, db, auth_headers):
+    from app.services.outline_service import compute_outline_hash
+
+    course, _ = make_course_with_lessons(db)  # already has a chapter
+    doc = _make_ready_doc(db, course.id, tree=[{"title": "Intro"}])
+    course.outline_hash = compute_outline_hash([doc])
+    db.commit()
+
+    with patch(
+        "app.api.outline_api._run_outline_bg", new_callable=AsyncMock
+    ) as mock_bg:
+        resp = client.post(
+            f"/api/courses/{course.id}/outline/generate",
+            headers=auth_headers,
+            json={},
+        )
+
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["status"] == GenerationRunStatus.DONE
+    mock_bg.assert_not_called()
+
+    run = db.query(GenerationRun).filter(GenerationRun.id == body["run_id"]).first()
+    assert run is not None
+    assert run.stage == "rung0_cache_hit"
+
+
+@pytest.mark.integration
+def test_generate_outline_runs_when_document_content_changed(client, db, auth_headers):
+    """A changed section_tree_json (reparse, edited document) must invalidate
+    the rung-0 hash and run the full pipeline again."""
+    from app.services.outline_service import compute_outline_hash
+
+    course, _ = make_course_with_lessons(db)
+    doc = _make_ready_doc(db, course.id, tree=[{"title": "Intro"}])
+    course.outline_hash = compute_outline_hash([doc])
+    db.commit()
+
+    # Content changed after the hash was stored.
+    doc.section_tree_json = json.dumps([{"title": "Intro"}, {"title": "New section"}])
+    db.commit()
+
+    with patch(
+        "app.api.outline_api._run_outline_bg", new_callable=AsyncMock
+    ) as mock_bg:
+        resp = client.post(
+            f"/api/courses/{course.id}/outline/generate",
+            headers=auth_headers,
+            json={},
+        )
+
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["status"] == GenerationRunStatus.QUEUED
+    mock_bg.assert_called_once()
+
+
+@pytest.mark.integration
+def test_generate_outline_force_bypasses_rung0_cache(client, db, auth_headers):
+    from app.services.outline_service import compute_outline_hash
+
+    course, _ = make_course_with_lessons(db)
+    doc = _make_ready_doc(db, course.id, tree=[{"title": "Intro"}])
+    course.outline_hash = compute_outline_hash([doc])
+    db.commit()
+
+    with patch(
+        "app.api.outline_api._run_outline_bg", new_callable=AsyncMock
+    ) as mock_bg:
+        resp = client.post(
+            f"/api/courses/{course.id}/outline/generate",
+            headers=auth_headers,
+            json={"force": True},
+        )
+
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["status"] == GenerationRunStatus.QUEUED
+    mock_bg.assert_called_once()
+
+
+@pytest.mark.integration
+def test_generate_outline_first_run_never_cache_hits(client, db, auth_headers):
+    """No existing outline (no chapters yet) → always run, regardless of
+    course.outline_hash — there's nothing to compare it against."""
+    course, _ = make_course_with_lessons(db)
+    # Remove the chapter (and its lessons) make_course_with_lessons creates,
+    # simulating a brand-new course with documents but no outline yet.
+    chapter_ids = [c.id for c in db.query(Chapter).filter(Chapter.course_id == course.id).all()]
+    db.query(Lesson).filter(Lesson.chapter_id.in_(chapter_ids)).delete(synchronize_session=False)
+    db.query(Chapter).filter(Chapter.course_id == course.id).delete(synchronize_session=False)
+    db.commit()
+    _make_ready_doc(db, course.id, tree=[{"title": "Intro"}])
+
+    with patch(
+        "app.api.outline_api._run_outline_bg", new_callable=AsyncMock
+    ) as mock_bg:
+        resp = client.post(
+            f"/api/courses/{course.id}/outline/generate",
+            headers=auth_headers,
+            json={},
+        )
+
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["status"] == GenerationRunStatus.QUEUED
+    mock_bg.assert_called_once()

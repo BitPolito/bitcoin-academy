@@ -109,9 +109,11 @@ def _add_parent(db, cid, course_id, doc_id="doc1", text="Bitcoin is X. " * 100):
 def test_compute_content_hash_deterministic():
     db, course = _make_db()
     ch = _add_chapter(db, course.id)
+    _add_parent(db, "c1", course.id)
+    _add_parent(db, "c2", course.id)
     ls = _add_lesson(db, ch.id, source_refs=["c1", "c2"])
-    h1 = compute_content_hash(ls)
-    h2 = compute_content_hash(ls)
+    h1 = compute_content_hash(ls, db)
+    h2 = compute_content_hash(ls, db)
     assert h1 == h2
     assert len(h1) == 64  # SHA256 hex
 
@@ -119,18 +121,61 @@ def test_compute_content_hash_deterministic():
 def test_compute_content_hash_changes_with_refs():
     db, course = _make_db()
     ch = _add_chapter(db, course.id)
+    _add_parent(db, "c1", course.id, text="Content about UTXOs.")
+    _add_parent(db, "c2", course.id, text="Content about mining difficulty.")
     ls_a = _add_lesson(db, ch.id, source_refs=["c1"])
     ls_b = _add_lesson(db, ch.id, source_refs=["c2"])
-    assert compute_content_hash(ls_a) != compute_content_hash(ls_b)
+    assert compute_content_hash(ls_a, db) != compute_content_hash(ls_b, db)
+
+
+def test_compute_content_hash_changes_with_chunk_content_under_a_stable_id():
+    """A chunk's content can change under a stable id (e.g. a reparse) —
+    the hash must track content, not just the id (issue #137/#161)."""
+    db, course = _make_db()
+    ch = _add_chapter(db, course.id)
+    parent = _add_parent(db, "c1", course.id, text="Original text.")
+    ls = _add_lesson(db, ch.id, source_refs=["c1"])
+    before = compute_content_hash(ls, db)
+
+    parent.text = "Edited text after a reparse."
+    db.commit()
+
+    after = compute_content_hash(ls, db)
+    assert before != after
 
 
 def test_compute_content_hash_order_independent():
     db, course = _make_db()
     ch = _add_chapter(db, course.id)
+    _add_parent(db, "c1", course.id)
+    _add_parent(db, "c2", course.id)
     ls1 = _add_lesson(db, ch.id, source_refs=["c1", "c2"])
     ls2 = _add_lesson(db, ch.id, source_refs=["c2", "c1"])
     # sorted refs → same hash
-    assert compute_content_hash(ls1) == compute_content_hash(ls2)
+    assert compute_content_hash(ls1, db) == compute_content_hash(ls2, db)
+
+
+def test_compute_content_hash_changes_with_model_identity():
+    """Output from a different model is not interchangeable, even for
+    identical sources (issue #137/#161)."""
+    db, course = _make_db()
+    ch = _add_chapter(db, course.id)
+    _add_parent(db, "c1", course.id)
+    ls = _add_lesson(db, ch.id, source_refs=["c1"])
+
+    from app.services import qvac_router
+
+    with patch.object(qvac_router, "resolve") as mock_resolve:
+        mock_resolve.return_value = qvac_router.Route(
+            task_type="content_gen", target="server", base_url="http://s", model="model-a",
+        )
+        hash_a = compute_content_hash(ls, db)
+        mock_resolve.return_value = qvac_router.Route(
+            task_type="content_gen", target="server", base_url="http://s", model="model-b",
+        )
+        hash_b = compute_content_hash(ls, db)
+
+    assert hash_a != hash_b
 
 
 # ---------------------------------------------------------------------------
@@ -397,7 +442,7 @@ async def test_process_lesson_skips_on_cache_hit():
     ch = _add_chapter(db, course.id)
     _add_parent(db, "p1", course.id)
     ls = _add_lesson(db, ch.id, source_refs=["p1"], content="Existing content")
-    ls.content_hash = compute_content_hash(ls)
+    ls.content_hash = compute_content_hash(ls, db)
     db.commit()
 
     with patch(

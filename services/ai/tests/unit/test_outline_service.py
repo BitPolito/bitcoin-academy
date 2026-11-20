@@ -403,6 +403,11 @@ async def test_generate_outline_full_pipeline():
     assert lessons[0].status == "draft"
     assert lessons[0].source_refs_json is not None
 
+    # Rung 0 (issue #137/#161): a successful run records the hash it was
+    # generated from, so the next identical request can skip the pipeline.
+    db.refresh(course)
+    assert course.outline_hash == outline_service.compute_outline_hash([doc])
+
     db.close()
 
 
@@ -462,3 +467,44 @@ async def test_generate_outline_marks_error_on_no_candidates():
     assert run.error_message is not None
 
     db.close()
+
+
+# ---------------------------------------------------------------------------
+# compute_outline_hash (rung 0 of the inference ladder, issue #137/#161)
+# ---------------------------------------------------------------------------
+
+def test_compute_outline_hash_deterministic():
+    docs = [_doc("d1", tree=[{"title": "A"}]), _doc("d2", tree=[{"title": "B"}])]
+    h1 = outline_service.compute_outline_hash(docs)
+    h2 = outline_service.compute_outline_hash(docs)
+    assert h1 == h2
+    assert len(h1) == 64
+
+
+def test_compute_outline_hash_order_independent():
+    docs_a = [_doc("d1", tree=[{"title": "A"}]), _doc("d2", tree=[{"title": "B"}])]
+    docs_b = [_doc("d2", tree=[{"title": "B"}]), _doc("d1", tree=[{"title": "A"}])]
+    assert outline_service.compute_outline_hash(docs_a) == outline_service.compute_outline_hash(docs_b)
+
+
+def test_compute_outline_hash_changes_with_document_content():
+    docs_a = [_doc("d1", tree=[{"title": "A"}])]
+    docs_b = [_doc("d1", tree=[{"title": "A (revised)"}])]
+    assert outline_service.compute_outline_hash(docs_a) != outline_service.compute_outline_hash(docs_b)
+
+
+def test_compute_outline_hash_changes_with_model_identity():
+    docs = [_doc("d1", tree=[{"title": "A"}])]
+    from app.services import qvac_router
+
+    with patch.object(qvac_router, "resolve") as mock_resolve:
+        mock_resolve.return_value = qvac_router.Route(
+            task_type="reduce", target="server", base_url="http://s", model="model-a",
+        )
+        hash_a = outline_service.compute_outline_hash(docs)
+        mock_resolve.return_value = qvac_router.Route(
+            task_type="reduce", target="server", base_url="http://s", model="model-b",
+        )
+        hash_b = outline_service.compute_outline_hash(docs)
+
+    assert hash_a != hash_b

@@ -28,6 +28,8 @@ from app.db.models import (
     GenerationRunStatus,
     Lesson,
 )
+from app.services import qvac_router
+from app.services.generation_cache import compute_generation_hash
 from app.services.qvac_structured import (
     LlmDisabledError,
     StructuredGenerationError,
@@ -45,6 +47,17 @@ MAX_SECTIONS_PER_DOC = 20
 MAX_WORDS_PER_SECTION = 800
 # Cap total candidates fed to the reduce step.
 MAX_CANDIDATES_TOTAL = 50
+
+
+def compute_outline_hash(docs: List[CourseDocument]) -> str:
+    """Rung 0 of the inference ladder (issue #137/#161): hash of the exact
+    content the map step reads (each document's section tree) + prompt
+    version + model identity. generate_outline() skips the whole map-reduce
+    pipeline when this matches the course's stored outline_hash.
+    """
+    parts = [doc.section_tree_json or "" for doc in docs]
+    model = qvac_router.resolve("reduce").model
+    return compute_generation_hash(parts, OUTLINE_PROMPT_VERSION, model)
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +504,14 @@ async def generate_outline(
         logger.exception("outline persist: DB write failed")
         _update_run(run, db, GenerationRunStatus.ERROR, error=str(exc))
         return
+
+    # Record the hash this run was generated from, so the next identical
+    # request can skip straight to a rung-0 cache hit (see generate_outline
+    # in outline_api.py).
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if course is not None:
+        course.outline_hash = compute_outline_hash(docs)
+        db.commit()
 
     _update_run(run, db, GenerationRunStatus.DONE, "done")
     n_chapters = len(outline.get("chapters", []))

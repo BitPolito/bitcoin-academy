@@ -131,6 +131,12 @@ class Course(Base):
     outline_stale: Mapped[bool] = mapped_column(Boolean, default=False)
     outline_stale_reason: Mapped[Optional[str]] = mapped_column(Text)
     outline_stale_at: Mapped[Optional[str]] = mapped_column(String)
+    # Rung 0 of the inference ladder (issue #137/#161): hash of the source
+    # documents' content + OUTLINE_PROMPT_VERSION + model identity that
+    # produced the current outline. A regeneration request computes the same
+    # hash and skips the map-reduce pipeline entirely when it matches — see
+    # app.services.generation_cache and outline_api.generate_outline.
+    outline_hash: Mapped[Optional[str]] = mapped_column(String)
 
     section: Mapped["Section"] = relationship(back_populates="courses")
     chapters: Mapped[List["Chapter"]] = relationship(back_populates="course")

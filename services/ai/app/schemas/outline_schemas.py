@@ -75,6 +75,14 @@ class GenerateOutlineBody(BaseModel):
     )
     options: Optional[Dict[str, Any]] = Field(default=None)
     confirm_human_overwrite: bool = False
+    force: bool = Field(
+        default=False,
+        description=(
+            "Bypass the rung-0 cache check (issue #137/#161) and regenerate even if "
+            "the source documents, prompt version and model are unchanged since the "
+            "last run."
+        ),
+    )
 
 
 class LessonPatch(BaseModel):
