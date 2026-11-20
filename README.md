@@ -25,6 +25,8 @@ Redis is optional in development but required in production for background inges
 
 If you're on a machine with less than 8 GB free, set `QVAC_LLM_ENABLED=false`. The system will run in retrieval-only mode (~670 MB total): all study actions still return source passages, but there's no prose generation.
 
+Each model also runs one warmup inference right after loading, so the first real question isn't the one paying for KV-cache allocation and similar first-call overhead — this adds a few seconds to startup (`QVAC_WARMUP_ENABLED=false` to skip it).
+
 ---
 
 ## Quick Start

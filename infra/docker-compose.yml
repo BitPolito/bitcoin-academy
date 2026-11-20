@@ -63,6 +63,7 @@ services:
       - QVAC_PORT=3001
       - QVAC_INGEST_DIR=/qvac_ingest
       - QVAC_LLM_ENABLED=${QVAC_LLM_ENABLED:-true}
+      - QVAC_WARMUP_ENABLED=${QVAC_WARMUP_ENABLED:-true}
     healthcheck:
       # node:22-slim has no wget (the old alpine image had busybox's); the image
       # installs curl for this check. With wget the container never became
