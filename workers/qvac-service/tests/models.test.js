@@ -17,11 +17,14 @@ await mock.module("@qvac/sdk", {
     close: mock.fn(),
     GTE_LARGE_FP16: {},
     QWEN3_4B_INST_Q4_K_M: {},
+    // EmbeddingGemma 300M is not published by the installed SDK yet (#324) —
+    // omitted here on purpose to exercise the "unsupported model" error path.
   },
 });
 
 process.env.QVAC_LLM_ENABLED = "false";
-const { initModels, reloadEmbeddingModel, getEmbeddingModelId } = await import("../src/models.js");
+const { initModels, reloadEmbeddingModel, getEmbeddingModelId, getEmbeddingModelName, resolveEmbeddingModelSrc } =
+  await import("../src/models.js");
 
 describe("reloadEmbeddingModel", () => {
   beforeEach(() => {
@@ -50,5 +53,23 @@ describe("reloadEmbeddingModel", () => {
 
     assert.equal(mockLoadModel.mock.calls.length, 1);
     assert.equal(getEmbeddingModelId(), after);
+  });
+});
+
+describe("embedding model selection", () => {
+  it("defaults to gte-large-fp16 when QVAC_EMBEDDING_MODEL is unset", () => {
+    assert.equal(getEmbeddingModelName(), "gte-large-fp16");
+  });
+
+  it("resolves a known model name to its SDK modelSrc", () => {
+    assert.doesNotThrow(() => resolveEmbeddingModelSrc("gte-large-fp16"));
+  });
+
+  it("rejects an unknown model name", () => {
+    assert.throws(() => resolveEmbeddingModelSrc("not-a-real-model"), /unknown QVAC_EMBEDDING_MODEL/);
+  });
+
+  it("rejects embeddinggemma-300m until the SDK exports it", () => {
+    assert.throws(() => resolveEmbeddingModelSrc("embeddinggemma-300m"), /not exported by the installed @qvac\/sdk/);
   });
 });
