@@ -433,3 +433,96 @@ class TestVerifyCertificate:
         assert "course_name" in data
         assert "issued_at" in data
         assert "revoked" in data
+
+
+# ---------------------------------------------------------------------------
+# Semantic cache (issue #137, rung 1) — the harness is up to 4*N+1 calls, the
+# most expensive single generation path in the system, and was previously
+# never cached at all.
+# ---------------------------------------------------------------------------
+
+class TestGenerateQuizCache:
+    @pytest.mark.integration
+    def test_generate_quiz_cache_hit_skips_the_harness(self, client, db):
+        user = make_user(db)
+        course, _ = make_course_with_lessons(db)
+
+        with patch(
+            "app.services.study_service.dispatch", new_callable=AsyncMock
+        ) as mock_dispatch, patch(
+            "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
+        ) as mock_gj, patch(
+            "app.services.cache_service.get_cached",
+            return_value={"questions": _QUESTIONS, "trace": {"final_count": 1}},
+        ) as mock_get, patch("app.services.cache_service.set_cached") as mock_set:
+            mock_dispatch.return_value = _RETRIEVE_RESULT
+
+            resp = client.post(
+                f"/api/courses/{course.id}/quizzes/generate",
+                json={"query": "UTXO model basics"},
+                headers=_auth(user.id),
+            )
+
+        assert resp.status_code == 201
+        mock_gj.assert_not_called()
+        mock_get.assert_called_once_with("UTXO model basics [action:quiz_structured]", course.id)
+        mock_set.assert_not_called()
+        # A quiz row is still persisted on a cache hit — every attempt is
+        # recorded, only the expensive generation step is skipped.
+        quiz = db.query(Quiz).filter(Quiz.id == resp.json()["id"]).first()
+        assert quiz is not None
+
+    @pytest.mark.integration
+    def test_generate_quiz_cache_miss_calls_the_harness_and_stores_the_result(self, client, db):
+        user = make_user(db)
+        course, _ = make_course_with_lessons(db)
+
+        with patch(
+            "app.services.study_service.dispatch", new_callable=AsyncMock
+        ) as mock_dispatch, patch(
+            "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
+        ) as mock_gj, patch(
+            "app.services.cache_service.get_cached", return_value=None
+        ) as mock_get, patch("app.services.cache_service.set_cached") as mock_set:
+            mock_dispatch.return_value = _RETRIEVE_RESULT
+            mock_gj.return_value = {"questions": _QUESTIONS, "trace": {"final_count": 1}}
+
+            resp = client.post(
+                f"/api/courses/{course.id}/quizzes/generate",
+                json={"query": "UTXO model basics"},
+                headers=_auth(user.id),
+            )
+
+        assert resp.status_code == 201
+        mock_gj.assert_called_once()
+        mock_set.assert_called_once_with(
+            "UTXO model basics [action:quiz_structured]", course.id,
+            {"questions": _QUESTIONS, "trace": {"final_count": 1}},
+        )
+
+    @pytest.mark.integration
+    def test_generate_quiz_does_not_cache_a_failed_generation(self, client, db):
+        """An empty-questions result (harness produced nothing) must not be
+        cached — the next identical request should get a fresh attempt, not
+        a cached failure."""
+        user = make_user(db)
+        course, _ = make_course_with_lessons(db)
+
+        with patch(
+            "app.services.study_service.dispatch", new_callable=AsyncMock
+        ) as mock_dispatch, patch(
+            "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
+        ) as mock_gj, patch(
+            "app.services.cache_service.get_cached", return_value=None
+        ), patch("app.services.cache_service.set_cached") as mock_set:
+            mock_dispatch.return_value = _RETRIEVE_RESULT
+            mock_gj.return_value = {"questions": [], "trace": {"final_count": 0}}
+
+            resp = client.post(
+                f"/api/courses/{course.id}/quizzes/generate",
+                json={"query": "UTXO model basics"},
+                headers=_auth(user.id),
+            )
+
+        assert resp.status_code == 422
+        mock_set.assert_not_called()
