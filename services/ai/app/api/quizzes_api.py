@@ -175,7 +175,19 @@ async def generate_quiz(
         for c in result.evidence_pack.chunks
     ]
 
-    quiz_data = await quiz_generation.generate_quiz_questions(body.query, context_items)
+    # Semantic cache (issue #137, rung 1): the harness is up to 4*N+1 calls, the
+    # most expensive single generation path in the system. Tagged distinctly
+    # from study_service's own "[action:quiz]" cache entries — that path renders
+    # free-text quiz content via a single /generate call, not the structured,
+    # persisted Quiz/Question rows produced here; sharing a cache namespace
+    # would serve the wrong shape of answer for either caller.
+    from app.services.cache_service import get_cached, set_cached  # noqa: PLC0415
+    cache_key = f"{body.query} [action:quiz_structured]"
+    quiz_data = get_cached(cache_key, course_id)
+    if quiz_data is None:
+        quiz_data = await quiz_generation.generate_quiz_questions(body.query, context_items)
+        if quiz_data and quiz_data.get("questions"):
+            set_cached(cache_key, course_id, quiz_data)
     if not quiz_data or not quiz_data.get("questions"):
         raise ValidationError_(
             "Could not generate quiz questions from the course material. Try a more specific topic."

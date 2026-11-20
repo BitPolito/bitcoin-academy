@@ -258,3 +258,105 @@ async def test_answer_citations_use_child_chunks():
 
     # Citations come from reranked (child), not context_chunks (parent)
     assert result.citations[0].snippet == "Child text for citation."[:200]
+
+
+# ---------------------------------------------------------------------------
+# Semantic cache scoped to history-less requests (issue #137, rung 1 audit)
+#
+# The cache key is (question, course_id) — it does not include conversation
+# history, but history is inserted into the generation context and changes
+# the answer. A follow-up with the same literal question text in a different
+# conversation must not be served another conversation's cached answer.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_answer_consults_cache_when_history_is_absent():
+    chunk_dict = _make_qvac_dict()
+    retrieve_resp = _mock_httpx_response({"chunks": [chunk_dict]})
+    generate_resp = _mock_httpx_response({"answer": "Answer."})
+
+    with patch("app.services.chat_service._client") as mock_client, \
+         patch("app.services.hybrid_search.bm25_search", return_value=[]), \
+         patch("app.services.reranker.rerank", return_value=[_make_chunk()]), \
+         patch("app.services.parent_expansion.expand_to_parents", return_value=[_make_chunk()]), \
+         patch("app.services.cache_service.get_cached", return_value=None) as mock_get, \
+         patch("app.services.cache_service.set_cached") as mock_set:
+
+        mock_client.post = AsyncMock(side_effect=[retrieve_resp, generate_resp])
+        from app.services.chat_service import answer
+        await answer("What is Bitcoin?", "COURSE1", history=None)
+
+    mock_get.assert_called_once_with("What is Bitcoin?", "COURSE1")
+    mock_set.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_answer_bypasses_cache_when_history_is_present():
+    """A follow-up question must never be served a cached answer from a
+    different conversation, and must never pollute the cache for one either —
+    the cache key carries no history, so caching with history is unsafe."""
+    chunk_dict = _make_qvac_dict()
+    retrieve_resp = _mock_httpx_response({"chunks": [chunk_dict]})
+    generate_resp = _mock_httpx_response({"answer": "Answer accounting for history."})
+    history = [{"role": "user", "content": "What is a UTXO?"},
+               {"role": "assistant", "content": "A UTXO is ..."}]
+
+    with patch("app.services.chat_service._client") as mock_client, \
+         patch("app.services.hybrid_search.bm25_search", return_value=[]), \
+         patch("app.services.reranker.rerank", return_value=[_make_chunk()]), \
+         patch("app.services.parent_expansion.expand_to_parents", return_value=[_make_chunk()]), \
+         patch("app.services.cache_service.get_cached") as mock_get, \
+         patch("app.services.cache_service.set_cached") as mock_set:
+
+        mock_client.post = AsyncMock(side_effect=[retrieve_resp, generate_resp])
+        from app.services.chat_service import answer
+        result = await answer("What is Bitcoin?", "COURSE1", history=history)
+
+    mock_get.assert_not_called()
+    mock_set.assert_not_called()
+    assert result.answer == "Answer accounting for history."
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_stream_answer_bypasses_cache_when_history_is_present():
+    import httpx
+    from contextlib import asynccontextmanager
+    from app.services import chat_service
+
+    async def lines():
+        yield 'data: "token"'
+        yield 'data: [DONE]'
+
+    response = MagicMock()
+    response.aiter_lines = lines
+    response.raise_for_status = MagicMock()
+
+    @asynccontextmanager
+    async def stream(*args, **kwargs):
+        yield response
+
+    chunk_dict = _make_qvac_dict()
+    retrieve_resp = _mock_httpx_response({"chunks": [chunk_dict]})
+    history = [{"role": "user", "content": "What is a UTXO?"},
+               {"role": "assistant", "content": "A UTXO is ..."}]
+
+    with patch.object(chat_service, "_client") as mock_client, \
+         patch("app.services.hybrid_search.bm25_search", return_value=[]), \
+         patch("app.services.reranker.rerank", return_value=[_make_chunk()]), \
+         patch("app.services.parent_expansion.expand_to_parents", return_value=[_make_chunk()]), \
+         patch("app.services.cache_service.get_cached") as mock_get, \
+         patch("app.services.cache_service.set_cached") as mock_set:
+
+        mock_client.post = AsyncMock(return_value=retrieve_resp)
+        mock_client.stream = stream
+
+        chunks = []
+        async for token in chat_service.stream_answer("What is Bitcoin?", "COURSE1", history=history):
+            chunks.append(token)
+
+    mock_get.assert_not_called()
+    mock_set.assert_not_called()
+    assert "token" in chunks

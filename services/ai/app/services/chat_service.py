@@ -133,8 +133,12 @@ async def answer(
     from app.rag.query_rewriter import expand_query  # noqa: PLC0415
     from app.services.cache_service import get_cached, set_cached  # noqa: PLC0415
 
-    # Semantic cache — skip pipeline on near-duplicate query.
-    cached = get_cached(question, course_id)
+    # Semantic cache — skip pipeline on near-duplicate query. Scoped to history-less
+    # (first-turn) questions only: the cache key is (question, course_id), but history
+    # is inserted into the generation context below and materially changes the answer.
+    # A follow-up with the same literal question text in a different conversation must
+    # not be served another conversation's cached answer (issue #137, rung 1 audit).
+    cached = get_cached(question, course_id) if not history else None
     if cached is not None:
         return ChatResult(
             answer=cached["answer"],
@@ -186,11 +190,12 @@ async def answer(
          "page": c.page, "slide": c.slide, "section": c.section, "doc_id": c.doc_id}
         for c in citations
     ]
-    set_cached(question, course_id, {
-        "answer": answer_text,
-        "citations": citations_json,
-        "retrieval_used": bool(citations),
-    })
+    if not history:
+        set_cached(question, course_id, {
+            "answer": answer_text,
+            "citations": citations_json,
+            "retrieval_used": bool(citations),
+        })
 
     return ChatResult(answer=answer_text, citations=citations, retrieval_used=bool(citations))
 
@@ -211,7 +216,9 @@ async def stream_answer(
     from app.rag.query_rewriter import expand_query  # noqa: PLC0415
     from app.services.cache_service import get_cached, set_cached  # noqa: PLC0415
 
-    cached = get_cached(question, course_id)
+    # See answer()'s comment: history changes the generated answer but isn't
+    # part of the cache key, so caching is scoped to history-less requests.
+    cached = get_cached(question, course_id) if not history else None
     if cached is not None:
         yield cached["answer"]
         yield "\x00CITATIONS\x00" + _json.dumps(cached.get("citations", []))
@@ -299,7 +306,7 @@ async def stream_answer(
             accumulated.append(token)
 
     full_answer = "".join(accumulated)
-    if full_answer:
+    if full_answer and not history:
         set_cached(question, course_id, {
             "answer": full_answer,
             "citations": citations_json,

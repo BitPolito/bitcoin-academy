@@ -447,6 +447,30 @@ The system must avoid recomputing identical work, degrade gracefully, and collec
 requests. Background ingestion runs on a queue. Generation failures fall back to raw retrieval.
 Students can submit feedback on answer quality, persisted for later analysis.
 
+**Cache audit (issue #137, rung 1).** Every generation path was reviewed for whether a cache hit is
+safe:
+
+- **Fixed** — `chat_service.answer`/`stream_answer` cached by `(question, course_id)` only, but
+  conversation history is inserted into the generation context and changes the answer. A follow-up
+  with the same literal question text in a different conversation could be served another
+  conversation's cached answer. Caching is now scoped to history-less (first-turn) requests only.
+- **Added** — the course-level ad-hoc quiz endpoint (`quizzes_api.generate_quiz`) ran the
+  plan→generate→critique→repair harness (up to 4N+1 model calls) uncached. Now cached, tagged
+  distinctly from the study dispatcher's own `[action:quiz]` entries — that path renders free-text
+  quiz content via a single call, not this endpoint's structured, persisted `Quiz`/`Question` rows,
+  so the two must never share a cache hit.
+- **Deliberately not cached** — course-builder generation (`lesson_service`, `outline_service`).
+  These are already served by an exact-match hash (requirement 29's `content_hash` pattern, rung 0
+  of the inference ladder — see `docs/agent-memory-plan.md`), which is the correct mechanism here:
+  two *different* lessons or outlines with similar titles or topics must never share generated
+  content, which is exactly the failure mode a semantic/fuzzy cache risks.
+- **Isolation.** Every cache key is scoped by `course_id` only, deliberately shared across users —
+  none of the cached generation paths read `user_id` or any per-user state, so two students asking
+  the same question legitimately get (and should get) the same cached answer.
+- **Not done here.** The `0.92` similarity threshold (`RAG_CACHE_THRESHOLD`) is unvalidated against
+  real queries — doing so needs a running QVAC instance with representative course material, which
+  this environment doesn't have. Tracked as a follow-up.
+
 ---
 
 ### 28. Manual course-outline editing — ✅ Implemented
