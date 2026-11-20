@@ -1,15 +1,15 @@
 """add study_session and study_turn tables
 
-Revision ID: 0009
-Revises: 0008
+Revision ID: 0011
+Revises: 0010
 Create Date: 2026-11-06
 """
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.engine.reflection import Inspector
 
-revision = "0009"
-down_revision = "0008"
+revision = "0011"
+down_revision = "0010"
 branch_labels = None
 depends_on = None
 
