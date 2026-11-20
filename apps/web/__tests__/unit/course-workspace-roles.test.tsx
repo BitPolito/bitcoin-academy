@@ -23,14 +23,14 @@ jest.mock('@/lib/services/courses', () => ({
 }));
 
 jest.mock('@/lib/api/documents', () => ({
-  getDocumentListRows: jest.fn(),
+  getDocumentListPage: jest.fn(),
   deleteDocument: jest.fn(),
   reindexCourse: jest.fn(),
 }));
 
 import { useSession } from 'next-auth/react';
 import { getCourse } from '@/lib/services/courses';
-import { getDocumentListRows } from '@/lib/api/documents';
+import { getDocumentListPage } from '@/lib/api/documents';
 
 const mockUseSession = useSession as jest.Mock;
 
@@ -45,22 +45,25 @@ function renderAs(role: string) {
 beforeEach(() => {
   jest.clearAllMocks();
   (getCourse as jest.Mock).mockResolvedValue({ id: 'course-1', title: 'Bitcoin Basics' });
-  (getDocumentListRows as jest.Mock).mockResolvedValue([
-    {
-      id: 'doc-1',
-      courseId: 'course-1',
-      filename: 'whitepaper.pdf',
-      fileType: 'pdf',
-      size: 1024,
-      status: 'ready',
-      processingStage: 'done',
-      isTerminal: true,
-      errorMessage: null,
-      documentType: 'lecture',
-      createdAt: '2026-10-20T00:00:00Z',
-      updatedAt: '2026-10-20T00:00:00Z',
-    },
-  ]);
+  (getDocumentListPage as jest.Mock).mockResolvedValue({
+    items: [
+      {
+        id: 'doc-1',
+        courseId: 'course-1',
+        filename: 'whitepaper.pdf',
+        fileType: 'pdf',
+        size: 1024,
+        status: 'ready',
+        processingStage: 'done',
+        isTerminal: true,
+        errorMessage: null,
+        documentType: 'lecture',
+        createdAt: '2026-10-20T00:00:00Z',
+        updatedAt: '2026-10-20T00:00:00Z',
+      },
+    ],
+    next_cursor: null,
+  });
 });
 
 it('hides upload, reindex and delete from students but keeps the material readable', async () => {

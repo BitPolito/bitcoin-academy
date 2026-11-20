@@ -186,7 +186,7 @@ def test_document_list_exposes_indexing_status(client, db):
 
     rows = client.get(f"/api/courses/{course.id}/documents", headers=_auth_header(user)).json()
 
-    assert rows[0]["indexing_status"] == "qvac_failed"
+    assert rows["items"][0]["indexing_status"] == "qvac_failed"
 
 
 # ---------------------------------------------------------------------------
@@ -211,9 +211,12 @@ def test_upload_rejects_an_unsupported_mime_type(client, db):
     )
 
     assert response.status_code == 415
-    assert client.get(
+    document_page = client.get(
         f"/api/courses/{course.id}/documents", headers=_auth_header(user)
-    ).json() == [], "A rejected upload must not create a document record"
+    ).json()
+    assert document_page["items"] == [], (
+        "A rejected upload must not create a document record"
+    )
 
 
 @pytest.mark.integration
