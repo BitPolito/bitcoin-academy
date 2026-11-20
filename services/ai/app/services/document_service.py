@@ -9,12 +9,31 @@ from sqlalchemy.orm import Session
 
 from app.db.models import ChunkParent, CourseDocument, DocumentProcessingStage, DocumentStatus
 from app.repositories import document_repo
+from app.schemas.pagination import encode_cursor
 
 logger = logging.getLogger(__name__)
 
 
 def list_documents(db: Session, course_id: str) -> List[CourseDocument]:
     return document_repo.list_by_course(db, course_id)
+
+
+def list_documents_page(
+    db: Session,
+    course_id: str,
+    *,
+    after: tuple[str, str] | None,
+    limit: int,
+) -> tuple[List[CourseDocument], str | None]:
+    documents, has_more = document_repo.list_page_by_course(
+        db, course_id, after=after, limit=limit
+    )
+    next_cursor = (
+        encode_cursor(documents[-1].created_at, documents[-1].id)
+        if has_more and documents
+        else None
+    )
+    return documents, next_cursor
 
 
 def get_document(db: Session, document_id: str) -> Optional[CourseDocument]:
@@ -39,7 +58,11 @@ def create_document(
         processing_stage=DocumentProcessingStage.QUEUED,
         document_type=document_type,
     )
-    return document_repo.create(db, doc)
+    created = document_repo.create(db, doc)
+    from app.services.outline_staleness_service import mark_new_document
+    mark_new_document(db, course_id, filename)
+    db.commit()
+    return created
 
 
 def reset_status(db: Session, document_id: str) -> Optional[CourseDocument]:
@@ -47,6 +70,8 @@ def reset_status(db: Session, document_id: str) -> Optional[CourseDocument]:
     doc = document_repo.get_by_id(db, document_id)
     if doc is None:
         return None
+    from app.services.outline_staleness_service import mark_document_changed
+    mark_document_changed(db, document_id, f'Source "{doc.filename}" is being reprocessed.')
     doc.status = DocumentStatus.PROCESSING
     doc.processing_stage = DocumentProcessingStage.QUEUED
     doc.error_message = None
@@ -89,6 +114,9 @@ def delete_document(db: Session, document_id: str, commit: bool = True) -> bool:
     doc = document_repo.get_by_id(db, document_id)
     if doc is None:
         return False
+
+    from app.services.outline_staleness_service import mark_document_changed
+    mark_document_changed(db, document_id, f'Source "{doc.filename}" was deleted.')
 
     db.query(ChunkParent).filter(ChunkParent.doc_id == document_id).delete()
 
