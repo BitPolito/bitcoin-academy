@@ -3,6 +3,7 @@ import { initModels, shutdownModels } from "./models.js";
 import { ingestFromJsonl } from "./ingest.js";
 import { queryRag, retrieveChunks, generateFromContext, streamFromContext } from "./query.js";
 import { generateJson, LlmDisabledError, JsonGenerationError } from "./generate-json.js";
+import { captionImage, CaptioningDisabledError } from "./caption.js";
 
 const PORT = parseInt(process.env.QVAC_PORT ?? "3001", 10);
 
@@ -106,6 +107,23 @@ const server = createServer(async (req, res) => {
         }
         if (err instanceof JsonGenerationError) {
           return send(res, 422, { error: err.message, errors: err.errors, raw: err.raw, attempts: err.attempts });
+        }
+        throw err;
+      }
+    }
+
+    // POST /caption  { imageBase64: string, prompt?: string }
+    // Vision-language captioning for slide/page images extracted during
+    // ingestion (#325). Returns { caption: string }.
+    // 503 when captioning is disabled (QVAC_CAPTIONING_ENABLED=false, the default).
+    if (req.method === "POST" && req.url === "/caption") {
+      const { imageBase64, prompt } = await readBody(req);
+      try {
+        const result = await captionImage(imageBase64, { prompt });
+        return send(res, 200, result);
+      } catch (err) {
+        if (err instanceof CaptioningDisabledError) {
+          return send(res, 503, { error: err.message });
         }
         throw err;
       }
