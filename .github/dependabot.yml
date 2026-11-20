@@ -29,10 +29,8 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-      # SQLAlchemy 2.1 is a minor release but switches the default Postgres
-      # driver to psycopg 3; migrate it in #225.
-      - dependency-name: sqlalchemy
-        versions: [">=2.1"]
+
+
 
   - package-ecosystem: npm
     directory: /apps/web
