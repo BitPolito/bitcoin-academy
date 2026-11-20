@@ -639,12 +639,6 @@ async def dispatch(
         logger.info("dispatch_trace %s", json.dumps(dataclasses.asdict(trace)))
 
 
-# Actions that must be fully buffered before the frontend can parse the output.
-# QUIZ needs the complete text to split on question delimiters.
-# ORAL needs the complete text to parse Q/model-answer/follow-up blocks.
-# RETRIEVE has no generation at all.
-_BUFFERED_ACTIONS = frozenset({StudyAction.QUIZ, StudyAction.ORAL, StudyAction.RETRIEVE})
-
 _CITATIONS_SENTINEL = "\x00CITATIONS\x00"
 
 
@@ -661,8 +655,8 @@ async def stream_dispatch(
     semantic cache — a cache hit short-circuits retrieval and generation entirely,
     returning the cached answer as a single chunk at the speed of Redis.
 
-    QUIZ, ORAL, and RETRIEVE are always buffered (full output needed for parsing).
-    All other actions stream token-by-token via QVAC /stream.
+    RETRIEVE is always buffered (no generation step to stream). Every other
+    action, including QUIZ and ORAL, streams token-by-token via QVAC /stream.
 
     Sentinel format: \\x00CITATIONS\\x00<json-array-of-SourceChunk-dicts>
     """
@@ -726,19 +720,8 @@ async def stream_dispatch(
         yield _cache_and_sentinel(answer, sources)
         return
 
-    # Buffered actions (QUIZ, ORAL): generate fully, emit, cache, sentinel
-    if action in _BUFFERED_ACTIONS:
-        generated = await _generate(action, question, pack.context_block())
-        if generated:
-            answer, sources = _parse_citations(generated, pack)
-        else:
-            answer = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER
-            sources = _make_sources(pack.chunks)
-        yield answer
-        yield _cache_and_sentinel(answer, sources)
-        return
-
-    # Streaming actions: stream tokens, accumulate for citation parsing + cache write.
+    # Streaming actions (everything left — including QUIZ and ORAL, see #327):
+    # stream tokens, accumulate for citation parsing + cache write.
     # Markers are renumbered as they stream, so the client sees the same
     # numbers as the sources list and the cached answer.
     renumberer = _CitationRenumberer(len(pack.chunks))

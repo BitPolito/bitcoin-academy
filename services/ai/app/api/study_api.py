@@ -83,7 +83,8 @@ async def study(
         "Generation interrupted after partial output emits an [ERROR] frame and "
         "then [DONE]; the partial answer is not cached.\n"
         "SSE comment lines (': keepalive') are sent every 15 s during retrieval to\n"
-        "prevent proxy timeouts. QUIZ and ORAL are buffered internally."
+        "prevent proxy timeouts. RETRIEVE has no generation step and is buffered "
+        "internally; every other action, including QUIZ and ORAL, streams token by token."
     ),
 )
 @limiter.limit("20/minute")
