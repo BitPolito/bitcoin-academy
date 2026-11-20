@@ -8,12 +8,13 @@ For each draft lesson:
   4. Persist content into Lesson.content; set status "published" or "needs_review".
   5. Generate a lesson quiz (3-4 MCQ) and persist to Quiz/Question/OptionChoice tables.
 
-Caching: content_hash = SHA256(sorted source_refs + lesson.title + CONTENT_PROMPT_VERSION).
-If the hash matches the stored one and content is non-empty, the lesson is skipped.
+Caching: content_hash = SHA256(sorted source_refs + lesson.title + CONTENT_PROMPT_VERSION
++ model identity). If the hash matches the stored one and content is non-empty, the lesson
+is skipped — this is rung 0 of the inference ladder (issue #137/#161); quiz generation is
+skipped too, since it only runs when content generation runs.
 
 All LLM calls go through qvac_structured.generate_json.
 """
-import hashlib
 import json
 import logging
 import re
@@ -31,7 +32,8 @@ from app.db.models import (
     Quiz,
     QuizScope,
 )
-from app.services import quiz_generation
+from app.services import qvac_router, quiz_generation
+from app.services.generation_cache import compute_generation_hash
 from app.services.qvac_structured import (
     LlmDisabledError,
     StructuredGenerationError,
@@ -136,16 +138,32 @@ _JUDGE_SYSTEM = (
 # Helpers
 # ---------------------------------------------------------------------------
 
-def compute_content_hash(lesson: Lesson) -> str:
-    """SHA256 of (sorted source_refs + lesson.title + prompt_version)."""
+def compute_content_hash(lesson: Lesson, db: Session) -> str:
+    """Hash of (sorted source chunk *text* + lesson.title + prompt_version + model).
+
+    Hashes chunk content, not chunk ids — an id is stable across a content
+    edit at the same anchor (e.g. a reparse that changes extracted text
+    without changing chunk_id), and a hash keyed on ids alone would miss
+    that (issue #137/#161: "chunk ids are not enough — content can change
+    under a stable id"). Model identity is included too: output from a
+    different model is not interchangeable, even for identical sources.
+    """
     refs: List[str] = []
     if lesson.source_refs_json:
         try:
             refs = json.loads(lesson.source_refs_json)
         except json.JSONDecodeError:
             pass
-    payload = json.dumps(sorted(refs)) + lesson.title + CONTENT_PROMPT_VERSION
-    return hashlib.sha256(payload.encode()).hexdigest()
+    chunk_ids = refs[:MAX_CONTEXT_CHUNKS]
+    rows = {
+        r.id: r.text
+        for r in db.query(ChunkParent).filter(ChunkParent.id.in_(chunk_ids)).all()
+    }
+    texts = [rows[cid] for cid in chunk_ids if cid in rows]
+    model = qvac_router.resolve("content_gen").model
+    return compute_generation_hash(
+        [*texts, lesson.title], CONTENT_PROMPT_VERSION, model
+    )
 
 
 _ISSUES_COMMENT_RE = re.compile(r"\n\n<!-- groundedness_issues:\n(.*?)\n-->", re.DOTALL)
@@ -303,10 +321,10 @@ async def process_lesson(lesson_id: str, db: Session) -> str:
     if lesson is None:
         raise ValueError(f"Lesson {lesson_id} not found")
 
-    # ---- Cache check ----
-    current_hash = compute_content_hash(lesson)
+    # ---- Cache check (rung 0) ----
+    current_hash = compute_content_hash(lesson, db)
     if lesson.content_hash == current_hash and lesson.content:
-        logger.info("lesson %s: cache hit — skipping", lesson_id)
+        logger.info("lesson %s: rung-0 cache hit — skipping", lesson_id)
         return "skipped"
 
     # ---- Load context ----

@@ -323,7 +323,7 @@ def patch_lesson(
         # reviewed it) and marks the content hash as up to date so a later
         # course-wide regeneration run doesn't silently overwrite the edit.
         lesson.content = body.content
-        lesson.content_hash = lesson_service.compute_content_hash(lesson)
+        lesson.content_hash = lesson_service.compute_content_hash(lesson, db)
 
     from datetime import datetime, timezone
     lesson.is_human_modified = True

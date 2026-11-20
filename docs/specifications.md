@@ -447,6 +447,24 @@ The system must avoid recomputing identical work, degrade gracefully, and collec
 requests. Background ingestion runs on a queue. Generation failures fall back to raw retrieval.
 Students can submit feedback on answer quality, persisted for later analysis.
 
+**Exact-match caching, rung 0 of the inference ladder (issue #137/#161).** Deterministic,
+expensive work is served from the database instead of regenerated, via a shared hash
+(`app.services.generation_cache.compute_generation_hash`) over the exact content that feeds the
+prompt, the prompt version, and the model identity (resolved through `qvac_router`, so output
+from a different model is never treated as interchangeable):
+
+- **Lesson content** — `lesson_service.compute_content_hash`, the reference pattern this
+  generalises. Hashes source chunk *text*, not just chunk ids, so a reparse that changes extracted
+  content under a stable id still invalidates the cache. A content_hash match skips content,
+  judge, *and* quiz generation together, since the quiz step only runs when content generation
+  runs — no separate quiz-level cache was needed.
+- **Outline generation** — new `Course.outline_hash`, computed from every source document's
+  section tree. A `POST .../outline/generate` request with an unchanged hash skips the whole
+  map-reduce pipeline; `force: true` bypasses the check explicitly. Only applies once an outline
+  already exists — a course's first-ever generation always runs.
+- **Study turns** — not yet done; depends on server-side session persistence (requirement 29/issue
+  #136), which this PR predates. Tracked as a follow-up once that lands.
+
 ---
 
 ### 28. Manual course-outline editing — ✅ Implemented

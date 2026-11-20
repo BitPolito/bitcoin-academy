@@ -181,7 +181,7 @@ class TestPatchLesson:
         assert ls.content_hash is not None
 
         from app.services.lesson_service import compute_content_hash
-        assert ls.content_hash == compute_content_hash(ls)
+        assert ls.content_hash == compute_content_hash(ls, db_session)
 
     def test_edit_strips_groundedness_issues_comment(self, client, db_session):
         course = _seed_course(db_session)
@@ -311,7 +311,7 @@ class TestRegenerateSpecificLessons:
         chunk = ChunkParent(id="p1", doc_id="d1", course_id=course.id, text="Bitcoin content.")
         db_session.add(chunk)
         ls = _seed_lesson(db_session, ch.id, source_refs=["p1"], content="Old", status="published")
-        ls.content_hash = compute_content_hash(ls)  # simulate a cache hit if untouched
+        ls.content_hash = compute_content_hash(ls, db_session)  # simulate a cache hit if untouched
         db_session.commit()
 
         run = GenerationRun(

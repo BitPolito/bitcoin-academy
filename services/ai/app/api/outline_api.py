@@ -7,7 +7,9 @@ Endpoints:
   GET    /generation-runs/{run_id}        → job status + stage
 """
 import json
+import logging
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Path, Request, status
 from fastapi.responses import JSONResponse
@@ -38,6 +40,8 @@ from app.schemas.outline_schemas import (
 )
 from app.repositories import course_repo
 from app.services import course_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["Outline"])
 
@@ -172,6 +176,35 @@ async def generate_outline(
             "No READY documents found. Upload and process at least one document first."
         )
 
+    from app.services.outline_service import OUTLINE_PROMPT_VERSION, compute_outline_hash
+
+    # Rung 0 of the inference ladder (issue #137/#161): skip the whole
+    # map-reduce pipeline when nothing that could change the outline has
+    # changed since the last run — same source documents, prompt version
+    # and model. Only applies once an outline actually exists; a first-ever
+    # generation always runs.
+    has_existing_outline = db.query(Chapter).filter(Chapter.course_id == course_id).first() is not None
+    if not body.force and has_existing_outline:
+        docs_for_hash = db.query(CourseDocument).filter(CourseDocument.id.in_(doc_ids)).all()
+        current_hash = compute_outline_hash(docs_for_hash)
+        if course.outline_hash == current_hash:
+            logger.info("outline rung-0 cache hit for course %s", course_id)
+            now = datetime.now(timezone.utc).isoformat()
+            run = GenerationRun(
+                id=str(uuid.uuid4()),
+                course_id=course_id,
+                doc_ids_json=json.dumps(doc_ids),
+                status=GenerationRunStatus.DONE,
+                stage="rung0_cache_hit",
+                prompt_version=OUTLINE_PROMPT_VERSION,
+                started_at=now,
+                finished_at=now,
+            )
+            db.add(run)
+            db.commit()
+            db.refresh(run)
+            return {"run_id": run.id, "status": run.status}
+
     if not body.confirm_human_overwrite and (
         db.query(Chapter).filter(Chapter.course_id == course_id, Chapter.is_human_modified == True).first()
         or db.query(Lesson).join(Chapter).filter(
@@ -179,8 +212,6 @@ async def generate_outline(
         ).first()
     ):
         raise ValidationError_("Regeneration would replace human edits; explicit confirmation is required.")
-
-    from app.services.outline_service import OUTLINE_PROMPT_VERSION
 
     run = GenerationRun(
         id=str(uuid.uuid4()),
