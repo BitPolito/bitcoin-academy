@@ -8,6 +8,7 @@ retrieval quality rests on.
 Parser entry points that require real PDF/PPTX/DOCX libraries are covered in
 tests/integration/test_pipeline_e2e.py; this file covers the pure functions.
 """
+import io
 import json
 
 import pytest
@@ -447,3 +448,132 @@ def test_oversized_code_block_is_split_to_fit_the_embedding_context():
         pipeline._estimate_tokens(c["text"]) <= pipeline._CHILD_MAX_TOKENS for c in children
     )
     assert len({c["id"] for c in children}) == len(children)
+
+
+# ---------------------------------------------------------------------------
+# Slide/page image captioning (#325, opt-in via QVAC_CAPTIONING_ENABLED)
+# ---------------------------------------------------------------------------
+
+_TINY_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x04\x00\x00\x00\xb5\x1c\x0c\x02\x00\x00\x00\x0bIDATx\x9cc\x64"
+    b"\x60\x00\x00\x00\x05\x00\x01\x5a\x7d\x3a\x7a\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+class _FakeResponse:
+    def __init__(self, json_body, status_ok=True):
+        self._json_body = json_body
+        self._status_ok = status_ok
+
+    def raise_for_status(self):
+        if not self._status_ok:
+            raise pipeline.httpx.HTTPStatusError("boom", request=None, response=None)
+
+    def json(self):
+        return self._json_body
+
+
+class _FakeClient:
+    """Stands in for httpx.Client(timeout=...) as a context manager."""
+
+    def __init__(self, post_impl):
+        self._post_impl = post_impl
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def post(self, url, json):
+        return self._post_impl(url, json)
+
+
+def test_caption_image_bytes_returns_caption_on_success(monkeypatch):
+    captured = {}
+
+    def post_impl(url, json):
+        captured["url"] = url
+        captured["json"] = json
+        return _FakeResponse({"caption": "A diagram of block propagation."})
+
+    monkeypatch.setattr(pipeline.httpx, "Client", lambda timeout: _FakeClient(post_impl))
+
+    caption = pipeline._caption_image_bytes(_TINY_PNG, "http://qvac:3001")
+
+    assert caption == "A diagram of block propagation."
+    assert captured["url"] == "http://qvac:3001/caption"
+    assert "imageBase64" in captured["json"]
+
+
+def test_caption_image_bytes_is_fail_open_on_http_error(monkeypatch):
+    def post_impl(url, json):
+        return _FakeResponse({}, status_ok=False)
+
+    monkeypatch.setattr(pipeline.httpx, "Client", lambda timeout: _FakeClient(post_impl))
+
+    assert pipeline._caption_image_bytes(_TINY_PNG, "http://qvac:3001") == ""
+
+
+def test_caption_image_bytes_is_fail_open_on_connection_error(monkeypatch):
+    def raising_client(timeout):
+        raise pipeline.httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(pipeline.httpx, "Client", raising_client)
+
+    assert pipeline._caption_image_bytes(_TINY_PNG, "http://qvac:3001") == ""
+
+
+def test_parse_pptx_pages_skips_captioning_when_disabled(monkeypatch, tmp_path):
+    from pptx import Presentation
+
+    monkeypatch.setattr(pipeline, "_QVAC_CAPTIONING_ENABLED", False)
+    called = []
+    monkeypatch.setattr(pipeline, "_caption_image_bytes", lambda *a, **k: called.append(1) or "caption")
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    slide.shapes.add_picture(io.BytesIO(_TINY_PNG), 0, 0)
+    pptx_path = tmp_path / "with_image.pptx"
+    prs.save(pptx_path)
+
+    pages, _count = pipeline.parse_pptx_pages(str(pptx_path))
+
+    assert called == []
+    assert "Image:" not in pages[0]["text"]
+
+
+def test_parse_pptx_pages_appends_caption_when_enabled(monkeypatch, tmp_path):
+    from pptx import Presentation
+
+    monkeypatch.setattr(pipeline, "_QVAC_CAPTIONING_ENABLED", True)
+    monkeypatch.setattr(pipeline, "_caption_image_bytes", lambda *a, **k: "A diagram of block propagation.")
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    slide.shapes.add_picture(io.BytesIO(_TINY_PNG), 0, 0)
+    pptx_path = tmp_path / "with_image.pptx"
+    prs.save(pptx_path)
+
+    pages, _count = pipeline.parse_pptx_pages(str(pptx_path))
+
+    assert "*Image: A diagram of block propagation.*" in pages[0]["text"]
+
+
+def test_parse_pptx_pages_without_images_is_unaffected(monkeypatch, tmp_path):
+    from pptx import Presentation
+
+    monkeypatch.setattr(pipeline, "_QVAC_CAPTIONING_ENABLED", True)
+    called = []
+    monkeypatch.setattr(pipeline, "_caption_image_bytes", lambda *a, **k: called.append(1) or "caption")
+
+    prs = Presentation()
+    prs.slides.add_slide(prs.slide_layouts[6])
+    pptx_path = tmp_path / "no_image.pptx"
+    prs.save(pptx_path)
+
+    pages, _count = pipeline.parse_pptx_pages(str(pptx_path))
+
+    assert called == []
+    assert "Image:" not in pages[0]["text"]

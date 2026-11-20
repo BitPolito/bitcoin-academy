@@ -58,6 +58,8 @@ for downstream chunking, retrieval, and source-grounded UI.
 **Implementation.** `pymupdf4llm` (PDF, page-chunked), `python-pptx` (per slide) and DOCX parsers
 feed a normalisation stage. Parser-specific artefacts (LaTeX running headers, typesetting noise,
 OCR noise) are cleaned. Docling is available as an opt-in parser — see requirement 25.
+`QVAC_CAPTIONING_ENABLED` (off by default) captions PPTX slide images with a vision-language model
+and appends the caption to the slide's text; PDF page image captioning is not implemented yet.
 
 ---
 

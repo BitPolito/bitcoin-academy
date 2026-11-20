@@ -81,6 +81,12 @@ _MIN_WORDS_TABLE = 4    # table threshold: one data row is enough (cells are sho
 _RAG_CONTEXTUAL_CHUNKS = os.getenv("RAG_CONTEXTUAL_CHUNKS", "false").lower() == "true"
 _CONTEXTUAL_TIMEOUT = float(os.getenv("QVAC_CONTEXTUAL_TIMEOUT", "25"))
 
+# Opt-in slide/page image captioning (#325). Off by default: it requires a
+# vision-language model loaded by workers/qvac-service (QVAC_CAPTIONING_ENABLED=true
+# there too), which is not downloaded/verified in every environment yet.
+_QVAC_CAPTIONING_ENABLED = os.getenv("QVAC_CAPTIONING_ENABLED", "false").lower() == "true"
+_CAPTION_TIMEOUT = float(os.getenv("QVAC_CAPTION_TIMEOUT", "30"))
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -254,9 +260,33 @@ def parse_pdf_pages(file_path: str) -> tuple[list[dict], int]:
     return pages, page_count
 
 
+def _caption_image_bytes(image_bytes: bytes, qvac_url: str) -> str:
+    """Caption one image via QVAC /caption (vision-language model).
+
+    Fail-open: any error (model disabled, timeout, bad image) returns "" so
+    ingestion never blocks on captioning. Only called when
+    QVAC_CAPTIONING_ENABLED=true.
+    """
+    import base64
+
+    try:
+        with httpx.Client(timeout=_CAPTION_TIMEOUT) as client:
+            resp = client.post(
+                f"{qvac_url}/caption",
+                json={"imageBase64": base64.b64encode(image_bytes).decode("ascii")},
+            )
+            resp.raise_for_status()
+            caption: str = resp.json().get("caption", "")
+            return caption.strip()
+    except Exception as exc:
+        logger.debug("Image captioning skipped: %s", exc)
+        return ""
+
+
 def parse_pptx_pages(file_path: str) -> tuple[list[dict], int]:
     """python-pptx → [{page=slide_num, text}] per ogni slide."""
     from pptx import Presentation
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
 
     prs = Presentation(file_path)
     slides = []
@@ -279,9 +309,21 @@ def parse_pptx_pages(file_path: str) -> tuple[list[dict], int]:
         if slide.has_notes_slide:
             nf = slide.notes_slide.notes_text_frame
             notes = nf.text.strip() if nf else ""
+
+        captions = []
+        if _QVAC_CAPTIONING_ENABLED:
+            for shape in slide.shapes:
+                if shape.shape_type != MSO_SHAPE_TYPE.PICTURE:
+                    continue
+                caption = _caption_image_bytes(shape.image.blob, QVAC_SERVICE_URL)
+                if caption:
+                    captions.append(caption)
+
         parts = [f"## {title}"]
         if body:
             parts.append(body)
+        for caption in captions:
+            parts.append(f"*Image: {caption}*")
         if notes:
             parts.append(f"*Notes: {notes}*")
         slides.append({"page": i, "text": "\n\n".join(parts)})

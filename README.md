@@ -171,6 +171,8 @@ Set `ENVIRONMENT=development` to enable Swagger UI and relaxed CORS.
 | `RAG_CACHE_THRESHOLD` | `0.92` | Cosine similarity threshold for a cache hit |
 | `RAG_CACHE_TTL_SECONDS` | `86400` | Cache entry lifetime (24 h) |
 | `USE_DOCLING` | `false` | Use Docling for PDF parsing instead of pymupdf4llm |
+| `QVAC_CAPTIONING_ENABLED` | `false` | Caption PPTX slide images with a vision-language model at ingest time (requires the same flag on qvac-service) |
+| `QVAC_CAPTION_TIMEOUT` | `30` | Timeout (s) for each QVAC `/caption` call |
 
 Full list: [`services/ai/.env.example`](services/ai/.env.example).
 
