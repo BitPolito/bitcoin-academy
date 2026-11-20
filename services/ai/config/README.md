@@ -3,7 +3,8 @@
 I file di configurazione sono organizzati come segue:
 
 ## Root Level
-- `pyproject.toml` - Project metadata and dependencies (deve rimanere qui per pip install)
+- `pyproject.toml` - Metadati del progetto e dichiarazione delle dipendenze
+- `uv.lock` - Risoluzione riproducibile usata da sviluppo, CI e Docker
 
 ## config/ Directory
 - `pytest.ini` - Pytest test framework configuration
@@ -11,6 +12,6 @@ I file di configurazione sono organizzati come segue:
 - `setup.cfg` - Flake8 linting and setuptools configuration
 
 ## Why?
-- `pyproject.toml` deve stare in root per pip install -e .
+- `pyproject.toml` e `uv.lock` devono stare nella root del servizio per `uv sync --locked`.
 - Gli altri file di configurazione possono stare in config/ directory
 - I riferimenti ai file sono configurati in pyproject.toml

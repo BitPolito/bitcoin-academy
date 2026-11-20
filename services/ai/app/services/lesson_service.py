@@ -96,10 +96,11 @@ _JUDGE_SCHEMA: Dict[str, Any] = {
     },
 }
 
-# Quiz schema/system-prompt live in quiz_generation.py — shared with the
-# study-page ad-hoc quiz endpoint (see quizzes_api.py). Keeping a single
-# generator avoids the free-text-parsing/DB-persisted split that used to
-# exist between the two call sites.
+# Quiz generation is owned by the quiz_harness module (plan -> generate ->
+# critique -> repair), reached through quiz_generation.generate_quiz_questions
+# — shared with the study-page ad-hoc quiz endpoint (see quizzes_api.py).
+# Keeping a single generator avoids the free-text-parsing/DB-persisted split
+# that used to exist between the two call sites.
 
 # ---------------------------------------------------------------------------
 # System prompts
@@ -190,7 +191,7 @@ def _load_context(lesson: Lesson, db: Session) -> Tuple[List[str], List[Dict[str
     used_ids: List[str] = []
     for cid in chunk_ids:
         if cid in rows:
-            context_items.append({"label": cid, "text": rows[cid].text})
+            context_items.append({"label": cid, "text": rows[cid].text, "chunk_id": cid})
             used_ids.append(cid)
     return used_ids, context_items
 
@@ -269,7 +270,8 @@ async def _judge_groundedness(
 async def _generate_quiz_data(
     lesson: Lesson, context_items: List[Dict[str, str]]
 ) -> Optional[Dict[str, Any]]:
-    """Call /generate_json (via quiz_generation.py) to produce MCQ quiz data."""
+    """Run the quiz_harness plan/generate/critique/repair loop (via
+    quiz_generation.generate_quiz_questions) to produce MCQ quiz data."""
     return await quiz_generation.generate_quiz_questions(lesson.title, context_items)
 
 
@@ -382,6 +384,11 @@ async def process_lesson(lesson_id: str, db: Session) -> str:
     lesson.content = full_content
     lesson.content_hash = current_hash
     lesson.status = final_status
+    from app.services.outline_staleness_service import source_snapshot
+    lesson.source_snapshot_json = json.dumps(source_snapshot(db, used_ids))
+    lesson.is_stale = False
+    lesson.stale_reason = None
+    lesson.stale_at = None
     db.commit()
 
     # ---- Quiz ----
@@ -507,11 +514,12 @@ def publish_course(course_id: str, db: Session) -> Dict[str, int]:
             skipped_chapters += 1
             continue
 
-        # A chapter publishes only when EVERY lesson is already "published".
-        # Anything else — "needs_review", or still "draft" with empty content
-        # because it was never processed — blocks the chapter; otherwise students
-        # would open a published chapter onto a blank lesson body.
-        blocking = [ls for ls in lessons if ls.status != "published"]
+        # A chapter publishes only when EVERY lesson is already "published" and
+        # none is stale. Anything else — "needs_review", still "draft" with empty
+        # content because it was never processed, or regenerated from changed
+        # sources since review — blocks the chapter; otherwise students would
+        # open a published chapter onto a blank or unreviewed lesson body.
+        blocking = [ls for ls in lessons if ls.status != "published" or ls.is_stale]
 
         if blocking:
             skipped_chapters += 1
