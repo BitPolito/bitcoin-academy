@@ -39,6 +39,20 @@ RUN npm ci --omit=dev \
       node_modules/@qvac/turbovec-ggml/prebuilds/darwin-* \
       node_modules/@qvac/turbovec-ggml/prebuilds/ios-* \
       node_modules/@qvac/turbovec-ggml/prebuilds/win32-* \
+      node_modules/bare-tls/prebuilds/android-* \
+      node_modules/bare-tls/prebuilds/darwin-* \
+      node_modules/bare-tls/prebuilds/ios-* \
+      node_modules/bare-tls/prebuilds/win32-* \
+      node_modules/bare-fetch/node_modules/bare-tls/prebuilds/android-* \
+      node_modules/bare-fetch/node_modules/bare-tls/prebuilds/darwin-* \
+      node_modules/bare-fetch/node_modules/bare-tls/prebuilds/ios-* \
+      node_modules/bare-fetch/node_modules/bare-tls/prebuilds/win32-* \
+      node_modules/bare-ws/node_modules/bare-tls/prebuilds/android-* \
+      node_modules/bare-ws/node_modules/bare-tls/prebuilds/darwin-* \
+      node_modules/bare-ws/node_modules/bare-tls/prebuilds/ios-* \
+      node_modules/bare-ws/node_modules/bare-tls/prebuilds/win32-* \
+      node_modules/bare-lief/prebuilds/darwin-* \
+      node_modules/bare-lief/prebuilds/win32-* \
     && npm cache clean --force
 
 COPY . .
