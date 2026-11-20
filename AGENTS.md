@@ -37,22 +37,18 @@ scripts/, tests/      Evaluation tooling and cross-service test assets
 
 ### 3.0 Branch model
 
-Two long-lived branches, and nothing else:
+One long-lived branch, and nothing else:
 
 | Branch | Role |
 |---|---|
 | `master` | Default branch. Protected. Only ever updated through a merged pull request. |
-| `mvp-testing` | The active development line, where the MVP is built and tested. |
 
-`master` receives reviewed, gated work. `mvp-testing` periodically receives `master` — that
-direction only — so it is tested with the current gate and fixes in place. Work travels back toward
-`master` in reviewable slices, not as one large merge.
+Every feature branch is created from an up-to-date `master` and merged back into it through a pull
+request. Feature branches are short-lived: merged, and deleted immediately. A branch that outlives
+its pull request is drift waiting to happen.
 
-CI runs on both. Feature branches are short-lived: created from the branch they target, merged, and
-deleted immediately. A branch that outlives its pull request is drift waiting to happen.
-
-> The former `mvp` branch was deleted: it contained no commits that `mvp-testing` did not already
-> have, so keeping it only invited work to land on a stale line.
+> The former `mvp` and `mvp-testing` branches were deleted once `master` contained all of their
+> commits, so keeping them only invited work to land on a stale line.
 
 ### 3.1 Pick up work
 

@@ -175,10 +175,10 @@ the default branch, so nothing ran on `master` for weeks and nobody noticed.
 repairs is expensive to run. Without durable memory, every repetition pays that cost again. Building
 the harness first would mean building it against a memory model that is about to change.
 
-**Implementation completion comes last.** The `mvp-testing` branch carries a large body of working,
-tested code — quiz unification, the course builder, structured generation, the inference ladder.
-Integrating it is sequenced last so it lands on top of the gate, the persistence layer and the agent
-foundations, rather than underneath them.
+**Implementation completion comes last.** The former `mvp-testing` branch carried a large body of
+working, tested code — quiz unification, the course builder, structured generation, the inference
+ladder. It has been merged into `master`; finishing those features is sequenced last so it lands on
+top of the gate, the persistence layer and the agent foundations, rather than underneath them.
 
 Milestones M6–M9 (topic base, retrieval consolidation, assessment and exam prep, platform health)
 follow, and are not strictly ordered relative to each other.
