@@ -186,7 +186,7 @@ def test_document_list_exposes_indexing_status(client, db):
 
     rows = client.get(f"/api/courses/{course.id}/documents", headers=_auth_header(user)).json()
 
-    assert rows[0]["indexing_status"] == "qvac_failed"
+    assert rows["items"][0]["indexing_status"] == "qvac_failed"
 
 
 # ---------------------------------------------------------------------------
