@@ -5,17 +5,16 @@ by ordinary manual testing: nobody logs in wrong five times by accident, and
 nobody checks that a logged-out token really stopped working.
 
 Follows the conventions in test_auth_api.py: module-level client, per-test
-schema, rate limiting disabled so the lockout logic is what is under test
-rather than the IP rate limiter.
+in-memory schema, rate limiting disabled so the lockout logic is what is under
+test rather than the IP rate limiter.
 """
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.core.rate_limit import limiter
 from app.core.config import settings
 from app.core.token_blacklist import token_blacklist
-from app.db.models import Base
-from app.db.session import SessionLocal, engine
 from app.main import app
 from app.middleware.security import lockout_manager
 
@@ -25,12 +24,11 @@ VALID_PASSWORD = "SecureP@ss123!"
 
 
 @pytest.fixture(autouse=True)
-def setup_database():
+def setup_database(client):
+    """Use tests/conftest.py client. Its engine is in-memory, not DATABASE_URL."""
     limiter.enabled = False
     token_blacklist.clear()
-    Base.metadata.create_all(bind=engine)
     yield
-    Base.metadata.drop_all(bind=engine)
     token_blacklist.clear()
     limiter.enabled = True
 
@@ -327,7 +325,7 @@ class TestRegistrationValidation:
 
 class TestDevelopmentSeeding:
 
-    def test_seeding_is_refused_in_production(self, monkeypatch):
+    def test_seeding_is_refused_in_production(self, monkeypatch, engine):
         """The dev accounts have published passwords (they are in the README).
         Seeding them into a production database would be a critical hole."""
         from app.core import config as config_module
@@ -337,7 +335,7 @@ class TestDevelopmentSeeding:
 
         created = init_db_module.seed_test_users(engine)
 
-        session = SessionLocal()
+        session = Session(engine)
         try:
             from app.db.models import User
 
@@ -355,7 +353,7 @@ class TestDevelopmentSeeding:
         )
         assert created is None
 
-    def test_seeding_creates_the_dev_accounts_in_development(self, monkeypatch):
+    def test_seeding_creates_the_dev_accounts_in_development(self, monkeypatch, engine):
         from app.core import config as config_module
         from app.db import init_db as init_db_module
         from app.db.models import User
@@ -364,7 +362,7 @@ class TestDevelopmentSeeding:
 
         init_db_module.seed_test_users(engine)
 
-        session = SessionLocal()
+        session = Session(engine)
         try:
             emails = {
                 u.email
@@ -377,7 +375,7 @@ class TestDevelopmentSeeding:
 
         assert emails == {"admin@bitpolito.it", "student@bitpolito.it"}
 
-    def test_seeding_twice_does_not_duplicate_accounts(self, monkeypatch):
+    def test_seeding_twice_does_not_duplicate_accounts(self, monkeypatch, engine):
         """setup-dev.sh may be run repeatedly; a unique-constraint crash on the
         second run would be a poor first experience."""
         from app.core import config as config_module
@@ -389,7 +387,7 @@ class TestDevelopmentSeeding:
         init_db_module.seed_test_users(engine)
         init_db_module.seed_test_users(engine)
 
-        session = SessionLocal()
+        session = Session(engine)
         try:
             count = (
                 session.query(User).filter(User.email == "admin@bitpolito.it").count()
