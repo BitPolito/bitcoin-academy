@@ -148,6 +148,7 @@ def test_load_context_returns_items():
     assert len(items) == 2
     assert items[0]["label"] == "p1"
     assert "Bitcoin" in items[0]["text"]
+    assert items[0]["chunk_id"] == "p1"
 
 
 def test_load_context_caps_at_max():
@@ -349,7 +350,7 @@ async def test_process_lesson_published_when_faithful():
     with patch(
         "app.services.lesson_service.generate_json", new_callable=AsyncMock
     ) as mock_gj, patch(
-        "app.services.quiz_generation.generate_json", new_callable=AsyncMock
+        "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
     ) as mock_quiz_gj:
         mock_gj.side_effect = [_CONTENT_RESULT, _JUDGE_PASS]
         mock_quiz_gj.return_value = _QUIZ_RESULT
@@ -377,7 +378,7 @@ async def test_process_lesson_needs_review_when_unfaithful():
     with patch(
         "app.services.lesson_service.generate_json", new_callable=AsyncMock
     ) as mock_gj, patch(
-        "app.services.quiz_generation.generate_json", new_callable=AsyncMock
+        "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
     ) as mock_quiz_gj:
         mock_gj.side_effect = [_CONTENT_RESULT, _JUDGE_FAIL]
         mock_quiz_gj.return_value = _QUIZ_RESULT
@@ -453,10 +454,37 @@ def test_publish_course_skips_chapters_with_needs_review():
     result = publish_course(course.id, db)
     assert result["published_chapters"] == 0
     assert result["skipped_chapters"] == 1
-
     db.refresh(ch)
     assert ch.status == "draft"
 
+
+def test_publish_course_skips_chapters_with_draft_lessons():
+    db, course = _make_db()
+    ch = _add_chapter(db, course.id, status="draft")
+    _add_lesson(db, ch.id, status="published", content="ready")
+    _add_lesson(db, ch.id, status="draft", content="not reviewed")
+
+    result = publish_course(course.id, db)
+
+    assert result["published_chapters"] == 0
+    assert result["published_lessons"] == 0
+    assert result["skipped_chapters"] == 1
+    db.refresh(ch)
+    assert ch.status == "draft"
+
+
+def test_publish_course_skips_stale_lessons():
+    db, course = _make_db()
+    chapter = _add_chapter(db, course.id)
+    lesson = _add_lesson(db, chapter.id, status="published", content="Reviewed")
+    lesson.is_stale = True
+    db.commit()
+
+    result = publish_course(course.id, db)
+
+    assert result["published_chapters"] == 0
+    assert result["skipped_chapters"] == 1
+    assert chapter.status == "draft"
 
 def test_publish_course_skips_already_published():
     db, course = _make_db()

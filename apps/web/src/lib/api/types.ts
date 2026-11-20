@@ -237,3 +237,8 @@ export interface DocumentPreviewView {
   sections: string[] | null;
   sampleChunks: ApiPreviewChunk[] | null;
 }
+export interface CursorPage<T> {
+  items: T[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
