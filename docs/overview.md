@@ -110,7 +110,7 @@ workers/qvac-service  Node + @qvac/sdk               — local embeddings and LL
 | **Web** | Next.js, NextAuth, Tailwind | Course list, upload, study workspace, source pane, document preview, debug console |
 | **API** | FastAPI, SQLAlchemy, Pydantic | Authentication, courses, documents, study dispatch, chat, progress, debug endpoints |
 | **Worker** | ARQ | Background ingestion pipeline |
-| **RAG engine** | Node, `@qvac/sdk` | GTE-Large FP16 embeddings, Qwen3-4B generation, dense search over course workspaces |
+| **RAG engine** | Node, `@qvac/sdk` | GTE-Large FP16 embeddings, Qwen3-4B generation, dense search over course workspaces, optional tool-calling agent (`/agent`, opt-in) |
 | **Database** | SQLite (dev) / PostgreSQL (prod), Alembic | Users, courses, documents, chunks, progress, assessment |
 | **Cache/queue** | Redis | Semantic cache, background jobs, token blacklist, account lockout |
 | **Proxy** | Caddy | TLS termination and routing in production |
