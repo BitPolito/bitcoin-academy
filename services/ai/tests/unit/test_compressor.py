@@ -174,3 +174,27 @@ def test_compress_passages_falls_back_per_passage_on_error():
     # Failed passage falls back to original; others are compressed
     assert len(result) == 3
     assert originals[1] in result  # fallback preserved
+
+
+# ---------------------------------------------------------------------------
+# _compress_one — inference ladder routing (issue #160)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_compress_one_resolves_chat_fast_task_type_and_posts_to_its_endpoint():
+    from app.rag import compressor
+    from app.services import qvac_router
+
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"answer": "compressed"}
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch.object(qvac_router, "resolve", return_value=qvac_router.Route(
+        task_type="chat_fast", target="local", base_url="http://diverging-local:9", model="",
+    )) as mock_resolve:
+        with patch("app.rag.compressor.httpx.post", return_value=mock_resp) as mock_post:
+            result = compressor._compress_one("query", "passage text")
+
+    mock_resolve.assert_called_once_with("chat_fast")
+    assert mock_post.call_args[0][0] == "http://diverging-local:9/generate"
+    assert result == "compressed"
