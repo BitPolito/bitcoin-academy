@@ -258,3 +258,61 @@ async def test_answer_citations_use_child_chunks():
 
     # Citations come from reranked (child), not context_chunks (parent)
     assert result.citations[0].snippet == "Child text for citation."[:200]
+
+
+# ---------------------------------------------------------------------------
+# Inference-ladder routing — issue #160
+# ---------------------------------------------------------------------------
+# Retrieval and generation must each resolve their endpoint through
+# qvac_router.resolve(task_type) rather than a QVAC_SERVICE_URL read baked
+# in at import time.
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_retrieve_and_rank_resolves_retrieval_task_type():
+    from app.services import chat_service, qvac_router
+
+    with patch.object(qvac_router, "resolve_async", new_callable=AsyncMock) as mock_resolve, \
+         patch("app.services.chat_service.unified_retrieval", new_callable=AsyncMock,
+               return_value=([], [])):
+        mock_resolve.return_value = qvac_router.Route(
+            task_type="retrieval", target="local", base_url="http://local:1", model="",
+        )
+        await chat_service._retrieve_and_rank("What is Bitcoin?", "COURSE1", "What is Bitcoin?")
+
+    mock_resolve.assert_awaited_once_with("retrieval")
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_answer_generation_resolves_chat_fast_task_type():
+    from app.services import chat_service, qvac_router
+
+    with patch.object(chat_service, "_retrieve_and_rank", new_callable=AsyncMock,
+                       return_value=([], [])), \
+         patch("app.rag.query_rewriter.expand_query", new_callable=AsyncMock,
+               return_value="What is Bitcoin?"), \
+         patch.object(qvac_router, "resolve_async", new_callable=AsyncMock) as mock_resolve, \
+         patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"):
+        mock_resolve.return_value = qvac_router.Route(
+            task_type="chat_fast", target="local", base_url="http://local:1", model="m",
+        )
+        with patch.object(chat_service, "_client_for") as mock_client_for:
+            mock_client_for.return_value.post = AsyncMock(
+                return_value=_mock_httpx_response({"answer": "Answer."})
+            )
+            await chat_service.answer("What is Bitcoin?", "COURSE1")
+
+    mock_resolve.assert_awaited_once_with("chat_fast")
+    mock_client_for.assert_called_once_with("http://local:1")
+
+
+@pytest.mark.unit
+def test_client_for_returns_new_client_for_diverging_base_url():
+    from app.services import chat_service
+
+    client_a = chat_service._client_for("http://server-a:1")
+    client_b = chat_service._client_for("http://server-b:2")
+    assert client_a is not client_b
+    assert client_a is chat_service._client_for("http://server-a:1")

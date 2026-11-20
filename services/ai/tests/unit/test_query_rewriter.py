@@ -204,3 +204,34 @@ async def test_call_qvac_returns_none_on_http_error():
         result = await _call_qvac("system", "question")
 
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _call_qvac — inference ladder routing (issue #160)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_call_qvac_resolves_chat_fast_task_type_and_posts_to_its_endpoint():
+    from app.rag import query_rewriter
+    from app.services import qvac_router
+
+    mock_resp = _mock_qvac_resp("A rewritten query.")
+
+    with patch.object(qvac_router, "resolve_async", new_callable=AsyncMock) as mock_resolve:
+        mock_resolve.return_value = qvac_router.Route(
+            task_type="chat_fast", target="local", base_url="http://diverging-local:9", model="",
+        )
+        with patch("app.rag.query_rewriter.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client.post = AsyncMock(return_value=mock_resp)
+            mock_client_cls.return_value = mock_client
+
+            result = await query_rewriter._call_qvac("system", "question")
+
+    mock_resolve.assert_awaited_once_with("chat_fast")
+    mock_client.post.assert_awaited_once()
+    assert mock_client.post.call_args[0][0] == "http://diverging-local:9/generate"
+    assert result == "A rewritten query."
