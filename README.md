@@ -118,9 +118,12 @@ echo "DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bi
 docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml up --build
 ```
 
-> **First run:** QVAC downloads the embedding model (~670 MB) before it becomes healthy.
-> The `api` and `arq-worker` services wait for QVAC — allow up to 5 minutes.
-> Monitor with: `docker compose logs -f qvac`
+> **First run:** QVAC downloads the embedding model and, unless generation is disabled, the
+> Qwen model over HTTPS (~3.2 GB total). The API and worker wait until QVAC is healthy.
+> View progress with `docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml logs -f qvac`.
+> If the download is interrupted, rerun the startup command with the same Compose project
+> and model volume. If you already cached the default models via the QVAC registry, set
+> `QVAC_MODEL_TRANSPORT=registry` in the root `.env` to reuse that cache.
 
 | Service | URL |
 |---|---|
@@ -157,6 +160,8 @@ Set `ENVIRONMENT=development` to enable Swagger UI and relaxed CORS.
 | Variable | Default | Description |
 |---|---|---|
 | `QVAC_SERVICE_URL` | `http://localhost:3001` | URL of the QVAC Node.js service |
+| `QVAC_MODEL_TRANSPORT` | `https` in Docker, `registry` otherwise | Source for the default model downloads; HTTPS uses pinned copies of the same models |
+| `QVAC_EMB_SRC` | unset | Optional override of the embedding model source |
 | `QVAC_INGEST_DIR` | `./qvac_ingest` | Where the pipeline writes JSONL files for QVAC |
 | `QVAC_INGEST_TIMEOUT` | `300` | Timeout (s) for the QVAC `/ingest` call |
 | `RAG_TOP_K` | `5` | Chunks passed to the LLM after reranking |
