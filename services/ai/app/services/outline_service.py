@@ -431,6 +431,11 @@ async def generate_outline(
 
     # ---- MAP ----
     all_candidates: List[Dict[str, Any]] = []
+    # Documents with no clear section structure (or no extractable content)
+    # contribute nothing to the outline. Skipping them is correct — forcing
+    # content out of material that isn't there would be the misleading
+    # outcome — but it must be visible to the reviewer, not just a server log.
+    skipped_docs: List[str] = []
     docs = db.query(CourseDocument).filter(CourseDocument.id.in_(doc_ids)).all()
 
     for doc_idx, doc in enumerate(docs):
@@ -442,6 +447,8 @@ async def generate_outline(
             logger.info(
                 "outline map: doc %s → %d candidates", doc.id, len(candidates)
             )
+            if not candidates:
+                skipped_docs.append(doc.filename)
         except LlmDisabledError as exc:
             _update_run(run, db, GenerationRunStatus.ERROR, error=f"LLM disabled: {exc}")
             return
@@ -492,7 +499,15 @@ async def generate_outline(
         _update_run(run, db, GenerationRunStatus.ERROR, error=str(exc))
         return
 
-    _update_run(run, db, GenerationRunStatus.DONE, "done")
+    warning = (
+        f"{len(skipped_docs)} of {len(docs)} documents had no usable section "
+        f"structure and were not reflected in this outline: "
+        f"{', '.join(skipped_docs)}. Add structure (headings) or review the "
+        f"document before relying on this outline to cover it."
+        if skipped_docs
+        else None
+    )
+    _update_run(run, db, GenerationRunStatus.DONE, "done", error=warning)
     n_chapters = len(outline.get("chapters", []))
     n_lessons = sum(len(ch.get("lessons", [])) for ch in outline.get("chapters", []))
     logger.info(
