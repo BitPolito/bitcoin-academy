@@ -491,9 +491,17 @@ acceptance bar is "nothing is lost," not "everything is kept forever" — deleti
 removal path, and it is explicit and user-initiated). Revisit this once storage volume or privacy
 requirements call for a TTL; none have surfaced yet.
 
-**Not yet done.** The frontend still treats `localStorage` as a cache that is migrated into a
-server session on first load rather than written to going forward; it is not yet the session list/
-resume/delete surface described in the original design. Tracked as frontend follow-up work.
+**Frontend.** The study workspace lazily creates a server session on first use per course,
+tags every study action (buffered or streamed) with it, and keeps only the session's id in
+`localStorage` — not the messages themselves. On load, it resumes the pointed-to session from the
+server, or, the first time a browser with pre-existing raw-message history visits post-migration,
+imports that history into a new session turn by turn (best-effort) and stops writing the legacy
+key. A history panel lists, resumes and deletes past sessions for the current course.
+
+**Not yet done.** Only study actions persist — the free-form chat (requirement 26) path is
+unaffected. Streamed answers don't return a `turn_id` over SSE, so a streamed turn can't yet be
+linked to feedback specifically (study actions have no feedback UI at all yet, buffered or
+streamed — only the free-form chat path does).
 
 ---
 
