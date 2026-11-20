@@ -297,10 +297,11 @@ def get_document_detail(
 )
 def get_document_preview(
     document_id: str = PathParam(..., description="Document ID"),
+    page: int | None = Query(default=None, ge=1, le=2147483647),
     db: Session = Depends(get_db),
     _current_user: CurrentUser = Depends(get_current_user),
 ):
-    preview = document_service.get_preview(db, document_id)
+    preview = document_service.get_preview(db, document_id, page)
     if preview is None:
         raise NotFoundError(resource="Document", identifier=document_id)
     return preview
