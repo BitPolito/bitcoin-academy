@@ -7,8 +7,19 @@ import remarkGfm from 'remark-gfm';
 import { useToast } from '@/components/ui/Toast';
 import { sendChatMessageStream, submitFeedback, type Citation, type HistoryEntry } from '@/lib/services/chat';
 import { sendStudyAction, sendStudyActionStream } from '@/lib/services/study';
-import type { ApiCitationOut, ApiStudyResponse, StudyAction } from '@/lib/api/types';
+import {
+  createStudySession,
+  getStudySession,
+  importStudyTurn,
+} from '@/lib/services/studySessions';
+import type {
+  ApiCitationOut,
+  ApiStudyResponse,
+  ApiStudyTurnOut,
+  StudyAction,
+} from '@/lib/api/types';
 import type { Lesson } from '@/lib/services/courses';
+import { SessionHistoryPanel } from './SessionHistoryPanel';
 import { StudyActionBar } from './StudyActionBar';
 import { StudyOutput } from './StudyOutput';
 
@@ -270,6 +281,81 @@ function saveMessages(courseId: string, msgs: Message[]) {
   }
 }
 
+// ── Server-side session persistence (issue #136) ─────────────────────────────
+// localStorage now holds only a pointer to the active server session, not the
+// messages themselves — the server is the source of truth. A legacy pointer
+// predating this change (raw messages under STORAGE_PREFIX, no session yet)
+// is migrated into a session once, then the old key is removed.
+
+const ACTIVE_SESSION_PREFIX = 'study:activeSession:';
+
+function activeSessionKey(courseId: string): string {
+  return `${ACTIVE_SESSION_PREFIX}${courseId}`;
+}
+
+function loadActiveSessionId(courseId: string): string | null {
+  try {
+    return localStorage.getItem(activeSessionKey(courseId));
+  } catch {
+    return null;
+  }
+}
+
+function saveActiveSessionId(courseId: string, sessionId: string) {
+  try {
+    localStorage.setItem(activeSessionKey(courseId), sessionId);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function clearActiveSessionId(courseId: string) {
+  try {
+    localStorage.removeItem(activeSessionKey(courseId));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function turnToCitations(citations: ApiCitationOut[]) {
+  return citations.map((c) => ({
+    doc_id: c.doc_id,
+    doc_name: c.label,
+    section: c.section || null,
+    page: c.page || null,
+    slide: c.slide || null,
+    chunk_id: c.chunk_id || null,
+    chunk_type: c.chunk_type || null,
+    snippet: c.snippet,
+  }));
+}
+
+function turnsToMessages(turns: ApiStudyTurnOut[]): ActionMessage[] {
+  return turns.map((t) => ({
+    role: 'action-result',
+    action: t.action as StudyAction,
+    query: t.query,
+    durationMs: t.duration_ms ?? undefined,
+    result: {
+      answer: t.answer,
+      action: t.action,
+      retrieval_used: t.citations.length > 0,
+      turn_id: t.id,
+      citations: t.citations.map((c) => ({
+        snippet: c.snippet,
+        score: 0,
+        label: c.doc_name,
+        page: c.page ?? 0,
+        slide: c.slide ?? 0,
+        section: c.section ?? '',
+        doc_id: c.doc_id,
+        chunk_id: c.chunk_id ?? '',
+        chunk_type: c.chunk_type ?? '',
+      })),
+    },
+  }));
+}
+
 export function OutputPane({
   courseId,
   accessToken,
@@ -297,6 +383,9 @@ export function OutputPane({
   const [retryQuestion, setRetryQuestion] = useState<string | null>(null);
   const [retryAction, setRetryAction] = useState<{ action: StudyAction; query: string } | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [studySessionId, setStudySessionId] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const sessionInitRef = useRef<Promise<string | null> | null>(null);
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -304,8 +393,92 @@ export function OutputPane({
   }, [messages, loading]);
 
   useEffect(() => {
-    if (messages.length > 0) saveMessages(courseId, messages);
-  }, [courseId, messages]);
+    // Server session active: it is now the source of truth, not localStorage.
+    if (!studySessionId && messages.length > 0) saveMessages(courseId, messages);
+  }, [courseId, messages, studySessionId]);
+
+  // On mount: resume the active server session if one exists for this course,
+  // otherwise migrate any pre-existing localStorage history into a fresh one.
+  // Best-effort — a failure here must not block using study actions at all,
+  // it only means the next action lazily creates a session via ensureStudySession.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resumeOrMigrate() {
+      const pointer = loadActiveSessionId(courseId);
+      if (pointer) {
+        try {
+          const detail = await getStudySession(courseId, pointer, accessToken);
+          if (cancelled) return;
+          setMessages(turnsToMessages(detail.turns));
+          setSessionRestored(detail.turns.length > 0);
+          setStudySessionId(detail.id);
+          return;
+        } catch {
+          clearActiveSessionId(courseId);
+        }
+      }
+
+      const legacy = loadStoredMessages(courseId);
+      const legacyResults = legacy.filter((m): m is ActionMessage => m.role === 'action-result');
+      if (legacyResults.length === 0) return;
+
+      try {
+        const created = await createStudySession(courseId, undefined, accessToken);
+        for (const m of legacyResults) {
+          try {
+            await importStudyTurn(courseId, created.id, {
+              action: m.action,
+              query: m.query,
+              answer: m.result.answer,
+              citations: turnToCitations(m.result.citations),
+              duration_ms: m.durationMs ?? null,
+            });
+          } catch {
+            /* one turn failing to import must not abort the rest */
+          }
+        }
+        if (cancelled) return;
+        saveActiveSessionId(courseId, created.id);
+        localStorage.removeItem(`${STORAGE_PREFIX}${courseId}`);
+        setStudySessionId(created.id);
+      } catch {
+        /* migration failed entirely — legacy localStorage content is left in
+           place (still readable via loadStoredMessages) and nothing is lost */
+      }
+    }
+
+    sessionInitRef.current = resumeOrMigrate().then(() => studySessionId);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseId]);
+
+  /** Resolve the active server session, creating one on first use if none exists yet. */
+  async function ensureStudySession(): Promise<string | null> {
+    if (studySessionId) return studySessionId;
+    if (sessionInitRef.current) {
+      await sessionInitRef.current;
+      if (studySessionId) return studySessionId;
+    }
+    try {
+      const created = await createStudySession(courseId, undefined, accessToken);
+      saveActiveSessionId(courseId, created.id);
+      setStudySessionId(created.id);
+      return created.id;
+    } catch {
+      return null;
+    }
+  }
+
+  function startNewSession() {
+    clearActiveSessionId(courseId);
+    localStorage.removeItem(`${STORAGE_PREFIX}${courseId}`);
+    setStudySessionId(null);
+    setMessages([]);
+    setSessionRestored(false);
+  }
 
   // Last action result for drawers
   const lastActionResult = [...messages]
@@ -409,6 +582,9 @@ export function OutputPane({
     setSessionRestored(false);
     setMessages((prev) => [...prev, { role: 'user', content: `[${action}] ${query}` }]);
     const t0 = Date.now();
+    // Best-effort: a session that fails to create still lets the action run,
+    // it just isn't persisted server-side (see StudyDispatchRequest.session_id).
+    const studySessionIdForThisTurn = await ensureStudySession();
 
     // Streaming path: EXPLAIN, SUMMARIZE, DERIVE, COMPARE, OPEN_QUESTIONS stream tokens.
     // Loading spinner stays until first token; then replaced by progressive streaming message.
@@ -441,6 +617,7 @@ export function OutputPane({
           },
           accessToken,
           ragOnly,
+          studySessionIdForThisTurn ?? undefined,
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Study action failed.';
@@ -484,7 +661,9 @@ export function OutputPane({
 
     // Buffered path: QUIZ, ORAL, RETRIEVE, or ragOnly (need full text before parsing).
     try {
-      const result = await sendStudyAction(courseId, action, query, accessToken, ragOnly);
+      const result = await sendStudyAction(
+        courseId, action, query, accessToken, ragOnly, studySessionIdForThisTurn ?? undefined,
+      );
       const durationMs = Date.now() - t0;
       setMessages((prev) => [
         ...prev,
@@ -591,14 +770,7 @@ export function OutputPane({
         {sessionRestored && messages.length > 0 && (
           <div className="flex items-center gap-3 b-thin rounded-md px-3 py-2 font-mono text-[11px] opacity-70">
             <span>Sessione precedente ripristinata</span>
-            <button
-              onClick={() => {
-                setMessages([]);
-                setSessionRestored(false);
-                localStorage.removeItem(`${STORAGE_PREFIX}${courseId}`);
-              }}
-              className="ml-auto underline hover:opacity-100"
-            >
+            <button onClick={startNewSession} className="ml-auto underline hover:opacity-100">
               Ricomincia da zero
             </button>
           </div>
@@ -883,6 +1055,37 @@ export function OutputPane({
           >
             ⌖ RAG only
           </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowHistory((v) => !v)}
+              title="Past study sessions for this course"
+              className="chip text-[10px] opacity-60 hover:opacity-100 transition-opacity"
+              style={{ border: '1px solid currentColor' }}
+            >
+              ⏱ History
+            </button>
+            {showHistory && (
+              <SessionHistoryPanel
+                courseId={courseId}
+                accessToken={accessToken}
+                currentSessionId={studySessionId}
+                onClose={() => setShowHistory(false)}
+                onResume={async (sessionId) => {
+                  try {
+                    const detail = await getStudySession(courseId, sessionId, accessToken);
+                    setMessages(turnsToMessages(detail.turns));
+                    setSessionRestored(detail.turns.length > 0);
+                    setStudySessionId(detail.id);
+                    saveActiveSessionId(courseId, detail.id);
+                  } catch {
+                    showToast('Could not load that session.', 'err');
+                  }
+                  setShowHistory(false);
+                }}
+                onDeletedCurrent={startNewSession}
+              />
+            )}
+          </div>
           {lastActionResult && (
             <span className="ml-auto font-mono text-[10px] opacity-50">
               {lastActionResult.result.citations.length} sources ·{' '}

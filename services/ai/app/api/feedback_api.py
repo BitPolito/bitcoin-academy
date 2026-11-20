@@ -19,6 +19,17 @@ class FeedbackRequest(BaseModel):
     answer: str = Field(..., max_length=10000)
     rating: int = Field(..., description="1 = helpful, -1 = not helpful")
     comment: Optional[str] = Field(default=None, max_length=1000)
+    turn_id: Optional[str] = Field(
+        default=None,
+        max_length=36,
+        description=(
+            "Id of the persisted study_turn this feedback is about (issue #136), "
+            "when the answer came from a study session. Not verified against the "
+            "caller's own sessions here — an invalid/foreign id is stored as-is "
+            "(FK is ON DELETE SET NULL) since feedback is additive signal, not an "
+            "authorization-sensitive read."
+        ),
+    )
 
     model_config = {"json_schema_extra": {"example": {"session_id": "abc123", "question": "What is UTXO?", "answer": "A UTXO is...", "rating": 1}}}
 
@@ -53,6 +64,7 @@ async def submit_feedback(
             answer=body.answer,
             rating=body.rating,
             comment=body.comment,
+            turn_id=body.turn_id,
         )
         db.add(record)
         db.commit()

@@ -469,11 +469,47 @@ and student-facing lesson lists expose published content only.
 
 ---
 
+### 29. Server-side study session persistence — ✅ Implemented
+
+Study history must survive logout, a browser change, or a different device — not live only in
+`localStorage`, which is lost on cleared site data and never exists on a second device.
+
+**Implementation.** `study_session` and `study_turn` tables persist each study interaction
+(question, answer, citations, action, duration, model tier), scoped to one user and one course.
+`POST /courses/{course_id}/study` and `/study/stream` accept an optional `session_id`; when given
+and owned by the caller, the resulting turn is appended server-side (the streaming path persists
+once the stream completes, never a partial answer). `GET/POST/DELETE
+/courses/{course_id}/sessions[/{id}]` list, create, fetch and delete sessions, every lookup scoped
+to the requesting user and course so a session_id from the wrong course or another user's session
+is reported as not-found, never confirmed or leaked. Citations are stored with `doc_id`, `page`/
+`slide`/`section` and `chunk_id`, so a restored turn still resolves to its exact source chunk.
+Feedback submitted on a study answer can carry the turn's id (`AnswerFeedback.turn_id`, nullable,
+`ON DELETE SET NULL`), tracing the signal back to what was actually asked — see requirement 27.
+
+**Retention.** No automatic expiry: a session persists until the user explicitly deletes it (the
+acceptance bar is "nothing is lost," not "everything is kept forever" — deletion is the only
+removal path, and it is explicit and user-initiated). Revisit this once storage volume or privacy
+requirements call for a TTL; none have surfaced yet.
+
+**Frontend.** The study workspace lazily creates a server session on first use per course,
+tags every study action (buffered or streamed) with it, and keeps only the session's id in
+`localStorage` — not the messages themselves. On load, it resumes the pointed-to session from the
+server, or, the first time a browser with pre-existing raw-message history visits post-migration,
+imports that history into a new session turn by turn (best-effort) and stops writing the legacy
+key. A history panel lists, resumes and deletes past sessions for the current course.
+
+**Not yet done.** Only study actions persist — the free-form chat (requirement 26) path is
+unaffected. Streamed answers don't return a `turn_id` over SSE, so a streamed turn can't yet be
+linked to feedback specifically (study actions have no feedback UI at all yet, buffered or
+streamed — only the free-form chat path does).
+
+---
+
 ## Summary
 
 | Status | Count | Requirements |
 |---|---|---|
-| ✅ Implemented | 23 | 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23, 26, 27, 28 |
+| ✅ Implemented | 24 | 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23, 26, 27, 28, 29 |
 | 🟡 Partial | 3 | 8, 15, 20 |
 | 🔴 Not implemented | 2 | 24, 25 |
 

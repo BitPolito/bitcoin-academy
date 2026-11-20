@@ -9,8 +9,14 @@ export async function sendStudyAction(
   query: string,
   accessToken?: string,
   ragOnly?: boolean,
+  sessionId?: string,
 ): Promise<ApiStudyResponse> {
-  const body: ApiStudyRequest = { action, query, ...(ragOnly ? { rag_only: true } : {}) };
+  const body: ApiStudyRequest = {
+    action,
+    query,
+    ...(ragOnly ? { rag_only: true } : {}),
+    ...(sessionId ? { session_id: sessionId } : {}),
+  };
   return apiFetch<ApiStudyResponse>(`/courses/${courseId}/study`, {
     method: 'POST',
     body,
@@ -35,11 +41,17 @@ export async function sendStudyActionStream(
   onCitations: (citations: ApiCitationOut[]) => void,
   accessToken?: string,
   ragOnly?: boolean,
+  sessionId?: string,
 ): Promise<void> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
 
-  const body: ApiStudyRequest = { action, query, ...(ragOnly ? { rag_only: true } : {}) };
+  const body: ApiStudyRequest = {
+    action,
+    query,
+    ...(ragOnly ? { rag_only: true } : {}),
+    ...(sessionId ? { session_id: sessionId } : {}),
+  };
 
   const response = await fetch(`${API_BASE_URL}/courses/${courseId}/study/stream`, {
     method: 'POST',

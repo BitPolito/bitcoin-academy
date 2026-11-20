@@ -551,3 +551,217 @@ def test_study_rag_only_defaults_to_false(client, db):
 
     # With no sources, generation is still attempted (rag_only defaulted to False)
     assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Session persistence (issue #136)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_study_persists_turn_when_session_id_given(client, db):
+    user = make_user(db)
+    course, _ = make_course_with_lessons(db)
+
+    created = client.post(
+        f"/api/courses/{course.id}/sessions", json={}, headers=_auth(user.id)
+    )
+    session_id = created.json()["id"]
+
+    with patch(
+        "app.services.study_service._qvac_client.post",
+        new_callable=AsyncMock,
+        return_value=_qvac_with_sources(),
+    ):
+        resp = client.post(
+            f"/api/courses/{course.id}/study",
+            json={**_study_payload("retrieve", "What is proof-of-work?"), "session_id": session_id},
+            headers=_auth(user.id),
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["turn_id"]
+
+    detail = client.get(f"/api/courses/{course.id}/sessions/{session_id}", headers=_auth(user.id))
+    turns = detail.json()["turns"]
+    assert len(turns) == 1
+    assert turns[0]["id"] == resp.json()["turn_id"]
+    assert turns[0]["query"] == "What is proof-of-work?"
+    assert len(turns[0]["citations"]) == 2
+    # Citations resolve back to chunk, not just document — see SourceChunk.chunk_id.
+    assert turns[0]["citations"][0]["chunk_id"]
+
+
+@pytest.mark.integration
+def test_study_without_session_id_does_not_persist(client, db):
+    """session_id is optional — omitting it must not create any session/turn."""
+    user = make_user(db)
+    course, _ = make_course_with_lessons(db)
+
+    with patch(
+        "app.services.study_service._qvac_client.post",
+        new_callable=AsyncMock,
+        return_value=_qvac_with_sources(),
+    ):
+        resp = client.post(
+            f"/api/courses/{course.id}/study",
+            json=_study_payload("retrieve", "What is proof-of-work?"),
+            headers=_auth(user.id),
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["turn_id"] is None
+    listed = client.get(f"/api/courses/{course.id}/sessions", headers=_auth(user.id))
+    assert listed.json() == []
+
+
+@pytest.mark.integration
+def test_study_with_foreign_session_id_still_succeeds(client, db):
+    """A session_id belonging to another user must not fail the study action —
+    it's silently not persisted (see StudyDispatchRequest.session_id)."""
+    owner = make_user(db)
+    intruder = make_user(db)
+    course, _ = make_course_with_lessons(db)
+
+    created = client.post(
+        f"/api/courses/{course.id}/sessions", json={}, headers=_auth(owner.id)
+    )
+    session_id = created.json()["id"]
+
+    with patch(
+        "app.services.study_service._qvac_client.post",
+        new_callable=AsyncMock,
+        return_value=_qvac_with_sources(),
+    ):
+        resp = client.post(
+            f"/api/courses/{course.id}/study",
+            json={**_study_payload("retrieve", "What is proof-of-work?"), "session_id": session_id},
+            headers=_auth(intruder.id),
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["turn_id"] is None
+
+    # The owner's session gained no turn from the intruder's request.
+    detail = client.get(f"/api/courses/{course.id}/sessions/{session_id}", headers=_auth(owner.id))
+    assert detail.json()["turns"] == []
+
+
+@pytest.mark.integration
+def test_study_with_unknown_session_id_still_succeeds(client, db):
+    user = make_user(db)
+    course, _ = make_course_with_lessons(db)
+
+    with patch(
+        "app.services.study_service._qvac_client.post",
+        new_callable=AsyncMock,
+        return_value=_qvac_empty(),
+    ):
+        resp = client.post(
+            f"/api/courses/{course.id}/study",
+            json={**_study_payload("retrieve", "What is proof-of-work?"), "session_id": "does-not-exist"},
+            headers=_auth(user.id),
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["turn_id"] is None
+
+
+@pytest.mark.integration
+def test_study_stream_persists_turn_on_completion(client, db):
+    """Streaming must persist the full accumulated answer + citations once the
+    stream completes, same as the buffered endpoint (issue #136)."""
+    from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk, EvidencePack
+    from app.services import study_service
+
+    user = make_user(db)
+    course, _ = make_course_with_lessons(db)
+    headers = _auth(user.id)
+
+    session_id = client.post(
+        f"/api/courses/{course.id}/sessions", json={}, headers=headers
+    ).json()["id"]
+
+    chunk = EvidenceChunk(
+        chunk_id="c1", text="source passage", score=0.9,
+        anchor=CitationAnchor(doc_id="d1", doc_name="source.pdf", page=1, chunk_id="c1", chunk_type="paragraph"),
+    )
+    pack = EvidencePack(
+        query="question", action="retrieve", chunks=[chunk], total_candidates=1,
+        ordering=[0], deduped_passages=[chunk.text],
+    )
+
+    with patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"), \
+         patch.object(study_service, "_retrieve_multi", return_value=("", pack)):
+        resp = client.post(
+            f"/api/courses/{course.id}/study/stream",
+            json={**_study_payload("retrieve", "What is proof-of-work?"), "session_id": session_id},
+            headers=headers,
+        )
+
+    assert resp.status_code == 200
+    frames = [line[6:] for line in resp.text.splitlines() if line.startswith("data: ")]
+    assert frames[-1] == "[DONE]"
+
+    detail = client.get(f"/api/courses/{course.id}/sessions/{session_id}", headers=headers)
+    turns = detail.json()["turns"]
+    assert len(turns) == 1
+    assert turns[0]["query"] == "What is proof-of-work?"
+    assert len(turns[0]["citations"]) == 1
+    assert turns[0]["citations"][0]["chunk_id"] == "c1"
+
+
+@pytest.mark.integration
+def test_study_stream_does_not_persist_on_interruption(client, db):
+    """An interrupted stream must not persist a partial turn — mirrors the
+    'partial answer is not cached' rule already enforced for the semantic cache."""
+    import httpx
+    from contextlib import asynccontextmanager
+    from unittest.mock import MagicMock
+    from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk, EvidencePack
+    from app.services import study_service
+
+    user = make_user(db)
+    course, _ = make_course_with_lessons(db)
+    headers = _auth(user.id)
+
+    session_id = client.post(
+        f"/api/courses/{course.id}/sessions", json={}, headers=headers
+    ).json()["id"]
+
+    chunk = EvidenceChunk(
+        chunk_id="c1", text="source passage", score=0.9,
+        anchor=CitationAnchor(doc_id="d1", doc_name="source.pdf", page=1, chunk_id="c1", chunk_type="paragraph"),
+    )
+    pack = EvidencePack(
+        query="question", action="explain", chunks=[chunk], total_candidates=1,
+        ordering=[0], deduped_passages=[chunk.text],
+    )
+
+    async def lines():
+        yield 'data: "Partial answer"'
+        raise httpx.ReadError("upstream dropped")
+
+    response = MagicMock()
+    response.aiter_lines = lines
+
+    @asynccontextmanager
+    async def stream(*args, **kwargs):
+        yield response
+
+    upstream = MagicMock()
+    upstream.stream = stream
+    with patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"), \
+         patch.object(study_service, "_retrieve_multi", return_value=("", pack)), \
+         patch.object(study_service, "_qvac_gen_client", upstream), \
+         patch.object(study_service, "_generate", new_callable=AsyncMock):
+        resp = client.post(
+            f"/api/courses/{course.id}/study/stream",
+            json={**_study_payload("explain", "What is Bitcoin?"), "session_id": session_id},
+            headers=headers,
+        )
+
+    assert resp.status_code == 200
+    detail = client.get(f"/api/courses/{course.id}/sessions/{session_id}", headers=headers)
+    assert detail.json()["turns"] == []

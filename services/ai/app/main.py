@@ -21,6 +21,7 @@ from app.api.content_api import router as content_router
 from app.api.outline_api import router as outline_router
 from app.api.quizzes_api import router as quizzes_router
 from app.api.study_api import router as study_router
+from app.api.study_session_api import router as study_session_router
 from app.db.session import init_db, get_db
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
@@ -157,6 +158,7 @@ app.include_router(content_router)
 app.include_router(outline_router)
 app.include_router(quizzes_router)
 app.include_router(study_router)
+app.include_router(study_session_router)
 
 if settings.DEBUG_MODE:
     from app.api.debug_api import router as debug_router

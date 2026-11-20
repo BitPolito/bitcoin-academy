@@ -512,6 +512,10 @@ class AnswerFeedback(Base):
     id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid.uuid4())
     )
+    # Client-chosen chat session id — predates persisted study sessions (#136)
+    # and is kept for the chat (non-study) feedback path, which has no
+    # persisted turn to link to. turn_id below is the real, server-verified
+    # link for feedback on a persisted study turn.
     session_id: Mapped[str] = mapped_column(String, index=True)
     course_id: Mapped[str] = mapped_column(String, index=True)
     question: Mapped[str] = mapped_column(Text)
@@ -519,6 +523,9 @@ class AnswerFeedback(Base):
     rating: Mapped[int] = mapped_column(Integer)  # 1 = helpful, -1 = not helpful
     comment: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[str] = mapped_column(String, default=func.now())
+    turn_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("study_turn.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
 
 # 12. Certificates
@@ -542,3 +549,71 @@ class Certificate(Base):
 
     user: Mapped["User"] = relationship(back_populates="certificates")
     course: Mapped["Course"] = relationship(back_populates="certificates")
+
+
+# 13. Study sessions (server-side persistence of study history — issue #136)
+class StudySession(Base):
+    """A discrete study session: one user working on one course."""
+
+    __tablename__ = "study_session"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(ForeignKey("app_user.id"))
+    course_id: Mapped[str] = mapped_column(ForeignKey("course.id"))
+    title: Mapped[Optional[str]] = mapped_column(String)
+    # Timestamps are written at the application layer (datetime.now(timezone.utc)
+    # .isoformat()), not via a DB-side default/onupdate — a DB-side func.now() would
+    # write a different clock/format (UTC via the DB function) than the naive-local
+    # values the repository used to write elsewhere, which made renaming a session
+    # reorder it incorrectly in the session list.
+    started_at: Mapped[str] = mapped_column(String)
+    last_active_at: Mapped[str] = mapped_column(String)
+
+    turns: Mapped[List["StudyTurn"]] = relationship(
+        back_populates="session",
+        # SQLite does not enforce ON DELETE CASCADE at the DB level unless foreign
+        # keys are turned on for the connection (off by default), so the cascade
+        # relied upon today is this ORM-level one, not the "ondelete" on StudyTurn's
+        # FK below. See test_deleting_session_cascades_turns, which exercises the
+        # ORM delete path specifically.
+        cascade="all, delete-orphan",
+        order_by="StudyTurn.created_at",
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_study_session_user_course_last_active",
+            "user_id",
+            "course_id",
+            "last_active_at",
+        ),
+    )
+
+
+class StudyTurn(Base):
+    """One query/answer exchange within a study session."""
+
+    __tablename__ = "study_turn"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("study_session.id", ondelete="CASCADE")
+    )
+    action: Mapped[str] = mapped_column(String)
+    query: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text)
+    # JSON-encoded list of citation anchors (doc/page/slide/chunk_id/snippet).
+    citations_json: Mapped[str] = mapped_column(Text, default="[]")
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    model_tier: Mapped[Optional[str]] = mapped_column(String)
+    created_at: Mapped[str] = mapped_column(String)
+
+    session: Mapped["StudySession"] = relationship(back_populates="turns")
+
+    __table_args__ = (
+        Index("ix_study_turn_session_created_at", "session_id", "created_at"),
+    )
