@@ -15,6 +15,8 @@ await mock.module("@qvac/sdk", {
     loadModel: mockLoadModel,
     unloadModel: mockUnloadModel,
     close: mock.fn(),
+    embed: mock.fn(async () => ({ embedding: [0] })),
+    completion: mock.fn(() => ({ text: Promise.resolve("") })),
     GTE_LARGE_FP16: {},
     QWEN3_4B_INST_Q4_K_M: {},
   },
