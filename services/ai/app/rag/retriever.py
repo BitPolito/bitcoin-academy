@@ -133,7 +133,8 @@ async def unified_retrieval(
     *question* drives BM25, reranking and MMR. *reranked* are the selected
     child chunks (citations); *context_chunks* are their parent-expanded form.
 
-    Primary dense source: QVAC (GTE-Large embeddings).
+    Primary dense source: QVAC (GTE-Large embeddings by default; configurable
+    via the qvac-service QVAC_EMBEDDING_MODEL env var, see #324).
     Fallback dense source: ChromaDB (all-MiniLM-L6-v2) when QVAC /retrieve is unavailable.
     Raises httpx.HTTPError only when BOTH sources fail.
     """

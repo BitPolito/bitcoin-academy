@@ -66,7 +66,9 @@ _register_module_aliases()
 # ---------------------------------------------------------------------------
 _PARENT_WORDS = 1200    # parent chunk: LLM context window (≈ 1500 tokens)
 _CHILD_WORDS = 150      # child chunk: retrieval unit (≈ 200 tokens)
-_CHILD_MAX_WORDS = 350  # hard cap: single long sentence can exceed 150-word target; 350 ≈ 455 tokens (GTE-Large limit 512)
+_CHILD_MAX_WORDS = 350  # hard cap: single long sentence can exceed 150-word target; 350 ≈ 455 tokens
+# (default embedding model GTE-Large limit 512; revisit if QVAC_EMBEDDING_MODEL
+# switches to a model with a different max sequence length, see #324)
 # Word caps do not bound tokens: hex, CLI output and JSON tokenize far denser
 # than prose, and QVAC rejects the whole ingest batch when one chunk exceeds the
 # embedding model's 512-token context (#228). Every child is capped by an
