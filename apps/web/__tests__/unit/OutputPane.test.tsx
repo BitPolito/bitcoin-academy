@@ -300,7 +300,9 @@ describe('OutputPane', () => {
       fireEvent.change(screen.getByRole('textbox', { name: /message input/i }), { target: { value: 'Different question' } });
       fireEvent.click(screen.getByRole('button', { name: /retry/i }));
       await waitFor(() => expect(screen.getByText('Complete answer')).toBeInTheDocument());
-      expect(mockStudyStream).toHaveBeenLastCalledWith('course-123', 'explain', 'Original question', expect.any(Function), expect.any(Function), 'tok', false);
+      expect(mockStudyStream).toHaveBeenLastCalledWith(
+        'course-123', 'explain', 'Original question', expect.any(Function), expect.any(Function), 'tok', false, undefined,
+      );
       expect(onActionResult).toHaveBeenCalledTimes(1);
       expect(mockSend).not.toHaveBeenCalled();
     });
