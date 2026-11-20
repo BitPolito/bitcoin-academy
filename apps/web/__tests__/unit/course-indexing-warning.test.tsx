@@ -28,14 +28,14 @@ jest.mock('@/lib/services/courses', () => ({
 }));
 
 jest.mock('@/lib/api/documents', () => ({
-  getDocumentListRows: jest.fn(),
+  getDocumentListPage: jest.fn(),
   deleteDocument: jest.fn(),
   reindexCourse: jest.fn(),
 }));
 
-import { getDocumentListRows } from '@/lib/api/documents';
+import { getDocumentListPage } from '@/lib/api/documents';
 
-const mockGetDocs = getDocumentListRows as jest.Mock;
+const mockGetDocs = getDocumentListPage as jest.Mock;
 
 function row(indexingStatus: string | null) {
   return {
@@ -59,13 +59,13 @@ it.each([
   ['qvac_failed', /Semantic indexing failed/],
   ['qvac_pending', /Semantic index pending/],
 ])('warns about a %s dense index on a ready document', async (status, text) => {
-  mockGetDocs.mockResolvedValue([row(status)]);
+  mockGetDocs.mockResolvedValue({ items: [row(status)], next_cursor: null });
   render(<CourseWorkspacePage />);
   expect(await screen.findByRole('status')).toHaveTextContent(text);
 });
 
 it('shows no warning for an indexed document', async () => {
-  mockGetDocs.mockResolvedValue([row('indexed')]);
+  mockGetDocs.mockResolvedValue({ items: [row('indexed')], next_cursor: null });
   render(<CourseWorkspacePage />);
   expect((await screen.findAllByText('notes.pdf')).length).toBeGreaterThan(0);
   expect(screen.queryByText(/Semantic index/)).not.toBeInTheDocument();

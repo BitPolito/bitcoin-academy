@@ -29,14 +29,14 @@ jest.mock('@/lib/services/courses', () => ({
 }));
 
 jest.mock('@/lib/api/documents', () => ({
-  getDocumentListRows: jest.fn(),
+  getDocumentListPage: jest.fn(),
   deleteDocument: jest.fn(),
   reindexCourse: jest.fn(async () => ({ enqueued: 2, skipped: 0 })),
 }));
 
-import { getDocumentListRows } from '@/lib/api/documents';
+import { getDocumentListPage } from '@/lib/api/documents';
 
-const mockGetDocs = getDocumentListRows as jest.Mock;
+const mockGetDocs = getDocumentListPage as jest.Mock;
 
 const row = (id: string, filename: string) => ({
   id,
@@ -48,7 +48,10 @@ const row = (id: string, filename: string) => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockGetDocs.mockResolvedValue([row('doc-a', 'alpha.pdf'), row('doc-b', 'beta.pdf')]);
+  mockGetDocs.mockResolvedValue({
+    items: [row('doc-a', 'alpha.pdf'), row('doc-b', 'beta.pdf')],
+    next_cursor: null,
+  });
 });
 
 const detailHeading = () => screen.getByRole('heading', { level: 3 });
