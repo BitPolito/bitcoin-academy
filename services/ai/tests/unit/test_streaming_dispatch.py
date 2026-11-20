@@ -388,8 +388,34 @@ async def test_stream_dispatch_final_fallback_prefers_the_evidence_pack():
 
 
 @pytest.mark.asyncio
-async def test_stream_dispatch_buffered_action_fallback_prefers_the_evidence_pack():
-    """QUIZ/ORAL are buffered: a failed generation must also surface the pack."""
+async def test_stream_dispatch_streams_quiz_tokens_progressively():
+    """#327 regression: QUIZ used to be forced into a fully-buffered path
+    (`_generate()` then a single yield) even on /study/stream, so the client
+    never saw live tokens for it. It must now stream exactly like EXPLAIN."""
+    pack = _pack_with_one_chunk()
+
+    async def _fake_stream_generate(*args, **kwargs):
+        for tok in ["Q: What is a UTXO?\n", "A) ...\n", "Answer: A"]:
+            yield tok
+
+    with patch("app.services.cache_service.get_cached", return_value=None), \
+         patch("app.services.cache_service.set_cached"), \
+         patch.object(study_service, "_retrieve_multi", return_value=("", pack)), \
+         patch.object(study_service, "_stream_generate", side_effect=_fake_stream_generate) as mock_stream:
+        chunks = await _drain(
+            study_service.stream_dispatch("Quiz me", COURSE_ID, StudyAction.QUIZ)
+        )
+
+    mock_stream.assert_called_once()
+    assert chunks[:3] == ["Q: What is a UTXO?\n", "A) ...\n", "Answer: A"]
+    assert chunks[-1].startswith(_CITATIONS_SENTINEL)
+
+
+@pytest.mark.asyncio
+async def test_stream_dispatch_quiz_falls_back_to_the_evidence_pack_when_generation_fails():
+    """Same fallback chain as every other streaming action (see
+    test_stream_dispatch_final_fallback_prefers_the_evidence_pack) — QUIZ no
+    longer has a special buffered-only code path."""
     from app.schemas.evidence_pack import EvidencePack, EvidenceChunk, CitationAnchor
 
     chunk = EvidenceChunk(
@@ -404,9 +430,14 @@ async def test_stream_dispatch_buffered_action_fallback_prefers_the_evidence_pac
         ordering=[0], deduped_passages=["quiz source passage"],
     )
 
+    async def _empty_stream(*args, **kwargs):
+        return
+        yield  # pragma: no cover
+
     with patch("app.services.cache_service.get_cached", return_value=None), \
          patch("app.services.cache_service.set_cached"), \
          patch.object(study_service, "_retrieve_multi", return_value=("", pack)), \
+         patch.object(study_service, "_stream_generate", side_effect=_empty_stream), \
          patch.object(study_service, "_generate", new=AsyncMock(return_value=None)):
         chunks = await _drain(
             study_service.stream_dispatch("Quiz me", COURSE_ID, StudyAction.QUIZ)
