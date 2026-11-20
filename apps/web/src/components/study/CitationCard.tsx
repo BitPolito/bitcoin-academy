@@ -12,21 +12,21 @@ interface CitationCardProps {
 export function CitationCard({ citation, courseId, index }: CitationCardProps) {
   const router = useRouter();
 
-  const locationLabel = citation.page
-    ? `p.${citation.page}`
-    : citation.slide
-      ? `slide ${citation.slide}`
+  const locationLabel = citation.slide
+    ? `Slide ${citation.slide}`
+    : citation.page
+      ? `p.${citation.page}`
       : null;
 
-  const label = [citation.label || null, locationLabel].filter(Boolean).join(' · ') || 'Source';
+  const label = Array.from(new Set([citation.label || null, locationLabel].filter(Boolean))).join(' · ') || 'Source';
   const snippet =
     citation.snippet.length > 180 ? citation.snippet.slice(0, 180) + '…' : citation.snippet;
 
   function handleClick() {
     if (!citation.doc_id) return;
     const params = new URLSearchParams();
-    if (citation.page) params.set('page', String(citation.page));
-    else if (citation.slide) params.set('slide', String(citation.slide));
+    if (citation.slide) params.set('slide', String(citation.slide));
+    else if (citation.page) params.set('page', String(citation.page));
     const query = params.toString();
     router.push(
       `/courses/${courseId}/documents/${citation.doc_id}/preview${query ? `?${query}` : ''}`

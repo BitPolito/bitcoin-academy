@@ -184,6 +184,9 @@ must be able to inspect and navigate back to the relevant source location.
 **Implementation.** The model emits inline `[ref_N]` markers which are parsed back into citation
 objects carrying document, page, slide and section. The UI renders citation cards and a source pane
 that navigates to the originating passage.
+PowerPoint citation links open passages from the cited slide, even when the slide is outside
+the initial document preview sample. Older PowerPoint links using a page parameter also
+resolve by slide number.
 
 Original uploads are retained after ingestion until their document or course is
 deleted. PDF previews fetch the source with the signed-in user's bearer token and
