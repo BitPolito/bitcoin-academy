@@ -25,14 +25,28 @@ def _to_session_response(record: StudySession, turn_count: int) -> StudySessionO
     )
 
 
+def _to_citation(raw: dict) -> Optional[TurnCitationOut]:
+    """Build a citation anchor from stored JSON, degrading gracefully.
+
+    A citation stored without a doc_id (e.g. imported from a client payload
+    that never carried one, as the planned localStorage import will) must
+    not blow up the whole turn — it is dropped rather than raised.
+    """
+    try:
+        return TurnCitationOut(**raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def _to_turn_response(record: StudyTurn) -> StudyTurnOut:
     raw_citations = json.loads(record.citations_json or "[]")
+    citations = [_to_citation(c) for c in raw_citations]
     return StudyTurnOut(
         id=record.id,
         action=record.action,
         query=record.query,
         answer=record.answer,
-        citations=[TurnCitationOut(**c) for c in raw_citations],
+        citations=[c for c in citations if c is not None],
         duration_ms=record.duration_ms,
         model_tier=record.model_tier,
         created_at=str(record.created_at),
@@ -47,11 +61,8 @@ def create_session(
 
 
 def list_sessions(db: Session, user_id: str, course_id: str) -> List[StudySessionOut]:
-    records = study_session_repo.list_sessions(db, user_id, course_id)
-    return [
-        _to_session_response(r, study_session_repo.count_turns(db, r.id))
-        for r in records
-    ]
+    rows = study_session_repo.list_sessions_with_turn_counts(db, user_id, course_id)
+    return [_to_session_response(record, turn_count) for record, turn_count in rows]
 
 
 def get_session(
@@ -81,6 +92,7 @@ def delete_session(db: Session, user_id: str, session_id: str) -> bool:
 
 def append_turn(
     db: Session,
+    user_id: str,
     session_id: str,
     action: str,
     query: str,
@@ -88,10 +100,17 @@ def append_turn(
     citations: List[TurnCitationOut],
     duration_ms: Optional[int] = None,
     model_tier: Optional[str] = None,
-) -> StudyTurnOut:
+) -> Optional[StudyTurnOut]:
+    """Append a turn to a session owned by user_id.
+
+    Returns None — matching get_session's pattern — if the session does not
+    exist or belongs to another user, instead of writing the turn against an
+    arbitrary session_id.
+    """
     citations_json = json.dumps([c.model_dump() for c in citations])
     record = study_session_repo.append_turn(
         db,
+        user_id,
         session_id,
         action,
         query,
@@ -100,4 +119,6 @@ def append_turn(
         duration_ms,
         model_tier,
     )
+    if record is None:
+        return None
     return _to_turn_response(record)

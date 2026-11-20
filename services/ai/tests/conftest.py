@@ -143,7 +143,7 @@ def make_course_with_lessons(db: Session, n_lessons: int = 2):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="function")
-def client(db: Session) -> TestClient:
+def client(db: Session, monkeypatch) -> TestClient:
     # The override creates a new Session from the same engine per request,
     # so each endpoint call gets a fresh session connected to the same in-memory DB.
     _engine = db.get_bind()
@@ -157,6 +157,14 @@ def client(db: Session) -> TestClient:
             session.close()
 
     app.dependency_overrides[get_db] = _override_get_db
+
+    # get_db_context() (used outside FastAPI's DI — feedback_api, study_api's
+    # session persistence, background-task fallbacks) reads app.db.session's
+    # module-level SessionLocal directly, which dependency_overrides above does
+    # NOT touch. Without this, those code paths silently hit the real
+    # DATABASE_URL engine instead of the in-memory test DB.
+    monkeypatch.setattr("app.db.session.SessionLocal", _SessionLocal)
+
     c = TestClient(app)
     yield c
     app.dependency_overrides.pop(get_db, None)

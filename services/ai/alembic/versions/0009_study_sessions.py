@@ -29,6 +29,11 @@ def upgrade() -> None:
             sa.Column("started_at", sa.String(), nullable=False),
             sa.Column("last_active_at", sa.String(), nullable=False),
         )
+        op.create_index(
+            "ix_study_session_user_course_last_active",
+            "study_session",
+            ["user_id", "course_id", "last_active_at"],
+        )
     if "study_turn" not in existing_tables:
         op.create_table(
             "study_turn",
@@ -46,6 +51,11 @@ def upgrade() -> None:
             sa.Column("duration_ms", sa.Integer(), nullable=True),
             sa.Column("model_tier", sa.String(), nullable=True),
             sa.Column("created_at", sa.String(), nullable=False),
+        )
+        op.create_index(
+            "ix_study_turn_session_created_at",
+            "study_turn",
+            ["session_id", "created_at"],
         )
 
 

@@ -51,6 +51,7 @@ def test_append_turn_updates_turn_count_and_last_active(db):
     )
     turn = study_session_service.append_turn(
         db,
+        user.id,
         session.id,
         action="explain",
         query="What is a UTXO?",
@@ -58,6 +59,7 @@ def test_append_turn_updates_turn_count_and_last_active(db):
         citations=[citation],
     )
 
+    assert turn is not None
     assert turn.citations[0].chunk_id == "chunk-1"
     assert turn.citations[0].doc_id == "doc-1"
 
@@ -104,10 +106,96 @@ def test_deleting_session_cascades_turns(db):
     course, _ = make_course_with_lessons(db, n_lessons=1)
     session = study_session_service.create_session(db, user.id, course.id)
     study_session_service.append_turn(
-        db, session.id, action="explain", query="q", answer="a", citations=[]
+        db, user.id, session.id, action="explain", query="q", answer="a", citations=[]
     )
 
     study_session_service.delete_session(db, user.id, session.id)
 
     from app.repositories import study_session_repo
     assert study_session_repo.list_turns(db, session.id) == []
+
+
+@pytest.mark.unit
+def test_append_turn_returns_none_for_other_user(db):
+    owner = make_user(db)
+    intruder = make_user(db)
+    course, _ = make_course_with_lessons(db, n_lessons=1)
+    session = study_session_service.create_session(db, owner.id, course.id)
+
+    result = study_session_service.append_turn(
+        db,
+        intruder.id,
+        session.id,
+        action="explain",
+        query="q",
+        answer="a",
+        citations=[],
+    )
+
+    assert result is None
+    # No orphan turn was written against the session the intruder doesn't own.
+    from app.repositories import study_session_repo
+    assert study_session_repo.list_turns(db, session.id) == []
+
+
+@pytest.mark.unit
+def test_append_turn_returns_none_for_unknown_session(db):
+    user = make_user(db)
+
+    result = study_session_service.append_turn(
+        db,
+        user.id,
+        "does-not-exist",
+        action="explain",
+        query="q",
+        answer="a",
+        citations=[],
+    )
+
+    assert result is None
+
+
+@pytest.mark.unit
+def test_get_session_drops_citation_missing_doc_id(db):
+    """A stored citation without doc_id degrades gracefully instead of raising
+    (matters for the planned localStorage import, which won't always have one)."""
+    import json
+
+    user = make_user(db)
+    course, _ = make_course_with_lessons(db, n_lessons=1)
+    session = study_session_service.create_session(db, user.id, course.id)
+
+    from app.repositories import study_session_repo
+
+    study_session_repo.append_turn(
+        db,
+        user.id,
+        session.id,
+        action="explain",
+        query="q",
+        answer="a",
+        citations_json=json.dumps([{"snippet": "no doc_id here"}]),
+    )
+
+    detail = study_session_service.get_session(db, user.id, session.id)
+
+    assert detail is not None
+    assert detail.turns[0].citations == []
+
+
+@pytest.mark.unit
+def test_list_sessions_single_query_turn_counts(db):
+    """list_sessions must not run a per-session COUNT query (N+1)."""
+    user = make_user(db)
+    course, _ = make_course_with_lessons(db, n_lessons=1)
+    s1 = study_session_service.create_session(db, user.id, course.id)
+    s2 = study_session_service.create_session(db, user.id, course.id)
+    study_session_service.append_turn(
+        db, user.id, s1.id, action="explain", query="q", answer="a", citations=[]
+    )
+
+    sessions = study_session_service.list_sessions(db, user.id, course.id)
+    by_id = {s.id: s for s in sessions}
+
+    assert by_id[s1.id].turn_count == 1
+    assert by_id[s2.id].turn_count == 0
