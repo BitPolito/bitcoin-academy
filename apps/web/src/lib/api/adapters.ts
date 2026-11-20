@@ -34,6 +34,7 @@ export function toDocumentListRow(item: ApiDocumentListItem): DocumentListRow {
     processingStage: item.processing_stage,
     isTerminal: TERMINAL_STATUSES.has(item.status),
     errorMessage: item.error_message,
+    indexingStatus: item.indexing_status ?? null,
     documentType: item.document_type ?? 'lecture',
     createdAt: item.created_at,
     updatedAt: item.updated_at,

@@ -13,11 +13,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.core.config import create_access_token
+from app.db.models import UserRole
 from tests.conftest import make_course_with_lessons, make_user
 
 
 def _auth(user_id: str) -> dict:
-    token = create_access_token(user_id, "u@test.com", "student")
+    token = create_access_token(user_id, "u@test.com", "instructor")
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -61,7 +62,7 @@ def test_upload_and_chat_use_same_qvac_workspace(client, db):
     two operations.
     """
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
 
     with patch("app.workers.pipeline.run") as mock_pipeline:
         resp = client.post(
@@ -92,7 +93,7 @@ def test_different_courses_use_different_workspaces(client, db):
     """Two courses must map to different QVAC workspaces — no cross-course leakage."""
     course_a, _ = make_course_with_lessons(db)
     course_b, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
 
     mock_a = _mock_chat_client()
     with patch("app.services.chat_service._client", mock_a):
@@ -127,7 +128,7 @@ def test_different_courses_use_different_workspaces(client, db):
 def test_pipeline_receives_correct_args_from_upload_api(client, db):
     """Upload API must forward document_id, course_id, filename, and file_path to pipeline.run."""
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
 
     with patch("app.workers.pipeline.run") as mock_pipeline:
         resp = client.post(
@@ -154,7 +155,7 @@ def test_pipeline_receives_correct_args_from_upload_api(client, db):
 def test_chat_posts_to_qvac_query_endpoint(client, db):
     """The chat handler must POST to /retrieve on the QVAC service for dense retrieval."""
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
 
     mock_client = _mock_chat_client()
     with patch("app.services.chat_service._client", mock_client):
@@ -173,7 +174,7 @@ def test_chat_posts_to_qvac_query_endpoint(client, db):
 def test_chat_answer_and_citations_flow_from_qvac_to_client(client, db):
     """Answer and citations from QVAC must reach the HTTP client unchanged."""
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
 
     expected_answer = "The blockchain is a distributed ledger."
     chunks = [
@@ -202,7 +203,7 @@ def test_chat_answer_and_citations_flow_from_qvac_to_client(client, db):
 def test_chat_topk_is_forwarded_to_qvac(client, db):
     """The QVAC /retrieve call must include a topK parameter."""
     course, _ = make_course_with_lessons(db)
-    user = make_user(db)
+    user = make_user(db, UserRole.INSTRUCTOR)
 
     mock_client = _mock_chat_client()
     with patch("app.services.chat_service._client", mock_client):

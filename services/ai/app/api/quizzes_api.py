@@ -13,12 +13,16 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Depends, Path, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError, ValidationError_
 from app.core.rate_limit import limiter
 from app.db.models import (
     AttemptAnswer,
+    Chapter,
+    ChapterTest,
+    Lesson,
     OptionChoice,
     Question,
     Quiz,
@@ -150,22 +154,26 @@ async def generate_quiz(
     from app.schemas.study_schemas import StudyAction  # noqa: PLC0415
     from app.services import study_service  # noqa: PLC0415
 
-    # Retrieval-only: no LLM call for the sources, so quiz generation costs
-    # exactly one /generate_json call instead of a retrieval-answer + reparse.
+    # Retrieval-only: no LLM call for the sources themselves. Quiz generation
+    # below goes through the plan -> generate -> critique -> repair harness
+    # (quiz_harness.run), a bounded multi-call loop of up to 4*N+1 calls (17
+    # for the default N=4 target count) rather than a single /generate_json
+    # call — see docs/quiz-agent-harness-design.md.
     result = await study_service.dispatch(
         question=body.query,
         course_id=course_id,
         action=StudyAction.RETRIEVE,
     )
 
-    context_items = [
-        {"label": c.label or c.doc_id or f"ref_{i}", "text": c.snippet}
-        for i, c in enumerate(result.citations)
-    ]
-    if not context_items:
+    if result.evidence_pack is None or not result.evidence_pack.chunks:
         raise ValidationError_(
             "No source material found for this topic in the course. Try a broader query."
         )
+
+    context_items = [
+        {"label": c.anchor.doc_name, "text": c.text, "chunk_id": c.chunk_id}
+        for c in result.evidence_pack.chunks
+    ]
 
     quiz_data = await quiz_generation.generate_quiz_questions(body.query, context_items)
     if not quiz_data or not quiz_data.get("questions"):
@@ -195,10 +203,9 @@ async def generate_quiz(
         .order_by(Question.order_index)
         .all()
     )
-    return JSONResponse(
-        status_code=status.HTTP_201_CREATED,
-        content=_to_student_detail(quiz, questions, db).model_dump(),
-    )
+    response_body = _to_student_detail(quiz, questions, db).model_dump()
+    response_body["trace"] = quiz_data.get("trace")
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content=response_body)
 
 
 @router.get(
@@ -345,7 +352,15 @@ def list_my_attempts(
         .filter(QuizAttempt.user_id == current_user.sub)
     )
     if course_id is not None:
-        q = q.filter(Quiz.course_id == course_id)
+        # Lesson and chapter-test quizzes are linked through their parent tree,
+        # rather than the direct course_id used by ad-hoc course quizzes.
+        q = q.filter(or_(
+            Quiz.course_id == course_id,
+            Quiz.lesson.has(Lesson.chapter.has(Chapter.course_id == course_id)),
+            Quiz.chapter_tests.any(
+                ChapterTest.chapter.has(Chapter.course_id == course_id)
+            ),
+        ))
 
     rows = q.order_by(QuizAttempt.finished_at.desc()).all()
     items = [

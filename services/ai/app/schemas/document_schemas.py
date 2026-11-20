@@ -12,6 +12,7 @@ class DocumentListItem(BaseModel):
     status: str
     processing_stage: str
     error_message: Optional[str] = None
+    indexing_status: Optional[str] = None
     document_type: str = "lecture"
     created_at: str
     updated_at: str

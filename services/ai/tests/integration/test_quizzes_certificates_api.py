@@ -10,6 +10,7 @@ import pytest
 
 from app.core.config import create_access_token
 from app.db.models import Quiz, QuizScope
+from app.schemas.evidence_pack import CitationAnchor, EvidenceChunk, EvidencePack
 from app.services.quiz_generation import persist_quiz
 from app.services.study_service import DispatchResult, SourceChunk
 from tests.conftest import make_course_with_lessons, make_user
@@ -39,6 +40,23 @@ _RETRIEVE_RESULT = DispatchResult(
     answer="",
     citations=[SourceChunk(snippet="A UTXO is an unspent transaction output.", score=0.9, label="p1")],
     retrieval_used=True,
+    evidence_pack=EvidencePack(
+        query="UTXO model basics",
+        action="retrieve",
+        chunks=[
+            EvidenceChunk(
+                chunk_id="chunk-1",
+                text="A UTXO is an unspent transaction output.",
+                score=0.9,
+                anchor=CitationAnchor(
+                    doc_id="doc-1", doc_name="p1", chunk_id="chunk-1", chunk_type="text",
+                ),
+            )
+        ],
+        total_candidates=1,
+        ordering=[0],
+        deduped_passages=["A UTXO is an unspent transaction output."],
+    ),
 )
 
 
@@ -63,10 +81,10 @@ class TestGenerateQuiz:
         with patch(
             "app.services.study_service.dispatch", new_callable=AsyncMock
         ) as mock_dispatch, patch(
-            "app.services.quiz_generation.generate_json", new_callable=AsyncMock
+            "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
         ) as mock_gj:
             mock_dispatch.return_value = _RETRIEVE_RESULT
-            mock_gj.return_value = {"questions": _QUESTIONS}
+            mock_gj.return_value = {"questions": _QUESTIONS, "trace": {"final_count": 1}}
 
             resp = client.post(
                 f"/api/courses/{course.id}/quizzes/generate",
@@ -79,6 +97,7 @@ class TestGenerateQuiz:
         assert "id" in body
         assert body["scope"] == QuizScope.COURSE
         assert len(body["questions"]) == 1
+        assert body["trace"] == {"final_count": 1}
         # No is_correct leak to the student-facing generate response
         for opt in body["questions"][0]["options"]:
             assert "is_correct" not in opt
@@ -86,6 +105,30 @@ class TestGenerateQuiz:
         quiz = db.query(Quiz).filter(Quiz.id == body["id"]).first()
         assert quiz is not None
         assert quiz.course_id == course.id
+
+    @pytest.mark.integration
+    def test_generate_quiz_uses_evidence_pack_chunk_id(self, client, db):
+        user = make_user(db)
+        course, _ = make_course_with_lessons(db)
+
+        with patch(
+            "app.services.study_service.dispatch", new_callable=AsyncMock
+        ) as mock_dispatch, patch(
+            "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
+        ) as mock_gj:
+            mock_dispatch.return_value = _RETRIEVE_RESULT
+            mock_gj.return_value = {"questions": _QUESTIONS, "trace": {"final_count": 1}}
+
+            resp = client.post(
+                f"/api/courses/{course.id}/quizzes/generate",
+                json={"query": "UTXO model basics"},
+                headers=_auth(user.id),
+            )
+
+        assert resp.status_code == 201
+        args, _ = mock_gj.call_args_list[0]
+        context_items = args[1]
+        assert any(item.get("chunk_id") == "chunk-1" for item in context_items)
 
     @pytest.mark.integration
     def test_generate_quiz_422_when_no_source_material(self, client, db):
@@ -267,6 +310,44 @@ class TestMyQuizAttempts:
     def test_list_my_attempts_requires_auth(self, client, db):
         resp = client.get("/api/users/me/quiz-attempts")
         assert resp.status_code == 401
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize("scope", [QuizScope.LESSON, QuizScope.CHAPTER_TEST, QuizScope.COURSE])
+    def test_course_history_includes_each_scope_without_other_courses_or_users(self, client, db, scope):
+        from app.db.models import ChapterTest, OptionChoice, Question
+
+        user = make_user(db)
+        other_user = make_user(db)
+        course, lessons = make_course_with_lessons(db)
+        other_course, _ = make_course_with_lessons(db)
+        kwargs = {"course_id": course.id} if scope == QuizScope.COURSE else {}
+        if scope == QuizScope.LESSON:
+            kwargs["lesson_id"] = lessons[0].id
+        quiz = persist_quiz(db, _QUESTIONS, scope=scope, title="Scoped quiz", **kwargs)
+        if scope == QuizScope.CHAPTER_TEST:
+            chapter_test = ChapterTest(chapter_id=lessons[0].chapter_id, title="Chapter test")
+            chapter_test.quizzes.append(quiz)
+            db.add(chapter_test)
+            db.commit()
+
+        def submit(quiz, learner):
+            question = db.query(Question).filter_by(quiz_id=quiz.id).first()
+            option = db.query(OptionChoice).filter_by(question_id=question.id, is_correct=True).first()
+            response = client.post(
+                f"/api/quizzes/{quiz.id}/attempts",
+                json={"answers": {question.id: option.id}}, headers=_auth(learner.id),
+            )
+            assert response.status_code == 200
+            return response.json()["attempt_id"]
+
+        expected_attempt = submit(quiz, user)
+        submit(quiz, other_user)
+        other_quiz = persist_quiz(db, _QUESTIONS, scope=QuizScope.COURSE, title="Other course", course_id=other_course.id)
+        submit(other_quiz, user)
+        response = client.get(f"/api/users/me/quiz-attempts?course_id={course.id}", headers=_auth(user.id))
+        assert response.status_code == 200
+        assert [item["attempt_id"] for item in response.json()] == [expected_attempt]
+        assert len(client.get("/api/users/me/quiz-attempts", headers=_auth(user.id)).json()) == 2
 
     @pytest.mark.integration
     def test_list_my_attempts_returns_persisted_attempt(self, client, db):

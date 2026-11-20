@@ -1,0 +1,153 @@
+name: RAG evaluation
+
+# Runs the technical query set of services/ai/tests/test_rag.py against the
+# open corpus (Mastering Bitcoin 3rd ed., CC BY-SA 4.0). Retrieval only: the
+# suite scores retrieval confidence, so the QVAC LLM stays disabled. Manual
+# (workflow_dispatch) or on pull requests labelled `rag`. It reports and
+# uploads the results; deciding what counts as a regression is #157.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rag-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rag-benchmark:
+    name: RAG benchmark (technical set)
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'rag')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    env:
+      # The backend sends QVAC the absolute path of each chunk file, so the
+      # directory is mounted at the same path inside the QVAC container.
+      QVAC_INGEST_DIR: ${{ github.workspace }}/.rag/qvac_ingest
+      UPLOADS_DIR: ${{ github.workspace }}/.rag/uploads
+      DATABASE_URL: sqlite:///${{ github.workspace }}/.rag/rag-eval.db
+      QVAC_SERVICE_URL: http://localhost:3001
+      QVAC_LLM_ENABLED: "false"
+      QVAC_INGEST_TIMEOUT: "3600"
+      SECRET_KEY: CI-AUTH-JWT-KEY-FOR-PIPELINE-ONLY-32!
+      ENVIRONMENT: development
+
+    defaults:
+      run:
+        working-directory: services/ai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+          enable-cache: true
+          cache-dependency-glob: services/ai/uv.lock
+
+      - name: Install backend dependencies
+        run: uv sync --locked --extra dev
+
+      # The QVAC SDK keeps downloaded models in ~/.qvac/models (/root/.qvac in
+      # the container). Caching it avoids the ~670 MB download.
+      - name: Restore QVAC model cache
+        uses: actions/cache@v4
+        with:
+          path: .rag/models
+          key: qvac-sdk-models-${{ hashFiles('workers/qvac-service/package-lock.json') }}
+          restore-keys: qvac-sdk-models-
+
+      - name: Build QVAC image
+        working-directory: .
+        run: docker build -t bitcoin-academy-qvac:rag ./workers/qvac-service
+
+      - name: Start QVAC (retrieval only)
+        working-directory: .
+        run: |
+          mkdir -p "$QVAC_INGEST_DIR" "$UPLOADS_DIR" .rag/models
+          docker run -d --name qvac-rag -p 3001:3001 \
+            -e QVAC_LLM_ENABLED=false \
+            -e QVAC_INGEST_DIR="$QVAC_INGEST_DIR" \
+            -v "$QVAC_INGEST_DIR:$QVAC_INGEST_DIR" \
+            -v "$PWD/.rag/models:/root/.qvac" \
+            bitcoin-academy-qvac:rag
+          # Wait until the server listens; on a cache miss the embedding model
+          # is downloaded during this or the first indexing request.
+          for i in $(seq 1 180); do
+            if curl -sf http://localhost:3001/health; then
+              echo; echo "QVAC healthy after $((i * 5))s"; exit 0
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' qvac-rag)" != "true" ]; then
+              echo "QVAC container exited during startup"; docker logs qvac-rag; exit 1
+            fi
+            sleep 5
+          done
+          echo "QVAC not healthy after 15 minutes"; docker logs qvac-rag; exit 1
+
+      - name: Fetch the open corpus
+        run: uv run --no-sync python ../../scripts/fetch_rag_corpus.py --out tests/data/corpus
+
+      - name: Index the corpus
+        run: |
+          start=$(date +%s)
+          uv run --no-sync python ../../scripts/ingest_rag_corpus.py tests/data/corpus/mastering-bitcoin-3e.docx
+          echo "Indexing took $(( $(date +%s) - start ))s"
+
+      - name: Run the RAG evaluation suite
+        run: |
+          uv run --no-sync python tests/test_rag.py \
+            --set technical \
+            --metrics-only \
+            --output rag_report_technical.json
+
+      - name: Compare with the committed baseline
+        run: |
+          uv run --no-sync python - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from collections import Counter
+
+          def summary(path):
+              data = json.load(open(path, encoding="utf-8"))
+              results = data["results"]
+              verdicts = Counter(r["verdict"] for r in results)
+              scores = [r["top_score"] for r in results if r.get("top_score") is not None]
+              avg = sum(scores) / len(scores) if scores else 0.0
+              return verdicts, avg, len(results)
+
+          rows = [("Baseline", "tests/data/rag_baseline_technical.json"),
+                  ("This run", "rag_report_technical.json")]
+          print("### RAG evaluation (technical set)\n")
+          print("| | PASS | WARN | FAIL | ERROR | Avg top score | Queries |")
+          print("|---|---|---|---|---|---|---|")
+          for name, path in rows:
+              v, avg, n = summary(path)
+              print(f"| {name} | {v['PASS']} | {v['WARN']} | {v['FAIL']} | {v['ERROR']} | {avg:.4f} | {n} |")
+          EOF
+          cat "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rag-evaluation-report
+          path: services/ai/rag_report_technical.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: QVAC logs
+        if: failure()
+        working-directory: .
+        run: docker logs qvac-rag 2>&1 | tail -200
+
+      # Files written by the container are owned by root; make the model cache
+      # readable so the post-job cache save can archive it.
+      - name: Fix cache ownership
+        if: always()
+        working-directory: .
+        run: sudo chown -R "$(id -u):$(id -g)" .rag || true

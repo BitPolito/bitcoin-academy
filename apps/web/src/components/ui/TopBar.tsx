@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { signOut, useSession } from 'next-auth/react';
 import { BrandMark } from './BrandMark';
 
 export function TopBar() {
@@ -126,6 +126,16 @@ export function TopBar() {
               </svg>
             )}
           </button>
+
+          {session && (
+            <button
+              type="button"
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              className="h-8 px-2 b-thin rounded-md font-mono text-[11px] whitespace-nowrap hover:bg-blue-dark/5 dark:hover:bg-white/10"
+            >
+              Sign out
+            </button>
+          )}
 
           {/* User avatar */}
           <div

@@ -27,7 +27,7 @@ async def ingest_document(
 
 
 async def reindex_document_qvac(ctx, document_id: str, course_id: str) -> None:
-    """ARQ job: retry QVAC ingest for a document with indexing_status=qvac_pending."""
+    """ARQ job: retry QVAC ingest for a document with indexing_status=qvac_pending or qvac_failed."""
     await asyncio.to_thread(
         pipeline.reindex_qvac,
         document_id=document_id,

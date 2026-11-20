@@ -20,6 +20,8 @@ interface Chunk {
 interface DocumentContent {
   documentId: string;
   filename: string;
+  status: string;
+  errorMessage?: string;
   sections: Section[];
   chunks: Chunk[];
 }
@@ -45,16 +47,20 @@ export function ContentChunks({
     async function fetchContent() {
       try {
         const docs = await getDocuments(courseId, accessToken);
-        const readyDocs = docs.filter((d) => d.status === 'ready');
+        const relevantDocs = docs.filter((d) => d.status === 'ready' || d.status === 'error');
 
+        // Errored documents are listed too, so a scanned PDF explains why it has no content.
         const previews = await Promise.allSettled(
-          readyDocs.map(async (doc) => {
-            const preview = await getDocumentPreviewView(doc.id, accessToken);
+          relevantDocs.map(async (doc): Promise<DocumentContent> => {
+            const preview =
+              doc.status === 'ready' ? await getDocumentPreviewView(doc.id, accessToken) : null;
             return {
               documentId: doc.id,
               filename: doc.filename,
-              sections: (preview.sections ?? []).map((title) => ({ title })),
-              chunks: (preview.sampleChunks ?? []).map((c) => ({
+              status: doc.status,
+              errorMessage: doc.error_message,
+              sections: (preview?.sections ?? []).map((title) => ({ title })),
+              chunks: (preview?.sampleChunks ?? []).map((c) => ({
                 text: c.text,
                 section: c.section ?? undefined,
               })),
@@ -64,7 +70,7 @@ export function ContentChunks({
 
         const loaded = previews
           .flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
-          .filter((d) => d.chunks.length > 0 || d.sections.length > 0);
+          .filter((d) => d.status === 'error' || d.chunks.length > 0 || d.sections.length > 0);
 
         setContents(loaded);
         setError(null);
@@ -132,35 +138,51 @@ export function ContentChunks({
                 </p>
               </div>
 
-              {/* Section chips */}
-              {doc.sections.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {doc.sections.map((section, i) => (
-                    <span key={i} className="chip" style={{ border: '1px solid currentColor' }}>
-                      {section.title ?? `Section ${i + 1}`}
-                    </span>
-                  ))}
+              {doc.status === 'error' ? (
+                <div
+                  role="alert"
+                  className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-3 mb-3"
+                >
+                  <h4 className="text-red-800 dark:text-red-300 font-semibold text-xs mb-1">
+                    Not available for study
+                  </h4>
+                  <p className="text-red-600 dark:text-red-400 text-[11px] leading-relaxed">
+                    {doc.errorMessage || 'This document could not be processed.'}
+                  </p>
                 </div>
-              )}
-
-              {/* Sample chunks */}
-              <div className="space-y-1.5">
-                {doc.chunks.map((chunk, i) => (
-                  <div key={i} className="b-thin rounded-md p-2.5 text-[12px] leading-relaxed">
-                    <div className="flex items-start gap-2">
-                      <span className="flex-shrink-0 font-mono text-[10px] opacity-50 mt-0.5">
-                        {i + 1}
-                      </span>
-                      <p className="flex-1 opacity-90">{chunk.text}</p>
+              ) : (
+                <>
+                  {/* Section chips */}
+                  {doc.sections.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {doc.sections.map((section, i) => (
+                        <span key={i} className="chip" style={{ border: '1px solid currentColor' }}>
+                          {section.title ?? `Section ${i + 1}`}
+                        </span>
+                      ))}
                     </div>
-                    {chunk.section && (
-                      <p className="mt-1 font-mono text-[10px] opacity-50 pl-5">
-                        § {chunk.section}
-                      </p>
-                    )}
+                  )}
+
+                  {/* Sample chunks */}
+                  <div className="space-y-1.5">
+                    {doc.chunks.map((chunk, i) => (
+                      <div key={i} className="b-thin rounded-md p-2.5 text-[12px] leading-relaxed">
+                        <div className="flex items-start gap-2">
+                          <span className="flex-shrink-0 font-mono text-[10px] opacity-50 mt-0.5">
+                            {i + 1}
+                          </span>
+                          <p className="flex-1 opacity-90">{chunk.text}</p>
+                        </div>
+                        {chunk.section && (
+                          <p className="mt-1 font-mono text-[10px] opacity-50 pl-5">
+                            § {chunk.section}
+                          </p>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </>
+              )}
             </div>
           );
         })}

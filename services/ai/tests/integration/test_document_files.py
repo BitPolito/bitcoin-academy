@@ -47,7 +47,7 @@ def ingested_pdf(db, tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline, "UPLOADS_DIR", tmp_path)
     monkeypatch.setattr(documents_api, "UPLOADS_DIR", tmp_path)
     monkeypatch.setattr(pipeline, "QVAC_INGEST_DIR", tmp_path / "index")
-    monkeypatch.setattr(pipeline, "_qvac_ingest", lambda *args, **kwargs: True)
+    monkeypatch.setattr(pipeline, "_qvac_ingest", lambda *args, **kwargs: "indexed")
     monkeypatch.setattr(pipeline, "_RAG_CONTEXTUAL_CHUNKS", False)
     monkeypatch.setattr(document_service, "_qvac_delete_workspace_chunks", lambda *args: None)
     pipeline.run(document_id=doc_id, course_id=course.id,

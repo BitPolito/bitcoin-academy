@@ -148,6 +148,7 @@ def test_load_context_returns_items():
     assert len(items) == 2
     assert items[0]["label"] == "p1"
     assert "Bitcoin" in items[0]["text"]
+    assert items[0]["chunk_id"] == "p1"
 
 
 def test_load_context_caps_at_max():
@@ -262,6 +263,84 @@ _QUIZ_RESULT = {
 
 
 @pytest.mark.asyncio
+async def test_unsupported_glossary_requires_review_even_when_judge_passes():
+    db, course = _make_db()
+    ch = _add_chapter(db, course.id)
+    _add_parent(db, "p1", course.id, text="Plants use sunlight for photosynthesis.")
+    lesson = _add_lesson(db, ch.id, source_refs=["p1"])
+    result = {
+        "content": "Plants use sunlight [ref_1].",
+        "objectives": ["Describe photosynthesis"],
+        "glossary": [{"term": "UTXO", "definition": "An unspent transaction output"}],
+        "self_check": ["What powers photosynthesis?"],
+    }
+    with patch("app.services.lesson_service.generate_json", new_callable=AsyncMock) as gj, patch(
+        "app.services.lesson_service._generate_quiz_data", new_callable=AsyncMock,
+        return_value=None,
+    ):
+        gj.side_effect = [result, _JUDGE_PASS]
+        status = await process_lesson(lesson.id, db)
+
+    assert status == "needs_review"
+    assert lesson.status == "needs_review"
+    assert "groundedness_issues" in lesson.content
+    assert "UTXO" in lesson.content.split("groundedness_issues:")[1]
+
+
+@pytest.mark.asyncio
+async def test_judge_receives_entire_assembled_lesson_and_sources():
+    from app.services.lesson_service import _judge_groundedness
+
+    content = "Supported prose. " * 450 + "\n## Glossary\nUNSUPPORTED_TAIL"
+    source = "Source facts. " * 150 + "SOURCE_TAIL"
+    with patch("app.services.lesson_service.generate_json", new_callable=AsyncMock) as gj:
+        gj.return_value = _JUDGE_FAIL
+        await _judge_groundedness(content, [{"label": "p1", "text": source}])
+
+    assert "UNSUPPORTED_TAIL" in gj.call_args.args[0]
+    assert gj.call_args.kwargs["context"][0]["text"] == source
+
+
+@pytest.mark.asyncio
+async def test_process_lesson_judges_appended_sections():
+    db, course = _make_db()
+    ch = _add_chapter(db, course.id)
+    _add_parent(db, "p1", course.id)
+    lesson = _add_lesson(db, ch.id, source_refs=["p1"])
+    with patch("app.services.lesson_service._generate_content", new_callable=AsyncMock,
+               return_value=_CONTENT_RESULT), patch(
+        "app.services.lesson_service._judge_groundedness", new_callable=AsyncMock,
+        return_value=_JUDGE_PASS,
+    ) as judge, patch("app.services.lesson_service._generate_quiz_data", new_callable=AsyncMock,
+                      return_value=None):
+        await process_lesson(lesson.id, db)
+
+    assert judge.call_args.args[0] == lesson.content
+    for heading in ("Learning Objectives", "Glossary", "Self-Check"):
+        assert heading in judge.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_judge_failure_requires_review():
+    from app.services.qvac_structured import StructuredGenerationError
+
+    db, course = _make_db()
+    ch = _add_chapter(db, course.id)
+    _add_parent(db, "p1", course.id)
+    lesson = _add_lesson(db, ch.id, source_refs=["p1"])
+    with patch("app.services.lesson_service._generate_content", new_callable=AsyncMock,
+               return_value=_CONTENT_RESULT), patch(
+        "app.services.lesson_service._judge_groundedness", new_callable=AsyncMock,
+        side_effect=StructuredGenerationError("invalid judge response"),
+    ), patch("app.services.lesson_service._generate_quiz_data", new_callable=AsyncMock,
+             return_value=None):
+        status = await process_lesson(lesson.id, db)
+
+    assert status == "needs_review"
+    assert "groundedness_issues" in lesson.content
+
+
+@pytest.mark.asyncio
 async def test_process_lesson_published_when_faithful():
     db, course = _make_db()
     ch = _add_chapter(db, course.id)
@@ -271,7 +350,7 @@ async def test_process_lesson_published_when_faithful():
     with patch(
         "app.services.lesson_service.generate_json", new_callable=AsyncMock
     ) as mock_gj, patch(
-        "app.services.quiz_generation.generate_json", new_callable=AsyncMock
+        "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
     ) as mock_quiz_gj:
         mock_gj.side_effect = [_CONTENT_RESULT, _JUDGE_PASS]
         mock_quiz_gj.return_value = _QUIZ_RESULT
@@ -299,7 +378,7 @@ async def test_process_lesson_needs_review_when_unfaithful():
     with patch(
         "app.services.lesson_service.generate_json", new_callable=AsyncMock
     ) as mock_gj, patch(
-        "app.services.quiz_generation.generate_json", new_callable=AsyncMock
+        "app.services.quiz_generation.quiz_harness.run", new_callable=AsyncMock
     ) as mock_quiz_gj:
         mock_gj.side_effect = [_CONTENT_RESULT, _JUDGE_FAIL]
         mock_quiz_gj.return_value = _QUIZ_RESULT

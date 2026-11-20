@@ -181,24 +181,24 @@ def test_qvac_ingest_rebuild_true_when_passed(tmp_path):
 
 
 @pytest.mark.unit
-def test_qvac_ingest_returns_true_on_success(tmp_path):
+def test_qvac_ingest_returns_indexed_on_success(tmp_path):
     MockClient, _ = _httpx_client_mock(status_code=200)
     with patch("httpx.Client", MockClient):
         result = pipeline_mod._qvac_ingest(tmp_path / "doc.jsonl", "WS1")
-    assert result is True
+    assert result == "indexed"
 
 
 @pytest.mark.unit
-def test_qvac_ingest_returns_false_on_http_error(tmp_path):
+def test_qvac_ingest_returns_pending_when_qvac_is_unreachable(tmp_path):
     MockClient, instance = _httpx_client_mock()
     instance.post.side_effect = httpx.ConnectError("connection refused")
     with patch("httpx.Client", MockClient):
         result = pipeline_mod._qvac_ingest(tmp_path / "doc.jsonl", "WS1")
-    assert result is False
+    assert result == "qvac_pending"
 
 
 @pytest.mark.unit
-def test_qvac_ingest_returns_false_on_status_error(tmp_path):
+def test_qvac_ingest_returns_failed_when_qvac_rejects_the_batch(tmp_path):
     MockClient, _ = _httpx_client_mock(
         raise_for_status=httpx.HTTPStatusError(
             "500", request=MagicMock(), response=MagicMock()
@@ -206,7 +206,7 @@ def test_qvac_ingest_returns_false_on_status_error(tmp_path):
     )
     with patch("httpx.Client", MockClient):
         result = pipeline_mod._qvac_ingest(tmp_path / "doc.jsonl", "WS1")
-    assert result is False
+    assert result == "qvac_failed"
 
 
 # ---------------------------------------------------------------------------

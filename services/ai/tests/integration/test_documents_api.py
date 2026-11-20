@@ -17,6 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from app.core.config import create_access_token
+from app.db.models import UserRole
 from tests.conftest import make_course_with_lessons, make_user
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -25,8 +26,8 @@ PDF_PATH = _DOCS / "bitcoin_technical_document.pdf"
 PPTX_PATH = _DOCS / "bitcoin_creative_commons_en.pptx"
 
 
-def _auth(user_id: str) -> dict:
-    token = create_access_token(user_id, "u@test.com", "student")
+def _auth(user_id: str, role: str = "student") -> dict:
+    token = create_access_token(user_id, "u@test.com", role)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -37,8 +38,8 @@ def _skip_if_missing(path: Path):
 
 @pytest.fixture
 def auth_headers(db) -> dict:
-    """Document endpoints require authentication."""
-    return _auth(make_user(db).id)
+    """Document writes are instructor/admin only; reads accept any authenticated user."""
+    return _auth(make_user(db, UserRole.INSTRUCTOR).id, "instructor")
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +164,60 @@ def test_upload_tiny_file(client, db, auth_headers):
 
     assert resp.status_code == 201
     assert resp.json()["filename"] == "tiny.pdf"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("filename", "content_type", "stored_mime"),
+    [
+        ("notes.md", "text/markdown", "text/markdown"),
+        ("notes.md", "application/octet-stream", "text/markdown"),
+        ("notes.txt", "text/plain", "text/plain"),
+        ("notes.txt", "application/octet-stream", "text/plain"),
+        (
+            "notes.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+    ],
+)
+def test_upload_accepts_text_and_docx(client, db, auth_headers, filename, content_type, stored_mime):
+    course, _ = make_course_with_lessons(db)
+
+    with patch("app.workers.pipeline.run"):
+        resp = client.post(
+            f"/api/courses/{course.id}/documents",
+            headers=auth_headers,
+            files={"file": (filename, b"# Title\n\nBody text.", content_type)},
+        )
+
+    assert resp.status_code == 201
+    assert resp.json()["mime_type"] == stored_mime
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("image.png", "image/png"),
+        ("slides.pdf", "application/octet-stream"),
+        ("notes.pdf.exe", "application/pdf"),
+        ("notes.md", "image/png"),
+    ],
+)
+def test_upload_rejects_unsupported_formats_with_415(client, db, auth_headers, filename, content_type):
+    course, _ = make_course_with_lessons(db)
+
+    with patch("app.workers.pipeline.run") as mock_run:
+        resp = client.post(
+            f"/api/courses/{course.id}/documents",
+            headers=auth_headers,
+            files={"file": (filename, b"data", content_type)},
+        )
+
+    assert resp.status_code == 415
+    assert "MD, TXT" in resp.json()["error"]["message"]
+    mock_run.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

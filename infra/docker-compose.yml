@@ -55,7 +55,9 @@ services:
     restart: unless-stopped
     volumes:
       - qvac_data:/app/hyperdb
-      - qvac_models:/root/.cache
+      # The QVAC SDK keeps downloaded models in ~/.qvac/models; without this
+      # mount they are downloaded again whenever the container is recreated.
+      - qvac_models:/root/.qvac
       - qvac_ingest:/qvac_ingest
     environment:
       - QVAC_PORT=3001

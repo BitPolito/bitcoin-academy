@@ -162,10 +162,8 @@ describe('sendStudyActionStream', () => {
     expect(tokens).toEqual(['real token']);
   });
 
-  it('completes when the stream ends without an explicit [DONE]', async () => {
-    const { tokens } = await collect([sse('token')]);
-
-    expect(tokens).toEqual(['token']);
+  it('reports interruption when the connection ends without [DONE]', async () => {
+    await expect(collect([sse('token')])).rejects.toThrow('Answer interrupted. Please retry.');
   });
 
   it('posts the action, query and course to the stream endpoint', async () => {

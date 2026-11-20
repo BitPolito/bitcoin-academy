@@ -65,7 +65,7 @@ export async function sendStudyActionStream(
 
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) throw new Error('Answer interrupted. Please retry.');
     buffer += decoder.decode(value, { stream: true });
 
     const lines = buffer.split('\n');

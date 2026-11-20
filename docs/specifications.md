@@ -41,6 +41,12 @@ messages.
 processing status per document, supports retry and deletion, and surfaces actionable errors. A
 processing panel and progress indicator render the state in the course workspace.
 
+Changing course material is restricted to instructors and admins: uploading a document, retrying or
+re-indexing it, deleting it, and re-indexing a whole course (`POST /api/courses/{id}/reindex`)
+return `403` for students. Students keep read access to the material (document list, status, detail,
+preview, structure and original file), and the course workspace hides the upload panel, "Reindex
+all" and the per-document delete action from them.
+
 ---
 
 ### 3. Document parsing and normalization — ✅ Implemented
@@ -150,6 +156,23 @@ frame followed by `[DONE]`. The Study UI displays the service error and retry
 guidance instead of claiming that no course passages matched. Neither failure
 path generates an answer or caches the failure. Useful fallback evidence is
 still accepted; retrieval, ranking, and evidence-pack structure are unchanged.
+
+If Study generation fails after streaming begins, the server emits an `[ERROR]`
+frame with "Answer interrupted. Please retry." followed by `[DONE]`. A QVAC stream
+ending without its completion marker or reporting an error is also a failure.
+Partial answers are not cached or reported as completed action results. The UI
+marks the partial output interrupted and offers Retry for the same action and
+question. A browser connection ending without `[DONE]` also triggers this retry
+path instead of silently accepting the truncated answer. Failure before any
+upstream output retains the existing buffered/evidence fallback.
+
+Generated course lessons are judged as a whole, including their learning objectives,
+glossary definitions and self-check questions, against the complete selected source
+passages. Glossary terms absent from those passages require manual review even if
+the model judge approves the prose. Unsupported content or unavailable validation
+leaves the lesson in `needs_review` rather than automatically publishing it.
+The content prompt version invalidates previously generated lesson caches; existing
+lessons must be regenerated to receive the updated checks.
 
 ---
 
@@ -288,9 +311,25 @@ account lockout after repeated failures, `admin`/`student` roles, rate limiting,
 and audit middleware. Development accounts are seeded automatically, and seeding refuses to run
 when `ENVIRONMENT=production`.
 
+NextAuth login and token refresh use the shared API base URL. In Docker,
+`API_BASE_URL=http://api:8000/api` routes these server requests to the API service.
+
+The authenticated top bar offers Sign out using the existing NextAuth session flow.
+Login distinguishes account lockout from general request throttling without promising
+a retry in seconds; server diagnostics are not shown in the login error.
+
 CORS permits `PATCH` requests from configured frontend origins so course, outline
 and lesson edits can pass browser preflight checks. The editing endpoints still
 require authentication and the appropriate instructor/admin role.
+
+Course-material writes (document upload, retry, reindex, delete and course reindex) require the
+instructor/admin role, the same guard as course create, update and delete;
+`tests/integration/test_document_write_authorization.py` asserts `403` for students and success for
+both roles on each of them.
+
+These write endpoints use the shared authentication dependency before checking
+the instructor/admin role. Invalid, expired or revoked credentials return `401`
+without changing documents or scheduling ingestion work.
 
 Endpoint protection is asserted structurally rather than by convention:
 `tests/integration/test_authorization_matrix.py` derives the endpoint list from the live OpenAPI
@@ -324,18 +363,56 @@ a badge system (definitions plus per-user awards) rendered in the UI.
 
 ---
 
-### 24. Assessment: quizzes and chapter tests — 🔴 Not implemented
+### 24. Assessment: quizzes and chapter tests — 🟡 Partially implemented
 
 The system must let students take quizzes and chapter tests, and must record attempts and scores.
 
-**Implementation.** The data model is complete and migrated (quizzes, questions, options, chapter
-tests, attempts, per-answer records), and the API surface is defined with typed request/response
-schemas.
+**Implementation.** Generated quizzes, questions, options, attempts and per-answer
+records are persisted. Student-facing quiz responses omit correct-answer flags;
+submission returns the score, passing result and corrections. Chapter tests have
+a learner submission page. The passing threshold comes from the quiz configuration.
 
-**Gap.** The endpoints are stubs: listing returns an empty collection and the detail and submission
-endpoints return not-found. The quiz service contains no logic. Note that this entity-based quiz is
-distinct from the `quiz` **study action**, which is fully implemented and generates questions from
-retrieved evidence.
+Course-filtered attempt history includes course quizzes, lesson quizzes through
+their chapter, and chapter tests through their chapter. It remains restricted to
+the authenticated learner's attempts.
+
+The Study source pane links to a saved lesson quiz. Lesson quizzes and chapter
+tests share one authenticated answer-submission form, which displays the server's
+passing threshold, score and corrections. A missing saved quiz shows an explicit
+unavailable state instead of submitting an ad-hoc Study action.
+
+**Quiz question quality (#134).** Both quiz callers (the course builder's
+per-lesson quizzes and the study page's ad-hoc topic quizzes) generate
+questions through an agent harness (`quiz_harness.py`) rather than a single
+schema-validated model call. For a target of `N` questions, the harness runs:
+
+1. **Plan** (1 call) — selects `N` `(chunk_id, cognitive_level)` targets from
+   the available source passages, spread across distinct passages and
+   cognitive levels (recall / application / analysis).
+2. **Generate** (up to `N` calls) — one question per target, scoped to that
+   target's single source passage.
+3. **Critique** (up to `N` calls) — each generated question is checked
+   against five criteria: the answer is entailed by the cited source chunk;
+   every distractor is plausible but demonstrably wrong; exactly one option
+   is defensible; the question is not answerable from general knowledge
+   alone; the question does not duplicate another already accepted into the
+   same quiz. A critique failure is recorded by the specific criterion it
+   failed.
+4. **Repair** (up to `2N` calls) — a question that fails critique is
+   regenerated once, with the failed criteria fed back as explicit feedback,
+   then re-critiqued; whatever that second verdict is, it is final.
+
+The loop is bounded by construction at `4*N + 1` calls (17 for the default
+`N=4`), never unbounded. Every returned question carries a resolvable source
+chunk id, now persisted on the `Question` row as well as in the API payload.
+If the harness cannot reach the target count, it returns fewer questions
+(or none) rather than malformed output, and reports why in a `trace` object
+(targets planned, generated, rejected with reasons, repaired, final count,
+calls used/budget). `POST /courses/{course_id}/quizzes/generate` returns this
+`trace` as an additive field alongside the generated quiz; the course-builder
+path logs it instead of surfacing it in the UI. A manual review of 20
+generated questions against real course material is a follow-up to this
+implementation, tracked in #134.
 
 ---
 

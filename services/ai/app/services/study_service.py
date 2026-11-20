@@ -223,33 +223,56 @@ def _lacks_evidence(meta: ActionMeta, pack: EvidencePack) -> bool:
 
 
 _REF_PATTERN = re.compile(r'\[ref_(\d+)\]', re.IGNORECASE)
+# A marker cut off at the end of a streamed token: "[", "[re", "[ref_1", ...
+_PARTIAL_REF_PATTERN = re.compile(r'\[(?:r(?:e(?:f(?:_\d*)?)?)?)?\Z', re.IGNORECASE)
 
 
-def _parse_citations(text: str, pack: EvidencePack) -> List[SourceChunk]:
-    """Extract [ref_N] markers from generated text and return referenced chunks.
+class _CitationRenumberer:
+    """Renumber [ref_N] markers 1, 2, ... in order of first appearance (#264).
 
-    The LLM is instructed to emit [ref_N] in-line; this function parses those
-    markers and returns SourceChunks for only the cited evidence, preserving
-    citation order (first appearance wins for dedup).
+    The client numbers the sources list from 1, and that list is ordered by
+    first citation, so the inline markers must use the same numbers. Works on
+    streamed tokens: a marker split across tokens is held back until it is
+    complete. Markers outside the evidence pack are left unchanged.
+    """
+
+    def __init__(self, pack_size: int) -> None:
+        self._pack_size = pack_size
+        self._numbers: dict[int, int] = {}  # pack index -> new 1-based number
+        self._pending = ""
+
+    @property
+    def cited_indices(self) -> list[int]:
+        """Pack indices of the cited chunks, in citation order."""
+        return list(self._numbers)
+
+    def feed(self, token: str) -> str:
+        text = self._pending + token
+        partial = _PARTIAL_REF_PATTERN.search(text)
+        cut = partial.start() if partial else len(text)
+        self._pending = text[cut:]
+        return _REF_PATTERN.sub(self._renumber, text[:cut])
+
+    def flush(self) -> str:
+        text, self._pending = self._pending, ""
+        return _REF_PATTERN.sub(self._renumber, text)
+
+    def _renumber(self, match: re.Match[str]) -> str:
+        idx = int(match.group(1)) - 1  # [ref_N] is 1-based
+        if not 0 <= idx < self._pack_size:
+            return match.group(0)
+        number = self._numbers.setdefault(idx, len(self._numbers) + 1)
+        return f"[ref_{number}]"
+
+
+def _cited_sources(pack: EvidencePack, cited_indices: list[int]) -> List[SourceChunk]:
+    """SourceChunks for the cited evidence, in citation order.
 
     Falls back to all pack chunks when no [ref_N] markers are found — this
     happens when the LLM ignores the citation instruction or when the action
     does not require source grounding.
     """
-    cited_indices: list[int] = []
-    seen: set[int] = set()
-    for m in _REF_PATTERN.finditer(text):
-        idx = int(m.group(1)) - 1  # [ref_N] is 1-based
-        if 0 <= idx < len(pack.chunks) and idx not in seen:
-            cited_indices.append(idx)
-            seen.add(idx)
-
-    if not cited_indices:
-        # No markers found — return all pack chunks as citations (backward-compat)
-        source_chunks = pack.chunks
-    else:
-        source_chunks = [pack.chunks[i] for i in cited_indices]
-
+    chunks = [pack.chunks[i] for i in cited_indices] if cited_indices else pack.chunks
     return [
         SourceChunk(
             snippet=c.text,
@@ -260,8 +283,18 @@ def _parse_citations(text: str, pack: EvidencePack) -> List[SourceChunk]:
             section=c.anchor.section or "",
             doc_id=c.anchor.doc_id,
         )
-        for c in source_chunks
+        for c in chunks
     ]
+
+
+def _parse_citations(text: str, pack: EvidencePack) -> tuple[str, List[SourceChunk]]:
+    """Renumber the [ref_N] markers in generated text and return the cited chunks.
+
+    Returns (text, sources): marker N in the returned text refers to sources[N - 1].
+    """
+    renumberer = _CitationRenumberer(len(pack.chunks))
+    remapped = renumberer.feed(text) + renumberer.flush()
+    return remapped, _cited_sources(pack, renumberer.cited_indices)
 
 
 async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple[str, EvidencePack]:
@@ -442,10 +475,14 @@ async def _stream_generate(
                 try:
                     token = json.loads(payload)
                     if isinstance(token, str):
+                        if token.startswith("[ERROR]"):
+                            raise httpx.RemoteProtocolError("QVAC reported a stream failure")
                         tokens_yielded += 1
                         yield token
                 except (json.JSONDecodeError, ValueError):
                     pass
+            if tokens_yielded:
+                raise httpx.RemoteProtocolError("QVAC stream ended without [DONE]")
     except httpx.HTTPError as exc:
         logger.warning("QVAC /stream failed for action '%s': %s", action.value, exc)
         if tokens_yielded:
@@ -509,9 +546,7 @@ async def _route(
     generated = await _generate(action, question, pack.context_block())
     if generated is not None:
         trace.generation_ran = True
-        answer = generated
-        # Parse [ref_N] markers to surface only the cited chunks as citations.
-        sources = _parse_citations(generated, pack)
+        answer, sources = _parse_citations(generated, pack)
     else:
         trace.fallback_used = True
         answer = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER
@@ -695,8 +730,7 @@ async def stream_dispatch(
     if action in _BUFFERED_ACTIONS:
         generated = await _generate(action, question, pack.context_block())
         if generated:
-            answer = generated
-            sources = _parse_citations(generated, pack)
+            answer, sources = _parse_citations(generated, pack)
         else:
             answer = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER
             sources = _make_sources(pack.chunks)
@@ -704,35 +738,37 @@ async def stream_dispatch(
         yield _cache_and_sentinel(answer, sources)
         return
 
-    # Streaming actions: stream tokens, accumulate for citation parsing + cache write
+    # Streaming actions: stream tokens, accumulate for citation parsing + cache write.
+    # Markers are renumbered as they stream, so the client sees the same
+    # numbers as the sources list and the cached answer.
+    renumberer = _CitationRenumberer(len(pack.chunks))
     accumulated: list[str] = []
-    stream_failed = False
     try:
         async for token in _stream_generate(action, question, pack.context_block()):
-            accumulated.append(token)
-            yield token
-    except httpx.HTTPError:
-        stream_failed = True
+            text = renumberer.feed(token)
+            accumulated.append(text)
+            yield text
+    except httpx.HTTPError as exc:
+        raise ExternalServiceError(
+            message="Answer interrupted. Please retry.",
+            code="GENERATION_INTERRUPTED",
+        ) from exc
 
-    if accumulated and not stream_failed:
+    if accumulated:
+        tail = renumberer.flush()
+        if tail:
+            accumulated.append(tail)
+            yield tail
         full_text = "".join(accumulated)
-        sources = _parse_citations(full_text, pack)
+        sources = _cited_sources(pack, renumberer.cited_indices)
         yield _cache_and_sentinel(full_text, sources)
-    elif accumulated and stream_failed:
-        # Partial answer already sent to the client; emit citations for what we
-        # have but do not write the truncated text to the semantic cache.
-        full_text = "".join(accumulated)
-        sources = _parse_citations(full_text, pack)
-        yield _CITATIONS_SENTINEL + json.dumps(
-            [dataclasses.asdict(s) for s in sources]
-        )
     else:
         # Stream yielded nothing — fall back to buffered generate
         generated = await _generate(action, question, pack.context_block())
         if generated:
-            yield generated
-            sources = _parse_citations(generated, pack)
-            yield _cache_and_sentinel(generated, sources)
+            remapped_text, sources = _parse_citations(generated, pack)
+            yield remapped_text
+            yield _cache_and_sentinel(remapped_text, sources)
         else:
             fallback = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER
             sources = _make_sources(pack.chunks)
