@@ -226,3 +226,59 @@ def test_auth_me_returns_the_token_subject(client: TestClient, db):
 
     assert body.get("email") == user_a.email
     assert body.get("email") != user_b.email
+
+
+def test_student_does_not_see_draft_lesson_content(client: TestClient, db):
+    """A draft/needs_review lesson must stay invisible to students.
+
+    GET /api/courses/{id}/lessons and GET /api/lessons/{id} both filter on
+    review status (course_service.get_course_lessons/courses_api.get_lesson),
+    but neither was covered by a dedicated test: the generic "requires auth"
+    checks elsewhere in this file only assert that *a* token is required, not
+    that its role is respected, so a regression here would pass unnoticed.
+    """
+    from app.db.models import UserRole
+
+    student = make_user(db, role=UserRole.STUDENT)
+    instructor = make_user(db, role=UserRole.INSTRUCTOR)
+    course, lessons = make_course_with_lessons(db, n_lessons=2)
+
+    published_lesson, draft_lesson = lessons
+    draft_lesson.status = "draft"
+    db.commit()
+
+    # GET /api/courses/{id}/lessons — the draft must be filtered out for a
+    # student but still visible to an instructor reviewing the course.
+    student_list = client.get(
+        f"/api/courses/{course.id}/lessons", headers=_auth_header(student)
+    )
+    assert student_list.status_code == 200, student_list.text
+    student_ids = {l["id"] for l in student_list.json()}
+    assert draft_lesson.id not in student_ids, (
+        "A draft lesson was returned to a student by GET /courses/{id}/lessons"
+    )
+    assert published_lesson.id in student_ids
+
+    instructor_list = client.get(
+        f"/api/courses/{course.id}/lessons", headers=_auth_header(instructor)
+    )
+    assert instructor_list.status_code == 200, instructor_list.text
+    instructor_ids = {l["id"] for l in instructor_list.json()}
+    assert draft_lesson.id in instructor_ids, (
+        "An instructor must still see draft lessons in order to review them"
+    )
+
+    # GET /api/lessons/{id} — a student fetching the draft lesson directly
+    # must get the same 404 as a non-existent lesson, not its content.
+    student_direct = client.get(
+        f"/api/lessons/{draft_lesson.id}", headers=_auth_header(student)
+    )
+    assert student_direct.status_code == 404, (
+        f"A student fetched a draft lesson directly via GET /lessons/{{id}} "
+        f"(status {student_direct.status_code}): {student_direct.text}"
+    )
+
+    instructor_direct = client.get(
+        f"/api/lessons/{draft_lesson.id}", headers=_auth_header(instructor)
+    )
+    assert instructor_direct.status_code == 200, instructor_direct.text
