@@ -27,6 +27,25 @@ NO_TEXT_ERROR = (
     "No searchable text was extracted from this document. Image-only or scanned PDFs "
     "are not supported (no OCR). Upload a PDF with selectable text."
 )
+_NO_TEXT_ERROR_BY_EXT = {
+    ".pdf": NO_TEXT_ERROR,
+    ".pptx": (
+        "No selectable text was extracted from this presentation. Slides containing "
+        "only images or flattened graphics are not supported. Upload a PPTX with selectable text."
+    ),
+    ".docx": (
+        "No selectable text was extracted from this Word document. "
+        "Upload a DOCX containing selectable text."
+    ),
+}
+_DEFAULT_NO_TEXT_ERROR = (
+    "No searchable text was extracted from this document. "
+    "Upload a file with selectable text."
+)
+
+
+def _no_text_error_for_ext(ext: str) -> str:
+    return _NO_TEXT_ERROR_BY_EXT.get(ext.lower(), _DEFAULT_NO_TEXT_ERROR)
 
 from app.db.models import CourseDocument, DocumentProcessingStage, DocumentStatus  # noqa: E402
 from app.db.session import get_db_context                                           # noqa: E402
@@ -254,31 +273,52 @@ def parse_pdf_pages(file_path: str) -> tuple[list[dict], int]:
     return pages, page_count
 
 
+def _extract_pptx_shape_text(shapes, skip_shape_id: int | None = None) -> list[str]:
+    """Recursively extract selectable text from text boxes, placeholders, tables, and groups."""
+    parts: list[str] = []
+    for shape in shapes:
+        if skip_shape_id is not None and shape.shape_id == skip_shape_id:
+            continue
+        if shape.has_text_frame:
+            text = shape.text_frame.text.strip()
+            if text:
+                parts.append(text)
+        elif shape.has_table:
+            for row in shape.table.rows:
+                row_text = " | ".join(
+                    cell.text.strip() for cell in row.cells if cell.text.strip()
+                )
+                if row_text:
+                    parts.append(row_text)
+        elif hasattr(shape, "shapes"):
+            parts.extend(_extract_pptx_shape_text(shape.shapes, skip_shape_id=skip_shape_id))
+    return parts
+
+
 def parse_pptx_pages(file_path: str) -> tuple[list[dict], int]:
-    """python-pptx → [{page=slide_num, text}] per ogni slide."""
+    """python-pptx -> [{page=slide_num, text}] for each slide."""
     from pptx import Presentation
 
     prs = Presentation(file_path)
     slides = []
     for i, slide in enumerate(prs.slides, 1):
-        title = (
-            slide.shapes.title.text.strip()
-            if slide.shapes.title and slide.shapes.title.has_text_frame
-            else f"Slide {i}"
+        title_shape = slide.shapes.title
+        title_text = (
+            title_shape.text.strip()
+            if title_shape and title_shape.has_text_frame
+            else ""
         )
-        body_parts = []
-        for shape in slide.placeholders:
-            if (
-                shape.has_text_frame
-                and shape.placeholder_format is not None
-                and shape.placeholder_format.idx != 0
-            ):
-                body_parts.append(shape.text_frame.text.strip())
-        body = "\n".join(p for p in body_parts if p)
+        title = title_text or f"Slide {i}"
+        skip_id = title_shape.shape_id if title_text else None
+
+        body_parts = _extract_pptx_shape_text(slide.shapes, skip_shape_id=skip_id)
+        body = "\n".join(body_parts)
+
         notes = ""
         if slide.has_notes_slide:
             nf = slide.notes_slide.notes_text_frame
             notes = nf.text.strip() if nf else ""
+
         parts = [f"## {title}"]
         if body:
             parts.append(body)
@@ -1135,14 +1175,14 @@ def run(
                 chunks = _enrich_with_context(chunks, doc_summary, QVAC_SERVICE_URL)
 
             # ------------------------------------------------------------------
-            # Stage 3e — NO EXTRACTABLE TEXT (e.g. image-only PDF): nothing to index
+            # Stage 3e — NO EXTRACTABLE TEXT: nothing to index
             # ------------------------------------------------------------------
             if not chunks:
-                logger.warning("No extractable text in %s — likely an image-only PDF", document_id)
+                logger.warning("No extractable text in %s (ext=%s)", document_id, ext)
                 doc.chunk_count = 0
                 doc.parser_used = parser_used
                 doc.page_count = page_count if page_count else None
-                _mark_error(doc, NO_TEXT_ERROR, db)
+                _mark_error(doc, _no_text_error_for_ext(ext), db)
                 return
 
             # ------------------------------------------------------------------
