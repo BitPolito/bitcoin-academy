@@ -17,11 +17,15 @@ await mock.module("@qvac/sdk", {
     close: mock.fn(),
     GTE_LARGE_FP16: {},
     QWEN3_4B_INST_Q4_K_M: {},
+    QWEN3VL_2B_MULTIMODAL_Q4_K: {},
+    MMPROJ_QWEN3VL_2B_MULTIMODAL_Q4_K: {},
   },
 });
 
 process.env.QVAC_LLM_ENABLED = "false";
-const { initModels, reloadEmbeddingModel, getEmbeddingModelId } = await import("../src/models.js");
+const { initModels, reloadEmbeddingModel, getEmbeddingModelId, resolveVisionModelSrc } = await import(
+  "../src/models.js"
+);
 
 describe("reloadEmbeddingModel", () => {
   beforeEach(() => {
@@ -50,5 +54,17 @@ describe("reloadEmbeddingModel", () => {
 
     assert.equal(mockLoadModel.mock.calls.length, 1);
     assert.equal(getEmbeddingModelId(), after);
+  });
+});
+
+describe("resolveVisionModelSrc", () => {
+  it("resolves the default qwen3vl-2b model and its projector", () => {
+    const { modelSrc, projectionModelSrc } = resolveVisionModelSrc("qwen3vl-2b");
+    assert.ok(modelSrc);
+    assert.ok(projectionModelSrc);
+  });
+
+  it("rejects an unknown vision model name", () => {
+    assert.throws(() => resolveVisionModelSrc("qwen3.5-vl"), /unknown QVAC_VISION_MODEL/);
   });
 });
