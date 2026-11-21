@@ -4,7 +4,7 @@
 
 Educational platform for Bitcoin study built at BitPolito. Upload slides, PDFs, or textbooks and interact with them through eight study actions: **explain**, **summarize**, **retrieve**, **open\_questions**, **quiz**, **oral**, **derive**, **compare**.
 
-Everything runs locally — no external API keys needed. The retrieval pipeline uses QVAC dense search (GTE-Large FP16) combined with BM25, cross-encoder reranking, MMR diversity, and optional Qwen3-4B for answer generation. A semantic cache (fastembed + Redis) avoids recomputing identical or near-identical queries.
+Everything runs locally — no external API keys needed. The retrieval pipeline uses QVAC dense search (GTE-Large FP16 by default, configurable via `QVAC_EMBEDDING_MODEL`) combined with BM25, cross-encoder reranking, MMR diversity, and optional Qwen3-4B for answer generation. A semantic cache (fastembed + Redis) avoids recomputing identical or near-identical queries.
 
 ---
 
