@@ -21,7 +21,9 @@ await mock.module("@qvac/sdk", {
 });
 
 process.env.QVAC_LLM_ENABLED = "false";
-const { initModels, reloadEmbeddingModel, getEmbeddingModelId } = await import("../src/models.js");
+const { initModels, reloadEmbeddingModel, getEmbeddingModelId, resolveToolModelSrc } = await import(
+  "../src/models.js"
+);
 
 describe("reloadEmbeddingModel", () => {
   beforeEach(() => {
@@ -50,5 +52,19 @@ describe("reloadEmbeddingModel", () => {
 
     assert.equal(mockLoadModel.mock.calls.length, 1);
     assert.equal(getEmbeddingModelId(), after);
+  });
+});
+
+describe("resolveToolModelSrc", () => {
+  it("resolves the default qwen3-4b-tools model", () => {
+    assert.doesNotThrow(() => resolveToolModelSrc("qwen3-4b-tools"));
+  });
+
+  it("rejects an unknown tool model name", () => {
+    assert.throws(() => resolveToolModelSrc("not-a-real-model"), /unknown QVAC_TOOL_MODEL/);
+  });
+
+  it("rejects functiongemma until the SDK exports it", () => {
+    assert.throws(() => resolveToolModelSrc("functiongemma"), /not exported by the installed @qvac\/sdk/);
   });
 });
