@@ -5,7 +5,16 @@ from typing import List, Optional
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
-from app.db.models import CourseDocument
+from app.db.models import ChunkParent, CourseDocument
+
+
+def list_parents_on_page(db: Session, document_id: str, page: int) -> List[ChunkParent]:
+    return (
+        db.query(ChunkParent)
+        .filter(ChunkParent.doc_id == document_id, ChunkParent.citation_page == page)
+        .order_by(ChunkParent.id)
+        .all()
+    )
 
 
 def list_by_course(db: Session, course_id: str) -> List[CourseDocument]:

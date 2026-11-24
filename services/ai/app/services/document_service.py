@@ -135,7 +135,7 @@ def delete_document(db: Session, document_id: str, commit: bool = True) -> bool:
     return True
 
 
-def get_preview(db: Session, document_id: str) -> Optional[Dict[str, Any]]:
+def get_preview(db: Session, document_id: str, page: int | None = None) -> Optional[Dict[str, Any]]:
     doc = document_repo.get_by_id(db, document_id)
     if doc is None:
         return None
@@ -154,10 +154,17 @@ def get_preview(db: Session, document_id: str) -> Optional[Dict[str, Any]]:
         except json.JSONDecodeError:
             sample_chunks = None
 
+    slide_preview = page is not None and Path(doc.filename).suffix.lower() == ".pptx"
+    if slide_preview and page is not None:
+        sample_chunks = [
+            {"text": parent.text, "label": f"Slide {page}", "section": parent.citation_section}
+            for parent in document_repo.list_parents_on_page(db, document_id, page)
+        ]
+
     return {
         "id": doc.id,
         "filename": doc.filename,
-        "extracted_text_preview": doc.extracted_text_preview,
+        "extracted_text_preview": None if slide_preview else doc.extracted_text_preview,
         "page_count": doc.page_count,
         "chunk_count": doc.chunk_count,
         "sections": sections,
