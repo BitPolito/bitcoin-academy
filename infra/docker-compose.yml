@@ -62,6 +62,8 @@ services:
     environment:
       - QVAC_PORT=3001
       - QVAC_INGEST_DIR=/qvac_ingest
+      - QVAC_MODEL_TRANSPORT=${QVAC_MODEL_TRANSPORT:-https}
+      - QVAC_EMB_SRC=${QVAC_EMB_SRC:-}
       - QVAC_LLM_ENABLED=${QVAC_LLM_ENABLED:-true}
     healthcheck:
       # node:22-slim has no wget (the old alpine image had busybox's); the image
