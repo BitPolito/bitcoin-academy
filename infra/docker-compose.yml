@@ -65,6 +65,7 @@ services:
       - QVAC_MODEL_TRANSPORT=${QVAC_MODEL_TRANSPORT:-https}
       - QVAC_EMB_SRC=${QVAC_EMB_SRC:-}
       - QVAC_LLM_ENABLED=${QVAC_LLM_ENABLED:-true}
+      - QVAC_WARMUP_ENABLED=${QVAC_WARMUP_ENABLED:-true}
     healthcheck:
       # node:22-slim has no wget (the old alpine image had busybox's); the image
       # installs curl for this check. With wget the container never became

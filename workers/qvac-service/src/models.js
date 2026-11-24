@@ -2,6 +2,8 @@ import {
   loadModel,
   unloadModel,
   close,
+  embed,
+  completion,
   GTE_LARGE_FP16,
   QWEN3_4B_INST_Q4_K_M,
 } from "@qvac/sdk";
@@ -17,9 +19,29 @@ const LLM_ENABLED = process.env.QVAC_LLM_ENABLED !== "false";
 // ~+0.5 GB of KV cache over the old 4096 default and is required by the course
 // builder (outline/lesson generation). Lower to 4096 on RAM-constrained hosts.
 const LLM_CTX = parseInt(process.env.QVAC_LLM_CTX ?? "8192", 10);
+// A model that is merely *loaded* still pays a one-time cost on its first
+// real inference (KV-cache allocation, mmap page faults on the weight file,
+// thread-pool spin-up) — the first user of the service would otherwise eat
+// that latency. Run one throwaway inference per model right after loading it
+// so that cost lands during startup instead of on someone's first answer
+// (#328). Set QVAC_WARMUP_ENABLED=false to skip this (e.g. fast dev restarts).
+const WARMUP_ENABLED = process.env.QVAC_WARMUP_ENABLED !== "false";
 
 let embeddingModelId = null;
 let llmModelId = null;
+
+async function _warmup(label, fn) {
+  const started = Date.now();
+  try {
+    await fn();
+    console.log(`[qvac] warmed up ${label} in ${Date.now() - started}ms`);
+  } catch (err) {
+    // Warmup is a latency optimization, not a correctness requirement — a
+    // failed warmup call must not take the server down. The same call will
+    // simply run (and fail, if something is really wrong) on first real use.
+    console.warn(`[qvac] warmup of ${label} failed (continuing):`, err.message);
+  }
+}
 
 export async function initModels() {
   console.log("[qvac] loading embedding model...");
@@ -29,6 +51,9 @@ export async function initModels() {
     onProgress: (p) => process.stdout.write(`\r  ${p.percentage.toFixed(0)}%`),
   });
   console.log("\n[qvac] embedding model ready:", embeddingModelId);
+  if (WARMUP_ENABLED) {
+    await _warmup("embedding model", () => embed({ modelId: embeddingModelId, text: "warmup" }));
+  }
 
   if (LLM_ENABLED) {
     console.log(`[qvac] loading LLM (Qwen3-4B Q4_K_M, ctx_size=${LLM_CTX})...`);
@@ -39,6 +64,16 @@ export async function initModels() {
       onProgress: (p) => process.stdout.write(`\r  ${p.percentage.toFixed(0)}%`),
     });
     console.log("\n[qvac] LLM ready:", llmModelId);
+    if (WARMUP_ENABLED) {
+      await _warmup("LLM", async () => {
+        const result = completion({
+          modelId: llmModelId,
+          history: [{ role: "user", content: "Hi /nothink" }],
+          stream: false,
+        });
+        await result.text;
+      });
+    }
   }
 }
 
