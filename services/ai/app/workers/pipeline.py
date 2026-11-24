@@ -21,7 +21,6 @@ _SERVICES_AI = _HERE.parents[2]          # services/ai/
 
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(_SERVICES_AI / "uploads")))
 QVAC_INGEST_DIR = Path(os.getenv("QVAC_INGEST_DIR", str(_SERVICES_AI / "qvac_ingest")))
-QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 SUPPORTED_EXTENSIONS = (".pdf", ".pptx", ".docx", ".md", ".txt")
 NO_TEXT_ERROR = (
     "No searchable text was extracted from this document. Image-only or scanned PDFs "
@@ -31,6 +30,7 @@ NO_TEXT_ERROR = (
 from app.db.models import CourseDocument, DocumentProcessingStage, DocumentStatus  # noqa: E402
 from app.db.session import get_db_context                                           # noqa: E402
 from app.repositories import document_repo                                          # noqa: E402
+from app.services import qvac_router                                                # noqa: E402
 
 # ---------------------------------------------------------------------------
 # sys.modules aliasing — dual-import guard
@@ -1000,9 +1000,10 @@ def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> str
     """
     try:
         timeout = float(os.getenv("QVAC_INGEST_TIMEOUT", "300"))
+        base_url = qvac_router.resolve("retrieval").base_url
         with httpx.Client(timeout=timeout) as client:
             resp = client.post(
-                f"{QVAC_SERVICE_URL}/ingest",
+                f"{base_url}/ingest",
                 json={"jsonlPath": str(jsonl_path), "workspace": workspace, "rebuild": rebuild},
             )
             resp.raise_for_status()
@@ -1137,7 +1138,8 @@ def run(
                     "Contextual enrichment enabled — enriching %d chunks for %s",
                     len(chunks), document_id,
                 )
-                chunks = _enrich_with_context(chunks, doc_summary, QVAC_SERVICE_URL)
+                enrichment_url = qvac_router.resolve("precompute").base_url
+                chunks = _enrich_with_context(chunks, doc_summary, enrichment_url)
 
             # ------------------------------------------------------------------
             # Stage 3e — NO EXTRACTABLE TEXT (e.g. image-only PDF): nothing to index
