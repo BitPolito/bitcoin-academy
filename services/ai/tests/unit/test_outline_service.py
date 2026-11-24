@@ -462,3 +462,77 @@ async def test_generate_outline_marks_error_on_no_candidates():
     assert run.error_message is not None
 
     db.close()
+
+
+@pytest.mark.asyncio
+async def test_generate_outline_warns_when_one_of_several_docs_has_no_structure():
+    """A document with no section structure must not silently vanish from
+    the outline — the reviewer needs to know it contributed nothing, even
+    though the run otherwise succeeds (issue #138, degenerate inputs)."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from app.db.models import Base, Course, Section
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    section_row = Section(id=str(uuid.uuid4()), title="Test")
+    db.add(section_row)
+    course = Course(id=str(uuid.uuid4()), title="Course", section_id=section_row.id)
+    db.add(course)
+    db.commit()
+
+    good_doc = CourseDocument(
+        id=str(uuid.uuid4()), course_id=course.id, filename="structured.pdf", size=1000,
+        status=DocumentStatus.READY, section_tree_json=json.dumps([_SECTION]),
+    )
+    degenerate_doc = CourseDocument(
+        id=str(uuid.uuid4()), course_id=course.id, filename="scan-no-headings.pdf", size=100,
+        status=DocumentStatus.READY, section_tree_json=None,
+    )
+    db.add_all([good_doc, degenerate_doc])
+
+    run = GenerationRun(
+        id=str(uuid.uuid4()), course_id=course.id,
+        doc_ids_json=json.dumps([good_doc.id, degenerate_doc.id]),
+        status=GenerationRunStatus.QUEUED, prompt_version="v1", created_at="2026-01-01T00:00:00",
+    )
+    db.add(run)
+
+    parent = ChunkParent(
+        id="p1", doc_id=good_doc.id, course_id=course.id,
+        text="Bitcoin is a decentralized digital currency. " * 30,
+        citation_section="Chapter One", citation_page=1,
+    )
+    db.add(parent)
+    db.commit()
+
+    with patch(
+        "app.services.outline_service.generate_json", new_callable=AsyncMock
+    ) as mock_gj:
+        mock_gj.side_effect = [_MAP_RESULT, _REDUCE_RESULT]
+        await outline_service.generate_outline(
+            course_id=course.id,
+            doc_ids=[good_doc.id, degenerate_doc.id],
+            db=db,
+            run_id=run.id,
+        )
+
+    db.refresh(run)
+    assert run.status == GenerationRunStatus.DONE
+    assert run.error_message is not None
+    assert "scan-no-headings.pdf" in run.error_message
+    assert "structured.pdf" not in run.error_message
+
+    # The outline still reflects the document that did have structure.
+    chapters = db.query(Chapter).filter(Chapter.course_id == course.id).all()
+    assert len(chapters) == 1
+
+    db.close()

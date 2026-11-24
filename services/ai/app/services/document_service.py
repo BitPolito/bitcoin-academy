@@ -91,10 +91,11 @@ def _qvac_delete_workspace_chunks(course_id: str, doc_id: str) -> None:
     Stale vectors left behind are a known limitation until the endpoint
     contract is confirmed — see docs/feature-status.md §3.
     """
-    import os  # noqa: PLC0415
     import httpx  # noqa: PLC0415
 
-    qvac_url = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
+    from app.services import qvac_router  # noqa: PLC0415
+
+    qvac_url = qvac_router.resolve("retrieval").base_url
     try:
         with httpx.Client(timeout=10.0) as client:
             client.delete(f"{qvac_url}/documents/{doc_id}", params={"workspace": course_id})
@@ -135,7 +136,7 @@ def delete_document(db: Session, document_id: str, commit: bool = True) -> bool:
     return True
 
 
-def get_preview(db: Session, document_id: str) -> Optional[Dict[str, Any]]:
+def get_preview(db: Session, document_id: str, page: int | None = None) -> Optional[Dict[str, Any]]:
     doc = document_repo.get_by_id(db, document_id)
     if doc is None:
         return None
@@ -154,10 +155,17 @@ def get_preview(db: Session, document_id: str) -> Optional[Dict[str, Any]]:
         except json.JSONDecodeError:
             sample_chunks = None
 
+    slide_preview = page is not None and Path(doc.filename).suffix.lower() == ".pptx"
+    if slide_preview and page is not None:
+        sample_chunks = [
+            {"text": parent.text, "label": f"Slide {page}", "section": parent.citation_section}
+            for parent in document_repo.list_parents_on_page(db, document_id, page)
+        ]
+
     return {
         "id": doc.id,
         "filename": doc.filename,
-        "extracted_text_preview": doc.extracted_text_preview,
+        "extracted_text_preview": None if slide_preview else doc.extracted_text_preview,
         "page_count": doc.page_count,
         "chunk_count": doc.chunk_count,
         "sections": sections,

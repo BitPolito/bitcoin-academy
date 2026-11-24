@@ -62,6 +62,8 @@ services:
     environment:
       - QVAC_PORT=3001
       - QVAC_INGEST_DIR=/qvac_ingest
+      - QVAC_MODEL_TRANSPORT=${QVAC_MODEL_TRANSPORT:-https}
+      - QVAC_EMB_SRC=${QVAC_EMB_SRC:-}
       - QVAC_LLM_ENABLED=${QVAC_LLM_ENABLED:-true}
     healthcheck:
       # node:22-slim has no wget (the old alpine image had busybox's); the image
@@ -92,7 +94,7 @@ services:
       - path: ../services/ai/.env
         required: false
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg2://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy}
       - SECRET_KEY=${SECRET_KEY:-CHANGE-ME-INSECURE-DEFAULT-32-CHARS!!}
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
@@ -135,7 +137,7 @@ services:
       - path: ../services/ai/.env
         required: false
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg2://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy}
       - SECRET_KEY=${SECRET_KEY:-CHANGE-ME-INSECURE-DEFAULT-32-CHARS!!}
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - QVAC_SERVICE_URL=http://qvac:3001
