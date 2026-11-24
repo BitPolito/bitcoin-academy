@@ -14,13 +14,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import httpx
 
+from app.services import qvac_router
+
 logger = logging.getLogger(__name__)
 
 _ENABLED = os.getenv("RAG_COMPRESS_CONTEXT", "false").lower() in ("true", "1", "yes")
-_QVAC_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 _QVAC_LLM_ENABLED = os.getenv("QVAC_LLM_ENABLED", "true").lower() != "false"
 _TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
 _MAX_WORKERS = 5
+
+# Lightweight per-passage extraction ahead of generation — tagged "chat_fast"
+# so it stays on the local rung of the inference ladder.
+_TASK_TYPE = "chat_fast"
 
 _COMPRESS_SYSTEM_PROMPT = (
     "You are a precise information extractor. "
@@ -31,7 +36,7 @@ _COMPRESS_SYSTEM_PROMPT = (
 
 
 def _is_enabled() -> bool:
-    return _ENABLED and _QVAC_LLM_ENABLED and bool(_QVAC_URL)
+    return _ENABLED and _QVAC_LLM_ENABLED
 
 
 def _compress_one(query: str, text: str) -> str:
@@ -41,8 +46,9 @@ def _compress_one(query: str, text: str) -> str:
     model loaded (returns the fallback string), or when it returns <not_relevant>.
     """
     try:
+        base_url = qvac_router.resolve(_TASK_TYPE).base_url
         resp = httpx.post(
-            f"{_QVAC_URL}/generate",
+            f"{base_url}/generate",
             json={
                 "question": query,
                 "context": [{"label": "", "text": text}],
