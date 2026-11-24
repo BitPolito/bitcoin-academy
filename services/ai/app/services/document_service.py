@@ -91,10 +91,11 @@ def _qvac_delete_workspace_chunks(course_id: str, doc_id: str) -> None:
     Stale vectors left behind are a known limitation until the endpoint
     contract is confirmed — see docs/feature-status.md §3.
     """
-    import os  # noqa: PLC0415
     import httpx  # noqa: PLC0415
 
-    qvac_url = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
+    from app.services import qvac_router  # noqa: PLC0415
+
+    qvac_url = qvac_router.resolve("retrieval").base_url
     try:
         with httpx.Client(timeout=10.0) as client:
             client.delete(f"{qvac_url}/documents/{doc_id}", params={"workspace": course_id})
