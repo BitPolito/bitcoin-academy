@@ -212,3 +212,23 @@ def test_regenerating_a_stale_human_edited_lesson_requires_confirmation(db, clie
         )
     assert confirmed.status_code == 202, confirmed.text
     mock_bg.assert_called_once()
+
+
+@pytest.mark.integration
+def test_uploading_a_document_marks_the_existing_outline_stale(db, client, tmp_path, monkeypatch):
+    course, _ = make_course_with_lessons(db)
+    db.query(Chapter).filter(Chapter.course_id == course.id).update({"status": "published"})
+    db.commit()
+    monkeypatch.setattr(documents_api, "UPLOADS_DIR", tmp_path)
+
+    with patch("app.workers.pipeline.run"):
+        resp = client.post(
+            f"/api/courses/{course.id}/documents",
+            headers=_headers(db),
+            files={"file": ("new-material.pdf", b"%PDF fake", "application/pdf")},
+        )
+    assert resp.status_code == 201, resp.text
+
+    db.refresh(course)
+    assert course.outline_stale is True
+    assert "new-material.pdf" in course.outline_stale_reason
