@@ -500,10 +500,11 @@ async def generate_outline(
         return
 
     warning = (
-        f"{len(skipped_docs)} of {len(docs)} documents had no usable section "
-        f"structure and were not reflected in this outline: "
-        f"{', '.join(skipped_docs)}. Add structure (headings) or review the "
-        f"document before relying on this outline to cover it."
+        f"{len(skipped_docs)} of {len(docs)} documents contributed no lesson "
+        f"candidates (no usable section structure, or extraction returned "
+        f"nothing) and are not reflected in this outline: "
+        f"{', '.join(skipped_docs)}. Review these documents before relying on "
+        f"this outline to cover them."
         if skipped_docs
         else None
     )

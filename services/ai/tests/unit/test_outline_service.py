@@ -461,6 +461,8 @@ async def test_generate_outline_marks_error_on_no_candidates():
     assert run.status == GenerationRunStatus.ERROR
     assert run.error_message is not None
 
+    db.close()
+
 
 @pytest.mark.asyncio
 async def test_generate_outline_warns_when_one_of_several_docs_has_no_structure():
@@ -532,7 +534,5 @@ async def test_generate_outline_warns_when_one_of_several_docs_has_no_structure(
     # The outline still reflects the document that did have structure.
     chapters = db.query(Chapter).filter(Chapter.course_id == course.id).all()
     assert len(chapters) == 1
-
-    db.close()
 
     db.close()
