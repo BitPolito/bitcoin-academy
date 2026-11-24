@@ -265,6 +265,8 @@ The system must be runnable locally without requiring a cloud-only architecture.
 **Implementation.** Embeddings and generation run locally through the QVAC service; no external API
 key is required. SQLite is the development database. Generation can be disabled entirely for
 memory-constrained machines, leaving retrieval fully functional.
+Docker downloads the default model files from pinned HTTPS URLs. The native setup continues to
+use the QVAC registry; Docker can opt into the registry too, including to reuse an existing cache.
 
 ---
 
