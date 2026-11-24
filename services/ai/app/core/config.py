@@ -18,11 +18,18 @@ load_dotenv(BASE_DIR / ".env")
 logger = logging.getLogger(__name__)
 
 
+def _normalize_database_url(url: str) -> str:
+    """Normalize legacy postgresql:// schemes for SQLAlchemy 2.1+."""
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg2://" + url[len("postgresql://"):]
+    return url
+
+
 class Settings:
     """Application settings and configuration with security validation."""
 
     # Database Configuration - MUST be provided via environment
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    DATABASE_URL: str = _normalize_database_url(os.getenv("DATABASE_URL", ""))
     if not DATABASE_URL:
         raise ValueError(
             "❌ CRITICAL: DATABASE_URL environment variable must be set. "
@@ -135,12 +142,21 @@ class TokenPayload(BaseModel):
     family_id: str = ""  # Refresh-token lineage; empty for legacy access tokens
 
 
-def get_password_hash(password: str) -> str:
-    return _bcrypt.hashpw(password.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
-
-
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return _bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    try:
+        return _bcrypt.checkpw(
+            plain_password.encode("utf-8")[:72],
+            hashed_password.encode("utf-8"),
+        )
+    except ValueError:
+        return False
+
+
+def get_password_hash(password: str) -> str:
+    return _bcrypt.hashpw(
+        password.encode("utf-8")[:72],
+        _bcrypt.gensalt(),
+    ).decode("utf-8")
 
 
 def create_access_token(

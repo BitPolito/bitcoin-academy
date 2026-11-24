@@ -921,6 +921,7 @@ def _build_bm25_index(child_chunks: list[dict], workspace: str, doc_id: str) -> 
             "text": c["text"],
             "label": c["citation_label"],
             "page": c["citation_page"],
+            "slide": c.get("citation_slide", 0),
             "section": c["citation_section"],
             "doc_id": c["doc_id"],
             "parent_id": c.get("parent_id", ""),
@@ -1118,6 +1119,10 @@ def run(
             # Stage 3b — QUALITY FILTER (child chunks only)
             # ------------------------------------------------------------------
             chunks = filter_chunks(raw_children)
+            if ext == ".pptx":
+                for chunk in (*parent_chunks, *chunks):
+                    chunk["citation_slide"] = chunk["citation_page"]
+                    chunk["citation_label"] = f"Slide {chunk['citation_page']}"
             dropped = len(raw_children) - len(chunks)
             logger.info(
                 "Parent-child for %s: %d parents, %d children raw → %d after filter (%d dropped)",
