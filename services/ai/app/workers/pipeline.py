@@ -21,7 +21,6 @@ _SERVICES_AI = _HERE.parents[2]          # services/ai/
 
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(_SERVICES_AI / "uploads")))
 QVAC_INGEST_DIR = Path(os.getenv("QVAC_INGEST_DIR", str(_SERVICES_AI / "qvac_ingest")))
-QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 SUPPORTED_EXTENSIONS = (".pdf", ".pptx", ".docx", ".md", ".txt")
 NO_TEXT_ERROR = (
     "No searchable text was extracted from this document. Image-only or scanned PDFs "
@@ -31,6 +30,7 @@ NO_TEXT_ERROR = (
 from app.db.models import CourseDocument, DocumentProcessingStage, DocumentStatus  # noqa: E402
 from app.db.session import get_db_context                                           # noqa: E402
 from app.repositories import document_repo                                          # noqa: E402
+from app.services import qvac_router                                                # noqa: E402
 
 # ---------------------------------------------------------------------------
 # sys.modules aliasing — dual-import guard
@@ -921,6 +921,7 @@ def _build_bm25_index(child_chunks: list[dict], workspace: str, doc_id: str) -> 
             "text": c["text"],
             "label": c["citation_label"],
             "page": c["citation_page"],
+            "slide": c.get("citation_slide", 0),
             "section": c["citation_section"],
             "doc_id": c["doc_id"],
             "parent_id": c.get("parent_id", ""),
@@ -999,9 +1000,10 @@ def _qvac_ingest(jsonl_path: Path, workspace: str, rebuild: bool = False) -> str
     """
     try:
         timeout = float(os.getenv("QVAC_INGEST_TIMEOUT", "300"))
+        base_url = qvac_router.resolve("retrieval").base_url
         with httpx.Client(timeout=timeout) as client:
             resp = client.post(
-                f"{QVAC_SERVICE_URL}/ingest",
+                f"{base_url}/ingest",
                 json={"jsonlPath": str(jsonl_path), "workspace": workspace, "rebuild": rebuild},
             )
             resp.raise_for_status()
@@ -1117,6 +1119,10 @@ def run(
             # Stage 3b — QUALITY FILTER (child chunks only)
             # ------------------------------------------------------------------
             chunks = filter_chunks(raw_children)
+            if ext == ".pptx":
+                for chunk in (*parent_chunks, *chunks):
+                    chunk["citation_slide"] = chunk["citation_page"]
+                    chunk["citation_label"] = f"Slide {chunk['citation_page']}"
             dropped = len(raw_children) - len(chunks)
             logger.info(
                 "Parent-child for %s: %d parents, %d children raw → %d after filter (%d dropped)",
@@ -1132,7 +1138,8 @@ def run(
                     "Contextual enrichment enabled — enriching %d chunks for %s",
                     len(chunks), document_id,
                 )
-                chunks = _enrich_with_context(chunks, doc_summary, QVAC_SERVICE_URL)
+                enrichment_url = qvac_router.resolve("precompute").base_url
+                chunks = _enrich_with_context(chunks, doc_summary, enrichment_url)
 
             # ------------------------------------------------------------------
             # Stage 3e — NO EXTRACTABLE TEXT (e.g. image-only PDF): nothing to index
@@ -1199,6 +1206,8 @@ def run(
             doc.sections_json = json.dumps(sections)
             doc.section_tree_json = json.dumps(build_section_tree(section_events))
             doc.sample_chunks_json = json.dumps(sample)
+            from app.services.outline_staleness_service import mark_overlapping_new_source
+            mark_overlapping_new_source(db, document_id)
             db.commit()
 
             logger.info(

@@ -8,8 +8,11 @@ import {
   QWEN3_4B_INST_Q4_K_M,
 } from "@qvac/sdk";
 
-// Override embedding model via env var; falls back to GTE_LARGE_FP16 (~670 MB).
-const EMB_SRC = process.env.QVAC_EMB_SRC ?? GTE_LARGE_FP16;
+const useHttps = process.env.QVAC_MODEL_TRANSPORT === "https";
+const EMB_HTTPS = "https://huggingface.co/ChristianAzinn/gte-large-gguf/resolve/f9fa5479908e72c2a8b9d6ba112911cd1e51be53/gte-large_fp16.gguf";
+const LLM_HTTPS = "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf";
+const EMB_SRC = process.env.QVAC_EMB_SRC || (useHttps ? EMB_HTTPS : GTE_LARGE_FP16);
+const LLM_SRC = useHttps ? LLM_HTTPS : QWEN3_4B_INST_Q4_K_M;
 // Set QVAC_LLM_ENABLED=false to disable LLM generation (retrieval-only mode).
 const LLM_ENABLED = process.env.QVAC_LLM_ENABLED !== "false";
 // Context window for the LLM. Qwen3-4B supports up to 32K natively; 8192 costs
@@ -55,7 +58,7 @@ export async function initModels() {
   if (LLM_ENABLED) {
     console.log(`[qvac] loading LLM (Qwen3-4B Q4_K_M, ctx_size=${LLM_CTX})...`);
     llmModelId = await loadModel({
-      modelSrc: QWEN3_4B_INST_Q4_K_M,
+      modelSrc: LLM_SRC,
       modelType: "llamacpp-completion",
       modelConfig: { ctx_size: LLM_CTX },
       onProgress: (p) => process.stdout.write(`\r  ${p.percentage.toFixed(0)}%`),

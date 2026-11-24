@@ -63,6 +63,14 @@ describe('CitationCard', () => {
     );
   });
 
+  it('prefers a PowerPoint slide over its page anchor', () => {
+    const citation = { ...baseCitation, label: 'Slide 2', page: 2, slide: 2 };
+    render(<CitationCard citation={citation} courseId="c1" index={1} />);
+    expect(screen.getByText('[1] Slide 2')).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/View in source/));
+    expect(mockPush).toHaveBeenCalledWith('/courses/c1/documents/doc-abc/preview?slide=2');
+  });
+
   it('does not navigate when doc_id is empty', () => {
     const citation = { ...baseCitation, doc_id: '' };
     render(<CitationCard citation={citation} courseId="c1" index={1} />);

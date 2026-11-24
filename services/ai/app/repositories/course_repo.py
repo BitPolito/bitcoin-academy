@@ -91,18 +91,29 @@ def get_all_courses(db: Session, skip: int = 0, limit: int = 100) -> List[Course
     return db.query(Course).filter(Course.is_active == True).offset(skip).limit(limit).all()
 
 
+def get_courses_page(
+    db: Session, *, after_id: str | None, limit: int
+) -> tuple[List[Course], bool]:
+    query = db.query(Course).filter(Course.is_active == True)
+    if after_id is not None:
+        query = query.filter(Course.id > after_id)
+    rows = query.order_by(Course.id.asc()).limit(limit + 1).all()
+    return rows[:limit], len(rows) > limit
+
+
 def get_course_by_id(db: Session, course_id: str) -> Optional[Course]:
     return db.query(Course).filter(Course.id == course_id, Course.is_active == True).first()
 
 
-def get_lessons_by_course_id(db: Session, course_id: str) -> List[Lesson]:
-    return (
+def get_lessons_by_course_id(db: Session, course_id: str, published_only: bool = False) -> List[Lesson]:
+    query = (
         db.query(Lesson)
         .join(Chapter, Lesson.chapter_id == Chapter.id)
         .filter(Chapter.course_id == course_id)
-        .order_by(Chapter.order_index, Lesson.order_index)
-        .all()
     )
+    if published_only:
+        query = query.filter(Chapter.status == "published", Lesson.status == "published")
+    return query.order_by(Chapter.order_index, Lesson.order_index).all()
 
 
 def get_lesson_by_id(db: Session, lesson_id: str) -> Optional[Lesson]:

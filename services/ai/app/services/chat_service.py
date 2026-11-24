@@ -4,11 +4,13 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from typing import List
+from typing import Dict, List
 
 import httpx
 
+from app.core.config import settings
 from app.rag.retriever import unified_retrieval
+from app.services import qvac_router
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +37,30 @@ def _clean_answer(text: str) -> str:
     return text if text else "Risposta non disponibile."
 
 
-_QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 # RAG_MAX_CONTEXT_TOKENS: rough token budget (words × 1.3) for context blocks.
 _MAX_CONTEXT_TOKENS = int(os.getenv("RAG_MAX_CONTEXT_TOKENS", "6000"))
 
-_client = httpx.AsyncClient(base_url=_QVAC_SERVICE_URL, timeout=60.0)
+# Default (task_type-less) client, kept as a module-level singleton for
+# backward-compatible patchability (tests mock app.services.chat_service._client
+# directly). Real call sites resolve their base_url via
+# app.services.qvac_router.resolve(task_type) first — when that matches this
+# default URL (true today, since QVAC_LOCAL_URL/QVAC_SERVER_URL both default
+# to QVAC_SERVICE_URL) this same client is reused via _client_for() instead of
+# opening a second connection pool. See app.services.qvac_structured for the
+# same pattern.
+_DEFAULT_QVAC_URL = settings.QVAC_SERVICE_URL
+_client = httpx.AsyncClient(base_url=_DEFAULT_QVAC_URL, timeout=60.0)
+_routed_clients: Dict[str, httpx.AsyncClient] = {}
+
+
+def _client_for(base_url: str) -> httpx.AsyncClient:
+    if base_url == _DEFAULT_QVAC_URL:
+        return _client
+    client = _routed_clients.get(base_url)
+    if client is None:
+        client = httpx.AsyncClient(base_url=base_url, timeout=60.0)
+        _routed_clients[base_url] = client
+    return client
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -79,8 +100,10 @@ async def _retrieve_and_rank(
     """
     from app.rag.compressor import compress_passages  # noqa: PLC0415
 
+    route = await qvac_router.resolve_async("retrieval")
+    client = _client_for(route.base_url)
     context_chunks, reranked = await unified_retrieval(
-        question, course_id, retrieval_query, client=_client
+        question, course_id, retrieval_query, client=client
     )
 
     # ── Context compression (opt-in via RAG_COMPRESS_CONTEXT=true) ───────────
@@ -166,7 +189,9 @@ async def answer(
 
     answer_text = ""
     try:
-        gen_resp = await _client.post(
+        gen_route = await qvac_router.resolve_async("chat_fast")
+        gen_client = _client_for(gen_route.base_url)
+        gen_resp = await gen_client.post(
             "/generate",
             json={"question": question, "context": context_blocks},
         )
@@ -246,7 +271,9 @@ async def stream_answer(
     stream_failed = False
 
     try:
-        async with _client.stream(
+        stream_route = await qvac_router.resolve_async("chat_fast")
+        stream_client = _client_for(stream_route.base_url)
+        async with stream_client.stream(
             "POST", "/stream",
             json={"question": question, "context": context_blocks},
             timeout=120.0,
@@ -277,7 +304,9 @@ async def stream_answer(
     # Fall back to buffered /generate when streaming errored or returned nothing.
     if stream_failed or not accumulated:
         try:
-            gen_resp = await _client.post(
+            fallback_route = await qvac_router.resolve_async("chat_fast")
+            fallback_client = _client_for(fallback_route.base_url)
+            gen_resp = await fallback_client.post(
                 "/generate",
                 json={"question": question, "context": context_blocks},
             )

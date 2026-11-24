@@ -23,6 +23,8 @@ await mock.module("@qvac/sdk", {
 });
 
 process.env.QVAC_LLM_ENABLED = "false";
+delete process.env.QVAC_MODEL_TRANSPORT;
+delete process.env.QVAC_EMB_SRC;
 const { initModels, reloadEmbeddingModel, getEmbeddingModelId } = await import("../src/models.js");
 
 describe("reloadEmbeddingModel", () => {
@@ -53,4 +55,25 @@ describe("reloadEmbeddingModel", () => {
     assert.equal(mockLoadModel.mock.calls.length, 1);
     assert.equal(getEmbeddingModelId(), after);
   });
+});
+
+it("loads both Docker defaults over HTTPS without losing an explicit embedding override", async (t) => {
+  t.after(() => {
+    delete process.env.QVAC_MODEL_TRANSPORT;
+    delete process.env.QVAC_EMB_SRC;
+    process.env.QVAC_LLM_ENABLED = "false";
+  });
+  process.env.QVAC_MODEL_TRANSPORT = "https";
+  process.env.QVAC_LLM_ENABLED = "true";
+  mockLoadModel.mock.resetCalls();
+  const https = await import("../src/models.js?https");
+  await https.initModels();
+  const [embedding, llm] = mockLoadModel.mock.calls.map(({ arguments: [options] }) => options);
+  assert.match(embedding.modelSrc, /^https:\/\/huggingface\.co\/.*\/gte-large_fp16\.gguf$/);
+  assert.match(llm.modelSrc, /^https:\/\/huggingface\.co\/.*\/Qwen3-4B-Q4_K_M\.gguf$/);
+
+  process.env.QVAC_EMB_SRC = "/models/custom.gguf";
+  const custom = await import("../src/models.js?custom");
+  await custom.reloadEmbeddingModel();
+  assert.equal(mockLoadModel.mock.calls.at(-1).arguments[0].modelSrc, "/models/custom.gguf");
 });

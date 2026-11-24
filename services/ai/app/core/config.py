@@ -18,11 +18,18 @@ load_dotenv(BASE_DIR / ".env")
 logger = logging.getLogger(__name__)
 
 
+def _normalize_database_url(url: str) -> str:
+    """Normalize legacy postgresql:// schemes for SQLAlchemy 2.1+."""
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg2://" + url[len("postgresql://"):]
+    return url
+
+
 class Settings:
     """Application settings and configuration with security validation."""
 
     # Database Configuration - MUST be provided via environment
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    DATABASE_URL: str = _normalize_database_url(os.getenv("DATABASE_URL", ""))
     if not DATABASE_URL:
         raise ValueError(
             "❌ CRITICAL: DATABASE_URL environment variable must be set. "
@@ -81,12 +88,10 @@ class Settings:
 
     # QVAC inference ladder (docs/agent-memory-plan.md, Fase 0). Only one QVAC
     # worker is deployed today, so both default to the existing QVAC_SERVICE_URL —
-    # set them independently once a separate local/server deploy exists.
-    # NOTE: study_service.py, chat_service.py, document_service.py,
-    # rag/query_rewriter.py, rag/compressor.py, workers/pipeline.py, and the
-    # /health check in main.py each still read QVAC_SERVICE_URL directly
-    # rather than through these settings — they will NOT pick up a diverging
-    # QVAC_LOCAL_URL/QVAC_SERVER_URL value until migrated onto settings too.
+    # set them independently once a separate local/server deploy exists. Every
+    # call site resolves its endpoint through app.services.qvac_router.resolve()
+    # (task_type -> Route), which reads QVAC_LOCAL_URL/QVAC_SERVER_URL below —
+    # no module outside this file reads QVAC_SERVICE_URL directly.
     _QVAC_SERVICE_URL_DEFAULT = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
     QVAC_SERVICE_URL: str = _QVAC_SERVICE_URL_DEFAULT
     QVAC_LOCAL_URL: str = os.getenv("QVAC_LOCAL_URL", _QVAC_SERVICE_URL_DEFAULT)
@@ -137,12 +142,21 @@ class TokenPayload(BaseModel):
     family_id: str = ""  # Refresh-token lineage; empty for legacy access tokens
 
 
-def get_password_hash(password: str) -> str:
-    return _bcrypt.hashpw(password.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
-
-
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return _bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    try:
+        return _bcrypt.checkpw(
+            plain_password.encode("utf-8")[:72],
+            hashed_password.encode("utf-8"),
+        )
+    except ValueError:
+        return False
+
+
+def get_password_hash(password: str) -> str:
+    return _bcrypt.hashpw(
+        password.encode("utf-8")[:72],
+        _bcrypt.gensalt(),
+    ).decode("utf-8")
 
 
 def create_access_token(
