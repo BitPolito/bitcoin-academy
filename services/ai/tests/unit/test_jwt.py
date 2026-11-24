@@ -236,11 +236,11 @@ def test_long_password_bcrypt_5_compatibility():
     assert verify_password("a" * 72, hashed) is True
     assert verify_password("b" * 72, hashed) is False
 
-    # Multibyte UTF-8 character split across the 72-byte boundary ("?" is 3 bytes)
-    multibyte_split = "a" * 71 + "?" + "tail"
+    # Multibyte UTF-8 character split across the 72-byte boundary ("\u20ac" is 3 bytes)
+    multibyte_split = "a" * 71 + "\u20ac" + "tail"
     multibyte_hash = get_password_hash(multibyte_split)
     assert verify_password(multibyte_split, multibyte_hash) is True
-    assert verify_password("a" * 71 + "?", multibyte_hash) is True
+    assert verify_password("a" * 71 + "\u20ac", multibyte_hash) is True
     assert verify_password("a" * 71 + "x", multibyte_hash) is False
 
     # Malformed stored hashes must return False rather than raising ValueError
