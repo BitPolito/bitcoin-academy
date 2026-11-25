@@ -54,8 +54,20 @@ function replaceLastStreaming(
   return messages;
 }
 
-// Actions that stream tokens progressively (full text needed for QUIZ/ORAL parsing).
-const STREAMING_ACTIONS = new Set<StudyAction>(['explain', 'summarize', 'derive', 'compare', 'open_questions']);
+// Actions that stream tokens progressively. Every action with a generation
+// step streams — RETRIEVE is the only one excluded, since it has no
+// generation step at all (#327). QUIZ/ORAL's structured Q&A parsing
+// (StudyOutput.tsx's parseQuizQuestion/parseOralOutput) runs on the fully
+// accumulated text once the stream completes, exactly like every other action.
+const STREAMING_ACTIONS = new Set<StudyAction>([
+  'explain',
+  'summarize',
+  'derive',
+  'compare',
+  'open_questions',
+  'quiz',
+  'oral',
+]);
 
 interface OutputPaneProps {
   courseId: string;
@@ -410,7 +422,7 @@ export function OutputPane({
     setMessages((prev) => [...prev, { role: 'user', content: `[${action}] ${query}` }]);
     const t0 = Date.now();
 
-    // Streaming path: EXPLAIN, SUMMARIZE, DERIVE, COMPARE, OPEN_QUESTIONS stream tokens.
+    // Streaming path: every action except RETRIEVE (see STREAMING_ACTIONS).
     // Loading spinner stays until first token; then replaced by progressive streaming message.
     if (STREAMING_ACTIONS.has(action) && !ragOnly) {
       let streamingCitations: ApiCitationOut[] = [];
@@ -482,7 +494,7 @@ export function OutputPane({
       return;
     }
 
-    // Buffered path: QUIZ, ORAL, RETRIEVE, or ragOnly (need full text before parsing).
+    // Buffered path: RETRIEVE (no generation step) or ragOnly (skips generation too).
     try {
       const result = await sendStudyAction(courseId, action, query, accessToken, ragOnly);
       const durationMs = Date.now() - t0;

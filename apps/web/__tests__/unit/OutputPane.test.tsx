@@ -339,5 +339,29 @@ describe('OutputPane', () => {
 
       expect(await screen.findByText(/no response received/i)).toBeInTheDocument();
     });
+
+    it.each(['quiz', 'oral'] as const)(
+      '#327: streams %s like every other study action instead of buffering it',
+      async (action) => {
+        mockStudyStream.mockImplementation(async (_course, _action, _query, onToken, onCitations) => {
+          onToken('Q: ...');
+          onCitations([]);
+        });
+
+        render(
+          <OutputPane
+            {...defaultProps}
+            hasIndexedDocs
+            initialAction={action}
+            initialQuery="Bitcoin"
+          />
+        );
+
+        await waitFor(() => expect(mockStudyStream).toHaveBeenCalledWith(
+          'course-123', action, 'Bitcoin', expect.any(Function), expect.any(Function), 'tok', false,
+        ));
+        expect(sendStudyAction).not.toHaveBeenCalled();
+      },
+    );
   });
 });
