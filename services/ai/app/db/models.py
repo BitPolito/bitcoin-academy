@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -67,6 +68,28 @@ class GenerationRunStatus(str, Enum):
     RUNNING = "running"
     DONE = "done"
     ERROR = "error"
+
+
+class TopicOccurrenceRole(str, Enum):
+    """How deeply a lesson treats a topic — set heuristically from outline
+    ordering on first population, correctable by hand afterwards."""
+
+    INTRODUCED = "introduced"
+    DEVELOPED = "developed"
+    APPLIED = "applied"
+
+
+class TopicRelationType(str, Enum):
+    PREREQUISITE = "prerequisite"
+    RELATED_TO = "related_to"
+
+
+class TopicRelationSource(str, Enum):
+    """Provenance of a relation edge — kept distinct so seeded edges are
+    visibly different from curated ones and can be reviewed independently."""
+
+    OUTLINE_SEED = "outline_seed"
+    MANUAL = "manual"
 
 
 # 1. Users
@@ -542,3 +565,115 @@ class Certificate(Base):
 
     user: Mapped["User"] = relationship(back_populates="certificates")
     course: Mapped["Course"] = relationship(back_populates="certificates")
+
+
+# 13. Cross-course topic taxonomy (#139 — foundational data layer only).
+#
+# Deliberately NOT course-scoped at the Topic level: the point of this layer
+# is that the same concept taught in two different courses is one row here.
+# Occurrences and relations carry course_id so per-course views and the
+# isolation boundary (see docs/design/topic-taxonomy-isolation.md) stay
+# checkable. This layer is read-side only — retrieval and generation never
+# query it, and it never queries them.
+class Topic(Base):
+    """Canonical topic — a normalized concept, independent of any one course."""
+
+    __tablename__ = "topic"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    canonical_name: Mapped[str] = mapped_column(String, unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(String, default=func.now())
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey("app_user.id"))
+
+    aliases: Mapped[List["TopicAlias"]] = relationship(
+        back_populates="topic", cascade="all, delete-orphan"
+    )
+    occurrences: Mapped[List["TopicOccurrence"]] = relationship(
+        back_populates="topic", cascade="all, delete-orphan"
+    )
+
+
+class TopicAlias(Base):
+    """An alternate name that resolves to a canonical topic.
+
+    Added only through an explicit curation action (topic_service.add_alias)
+    — see docs/design/topic-taxonomy-isolation.md for why this first pass is
+    manual curation rather than embedding/LLM-based merging.
+    """
+
+    __tablename__ = "topic_alias"
+    __table_args__ = (UniqueConstraint("alias", name="uq_topic_alias_alias"),)
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    topic_id: Mapped[str] = mapped_column(ForeignKey("topic.id"), index=True)
+    alias: Mapped[str] = mapped_column(String)
+    created_at: Mapped[str] = mapped_column(String, default=func.now())
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey("app_user.id"))
+
+    topic: Mapped["Topic"] = relationship(back_populates="aliases")
+
+
+class TopicOccurrence(Base):
+    """A place a topic appears: a lesson, optionally anchored to the specific
+    source passage (parent chunk) the match came from.
+
+    Populated from the existing outline pipeline's persisted output (lesson
+    title/description and their source_refs_json), not a separate extraction
+    pass — see app/services/topic_service.populate_occurrences_for_course.
+    """
+
+    __tablename__ = "topic_occurrence"
+    __table_args__ = (
+        UniqueConstraint(
+            "topic_id", "lesson_id", "chunk_id",
+            name="uq_topic_occurrence_topic_lesson_chunk",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    topic_id: Mapped[str] = mapped_column(ForeignKey("topic.id"), index=True)
+    course_id: Mapped[str] = mapped_column(ForeignKey("course.id"), index=True)
+    lesson_id: Mapped[str] = mapped_column(ForeignKey("lesson.id"), index=True)
+    chunk_id: Mapped[Optional[str]] = mapped_column(String)
+    role: Mapped[str] = mapped_column(String, default=TopicOccurrenceRole.INTRODUCED)
+    matched_term: Mapped[str] = mapped_column(String)
+    created_at: Mapped[str] = mapped_column(String, default=func.now())
+
+    topic: Mapped["Topic"] = relationship(back_populates="occurrences")
+
+
+class TopicRelation(Base):
+    """A directed edge between two canonical topics (prerequisite or related-to).
+
+    source distinguishes edges seeded from outline ordering from edges a
+    human curated — see TopicRelationSource.
+    """
+
+    __tablename__ = "topic_relation"
+    __table_args__ = (
+        UniqueConstraint(
+            "topic_id", "related_topic_id", "relation_type",
+            name="uq_topic_relation_edge",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    topic_id: Mapped[str] = mapped_column(ForeignKey("topic.id"), index=True)
+    related_topic_id: Mapped[str] = mapped_column(ForeignKey("topic.id"), index=True)
+    relation_type: Mapped[str] = mapped_column(String)
+    source: Mapped[str] = mapped_column(String, default=TopicRelationSource.MANUAL)
+    course_id: Mapped[Optional[str]] = mapped_column(ForeignKey("course.id"))
+    created_at: Mapped[str] = mapped_column(String, default=func.now())
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey("app_user.id"))
+
+    topic: Mapped["Topic"] = relationship(foreign_keys=[topic_id])
+    related_topic: Mapped["Topic"] = relationship(foreign_keys=[related_topic_id])

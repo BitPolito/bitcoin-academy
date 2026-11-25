@@ -116,6 +116,55 @@ async def test_evidence_pack_contains_only_chunks_returned_for_that_course():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
+async def test_evidence_pack_never_mixes_chunks_across_courses():
+    """Explicit test for #139's acceptance criterion: the topic taxonomy is a
+    navigation layer and must never widen the retrieval pool, so evidence
+    packs for two different courses must never cross-contaminate — even when
+    both answer the same question and would plausibly share a topic.
+
+    This asserts behaviour that should already hold given existing course
+    isolation (requirement 18); it is written to prove it, not assume it.
+    """
+    question = "What is a Merkle tree?"
+    course_a_sources = [
+        _source("a1", "docA", "Course A: Merkle tree definition"),
+        _source("a2", "docA", "Course A: Merkle proof construction"),
+    ]
+    course_b_sources = [
+        _source("b1", "docB", "Course B: Merkle tree definition"),
+        _source("b2", "docB", "Course B: Merkle proof construction"),
+    ]
+
+    with patch("httpx.AsyncClient.post", new=AsyncMock(return_value=_qvac_response(course_a_sources))), \
+         patch("app.rag.query_rewriter.expand_query", new=AsyncMock(side_effect=lambda q: q)):
+        result_a = await study_service.dispatch(
+            question=question, course_id=COURSE_A, action=StudyAction.RETRIEVE
+        )
+
+    with patch("httpx.AsyncClient.post", new=AsyncMock(return_value=_qvac_response(course_b_sources))), \
+         patch("app.rag.query_rewriter.expand_query", new=AsyncMock(side_effect=lambda q: q)):
+        result_b = await study_service.dispatch(
+            question=question, course_id=COURSE_B, action=StudyAction.RETRIEVE
+        )
+
+    pack_a, pack_b = result_a.evidence_pack, result_b.evidence_pack
+    assert pack_a is not None and pack_b is not None
+
+    doc_ids_a = {c.anchor.doc_id for c in pack_a.chunks}
+    doc_ids_b = {c.anchor.doc_id for c in pack_b.chunks}
+    chunk_ids_a = {c.chunk_id for c in pack_a.chunks}
+    chunk_ids_b = {c.chunk_id for c in pack_b.chunks}
+
+    assert doc_ids_a == {"docA"}, f"Course A's pack contains non-course-A docs: {doc_ids_a}"
+    assert doc_ids_b == {"docB"}, f"Course B's pack contains non-course-B docs: {doc_ids_b}"
+    assert chunk_ids_a.isdisjoint(chunk_ids_b), (
+        f"Evidence packs for course A and course B share chunk ids: "
+        f"{chunk_ids_a & chunk_ids_b}. A shared topic must never merge "
+        f"evidence pools across courses."
+    )
+
+
+@pytest.mark.asyncio
 async def test_cache_does_not_serve_another_course_answer():
     """Same question, different course — the second call must not receive the
     first course's cached answer. A collision here leaks course content."""
