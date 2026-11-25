@@ -6,11 +6,9 @@ name: CI
 
 on:
   push:
-    branches: [master, mvp-testing]
+    branches: [master]
   pull_request:
-    # mvp-testing is the active development line and receives master's changes
-    # periodically, so the gate must run there too rather than only on master.
-    branches: [master, mvp-testing]
+    branches: [master]
 
 # No job writes to the repository; the repo default token is write-capable.
 permissions:
