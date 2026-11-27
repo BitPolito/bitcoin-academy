@@ -24,18 +24,18 @@ jest.mock('@/lib/services/courses', () => ({
 }));
 
 jest.mock('@/lib/api/documents', () => ({
-  getDocumentListRows: jest.fn(),
+  getDocumentListPage: jest.fn(),
   deleteDocument: jest.fn(),
   reindexCourse: jest.fn(),
 }));
 
 import { useSession } from 'next-auth/react';
 import { getCourse } from '@/lib/services/courses';
-import { getDocumentListRows } from '@/lib/api/documents';
+import { getDocumentListPage } from '@/lib/api/documents';
 
 const mockUseSession = useSession as jest.Mock;
 const mockGetCourse = getCourse as jest.Mock;
-const mockGetDocs = getDocumentListRows as jest.Mock;
+const mockGetDocs = getDocumentListPage as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -46,7 +46,7 @@ beforeEach(() => {
   });
   mockGetDocs.mockImplementation(async (_id: string, token?: string) => {
     if (!token) throw new Error('Missing authentication token');
-    return [];
+    return { items: [], next_cursor: null, has_more: false };
   });
 });
 

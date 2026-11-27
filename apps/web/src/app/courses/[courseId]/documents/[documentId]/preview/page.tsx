@@ -253,7 +253,11 @@ function PreviewContent() {
   const documentId = params.documentId as string;
   const accessToken = session?.user?.accessToken;
 
-  const pageParam = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
+  const rawPage = Number(searchParams.get('slide') ?? searchParams.get('page'));
+  const sourcePage = Number.isInteger(rawPage) && rawPage >= 1 && rawPage <= 2147483647
+    ? rawPage
+    : undefined;
+  const pageParam = sourcePage ?? 1;
 
   const [preview, setPreview] = useState<DocumentPreviewView | null>(null);
   const [loading, setLoading] = useState(true);
@@ -267,14 +271,14 @@ function PreviewContent() {
     try {
       setError(null);
       setLoading(true);
-      const data = await getDocumentPreviewView(documentId, accessToken);
+      const data = await getDocumentPreviewView(documentId, accessToken, sourcePage);
       setPreview(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load preview');
     } finally {
       setLoading(false);
     }
-  }, [documentId, accessToken]);
+  }, [documentId, accessToken, sourcePage]);
 
   useEffect(() => {
     load();
@@ -291,6 +295,10 @@ function PreviewContent() {
   // Sync ?page= to activeIndex once chunks are loaded.
   useEffect(() => {
     if (preview?.sampleChunks) {
+      if (preview.filename.toLowerCase().endsWith('.pptx')) {
+        setActiveIndex(0);
+        return;
+      }
       const clamped = Math.min(pageParam - 1, preview.sampleChunks.length - 1);
       setActiveIndex(Math.max(0, clamped));
     }

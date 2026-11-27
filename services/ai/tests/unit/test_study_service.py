@@ -381,3 +381,75 @@ def test_study_request_rejects_a_two_character_query():
     from app.schemas.study_schemas import StudyDispatchRequest
     with pytest.raises(ValidationError):
         StudyDispatchRequest(query="ab", action=StudyAction.EXPLAIN)
+
+
+# ---------------------------------------------------------------------------
+# Inference-ladder routing — issue #160
+# ---------------------------------------------------------------------------
+# _generate/_retrieve must resolve their endpoint via qvac_router.resolve()
+# with an appropriate task_type, rather than a QVAC_SERVICE_URL read baked
+# in at import time.
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_generate_quiz_action_resolves_quiz_plan_task_type():
+    from app.services import study_service, qvac_router
+
+    with patch.object(qvac_router, "resolve_async", new_callable=AsyncMock) as mock_resolve:
+        mock_resolve.return_value = qvac_router.Route(
+            task_type="quiz_plan", target="server", base_url="http://server:2", model="m",
+        )
+        with patch.object(study_service, "_gen_client_for") as mock_client_for:
+            mock_client_for.return_value.post = AsyncMock(
+                return_value=_make_httpx_resp({"answer": "Q1..."})
+            )
+            await study_service._generate(StudyAction.QUIZ, "Quiz me.", "ctx")
+
+    mock_resolve.assert_awaited_once_with("quiz_plan")
+    mock_client_for.assert_called_once_with("http://server:2")
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_generate_non_quiz_action_resolves_content_gen_task_type():
+    from app.services import study_service, qvac_router
+
+    with patch.object(qvac_router, "resolve_async", new_callable=AsyncMock) as mock_resolve:
+        mock_resolve.return_value = qvac_router.Route(
+            task_type="content_gen", target="server", base_url="http://server:2", model="m",
+        )
+        with patch.object(study_service, "_gen_client_for") as mock_client_for:
+            mock_client_for.return_value.post = AsyncMock(
+                return_value=_make_httpx_resp({"answer": "answer"})
+            )
+            await study_service._generate(StudyAction.EXPLAIN, "What is PoW?", "ctx")
+
+    mock_resolve.assert_awaited_once_with("content_gen")
+    mock_client_for.assert_called_once_with("http://server:2")
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_retrieve_resolves_retrieval_task_type():
+    from app.services import study_service, qvac_router
+
+    with patch.object(qvac_router, "resolve_async", new_callable=AsyncMock) as mock_resolve, \
+         patch("app.rag.query_rewriter.expand_query", new_callable=AsyncMock, return_value="q"), \
+         patch("app.services.study_service.unified_retrieval", new_callable=AsyncMock,
+               return_value=([], [])):
+        mock_resolve.return_value = qvac_router.Route(
+            task_type="retrieval", target="local", base_url="http://local:1", model="",
+        )
+        await study_service._retrieve("What is Bitcoin?", "COURSE1", StudyAction.EXPLAIN)
+
+    mock_resolve.assert_awaited_once_with("retrieval")
+
+
+@pytest.mark.unit
+def test_gen_client_for_returns_new_client_for_diverging_base_url():
+    from app.services import study_service
+
+    client_a = study_service._gen_client_for("http://server-a:1")
+    client_b = study_service._gen_client_for("http://server-b:2")
+    assert client_a is not client_b
+    assert client_a is study_service._gen_client_for("http://server-a:1")

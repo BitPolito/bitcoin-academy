@@ -222,3 +222,45 @@ class TestDecodeToken:
         payload = decode_token(tampered_token)
 
         assert payload is None
+
+
+def test_long_password_bcrypt_5_compatibility():
+    # A password exceeding the 72-byte bcrypt limit
+    long_password = "a" * 80
+
+    # This should not raise a ValueError
+    hashed = get_password_hash(long_password)
+
+    # It should correctly verify the truncated byte array
+    assert verify_password(long_password, hashed) is True
+    assert verify_password("a" * 72, hashed) is True
+    assert verify_password("b" * 72, hashed) is False
+
+    # Multibyte UTF-8 character split across the 72-byte boundary ("\u20ac" is 3 bytes)
+    multibyte_split = "a" * 71 + "\u20ac" + "tail"
+    multibyte_hash = get_password_hash(multibyte_split)
+    assert verify_password(multibyte_split, multibyte_hash) is True
+    assert verify_password("a" * 71 + "\u20ac", multibyte_hash) is True
+    assert verify_password("a" * 71 + "x", multibyte_hash) is False
+
+    # Malformed stored hashes must return False rather than raising ValueError
+    for bad_hash in ("", "notahash", "$2b$12$short"):
+        assert verify_password("any-password", bad_hash) is False
+
+
+def test_normalize_database_url():
+    from app.core.config import _normalize_database_url
+
+    assert (
+        _normalize_database_url("postgresql://user:pass@localhost:5432/db")
+        == "postgresql+psycopg2://user:pass@localhost:5432/db"
+    )
+    assert (
+        _normalize_database_url("postgresql+psycopg2://user:pass@localhost:5432/db")
+        == "postgresql+psycopg2://user:pass@localhost:5432/db"
+    )
+    assert (
+        _normalize_database_url("postgresql+asyncpg://user:pass@localhost:5432/db")
+        == "postgresql+asyncpg://user:pass@localhost:5432/db"
+    )
+    assert _normalize_database_url("sqlite:///./test.db") == "sqlite:///./test.db"

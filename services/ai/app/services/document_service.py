@@ -9,12 +9,31 @@ from sqlalchemy.orm import Session
 
 from app.db.models import ChunkParent, CourseDocument, DocumentProcessingStage, DocumentStatus
 from app.repositories import document_repo
+from app.schemas.pagination import encode_cursor
 
 logger = logging.getLogger(__name__)
 
 
 def list_documents(db: Session, course_id: str) -> List[CourseDocument]:
     return document_repo.list_by_course(db, course_id)
+
+
+def list_documents_page(
+    db: Session,
+    course_id: str,
+    *,
+    after: tuple[str, str] | None,
+    limit: int,
+) -> tuple[List[CourseDocument], str | None]:
+    documents, has_more = document_repo.list_page_by_course(
+        db, course_id, after=after, limit=limit
+    )
+    next_cursor = (
+        encode_cursor(documents[-1].created_at, documents[-1].id)
+        if has_more and documents
+        else None
+    )
+    return documents, next_cursor
 
 
 def get_document(db: Session, document_id: str) -> Optional[CourseDocument]:
@@ -39,7 +58,11 @@ def create_document(
         processing_stage=DocumentProcessingStage.QUEUED,
         document_type=document_type,
     )
-    return document_repo.create(db, doc)
+    created = document_repo.create(db, doc)
+    from app.services.outline_staleness_service import mark_new_document
+    mark_new_document(db, course_id, filename)
+    db.commit()
+    return created
 
 
 def reset_status(db: Session, document_id: str) -> Optional[CourseDocument]:
@@ -47,6 +70,8 @@ def reset_status(db: Session, document_id: str) -> Optional[CourseDocument]:
     doc = document_repo.get_by_id(db, document_id)
     if doc is None:
         return None
+    from app.services.outline_staleness_service import mark_document_changed
+    mark_document_changed(db, document_id, f'Source "{doc.filename}" is being reprocessed.')
     doc.status = DocumentStatus.PROCESSING
     doc.processing_stage = DocumentProcessingStage.QUEUED
     doc.error_message = None
@@ -66,10 +91,11 @@ def _qvac_delete_workspace_chunks(course_id: str, doc_id: str) -> None:
     Stale vectors left behind are a known limitation until the endpoint
     contract is confirmed — see docs/feature-status.md §3.
     """
-    import os  # noqa: PLC0415
     import httpx  # noqa: PLC0415
 
-    qvac_url = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
+    from app.services import qvac_router  # noqa: PLC0415
+
+    qvac_url = qvac_router.resolve("retrieval").base_url
     try:
         with httpx.Client(timeout=10.0) as client:
             client.delete(f"{qvac_url}/documents/{doc_id}", params={"workspace": course_id})
@@ -90,6 +116,9 @@ def delete_document(db: Session, document_id: str, commit: bool = True) -> bool:
     if doc is None:
         return False
 
+    from app.services.outline_staleness_service import mark_document_changed
+    mark_document_changed(db, document_id, f'Source "{doc.filename}" was deleted.')
+
     db.query(ChunkParent).filter(ChunkParent.doc_id == document_id).delete()
 
     from app.workers.pipeline import UPLOADS_DIR  # noqa: PLC0415
@@ -107,7 +136,7 @@ def delete_document(db: Session, document_id: str, commit: bool = True) -> bool:
     return True
 
 
-def get_preview(db: Session, document_id: str) -> Optional[Dict[str, Any]]:
+def get_preview(db: Session, document_id: str, page: int | None = None) -> Optional[Dict[str, Any]]:
     doc = document_repo.get_by_id(db, document_id)
     if doc is None:
         return None
@@ -126,10 +155,17 @@ def get_preview(db: Session, document_id: str) -> Optional[Dict[str, Any]]:
         except json.JSONDecodeError:
             sample_chunks = None
 
+    slide_preview = page is not None and Path(doc.filename).suffix.lower() == ".pptx"
+    if slide_preview and page is not None:
+        sample_chunks = [
+            {"text": parent.text, "label": f"Slide {page}", "section": parent.citation_section}
+            for parent in document_repo.list_parents_on_page(db, document_id, page)
+        ]
+
     return {
         "id": doc.id,
         "filename": doc.filename,
-        "extracted_text_preview": doc.extracted_text_preview,
+        "extracted_text_preview": None if slide_preview else doc.extracted_text_preview,
         "page_count": doc.page_count,
         "chunk_count": doc.chunk_count,
         "sections": sections,

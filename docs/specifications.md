@@ -184,6 +184,9 @@ must be able to inspect and navigate back to the relevant source location.
 **Implementation.** The model emits inline `[ref_N]` markers which are parsed back into citation
 objects carrying document, page, slide and section. The UI renders citation cards and a source pane
 that navigates to the originating passage.
+PowerPoint citation links open passages from the cited slide, even when the slide is outside
+the initial document preview sample. Older PowerPoint links using a page parameter also
+resolve by slide number.
 
 Original uploads are retained after ingestion until their document or course is
 deleted. PDF previews fetch the source with the signed-in user's bearer token and
@@ -262,6 +265,8 @@ The system must be runnable locally without requiring a cloud-only architecture.
 **Implementation.** Embeddings and generation run locally through the QVAC service; no external API
 key is required. SQLite is the development database. Generation can be disabled entirely for
 memory-constrained machines, leaving retrieval fully functional.
+Docker downloads the default model files from pinned HTTPS URLs. The native setup continues to
+use the QVAC registry; Docker can opt into the registry too, including to reuse an existing cache.
 
 ---
 
@@ -310,6 +315,9 @@ The system must authenticate users and protect its endpoints.
 account lockout after repeated failures, `admin`/`student` roles, rate limiting, security headers
 and audit middleware. Development accounts are seeded automatically, and seeding refuses to run
 when `ENVIRONMENT=production`.
+
+NextAuth login and token refresh use the shared API base URL. In Docker,
+`API_BASE_URL=http://api:8000/api` routes these server requests to the API service.
 
 The authenticated top bar offers Sign out using the existing NextAuth session flow.
 Login distinguishes account lockout from general request throttling without promising
@@ -376,8 +384,40 @@ the authenticated learner's attempts.
 The Study source pane links to a saved lesson quiz. Lesson quizzes and chapter
 tests share one authenticated answer-submission form, which displays the server's
 passing threshold, score and corrections. A missing saved quiz shows an explicit
-unavailable state instead of submitting an ad-hoc Study action. Generated question
-quality remains tracked separately in #134.
+unavailable state instead of submitting an ad-hoc Study action.
+
+**Quiz question quality (#134).** Both quiz callers (the course builder's
+per-lesson quizzes and the study page's ad-hoc topic quizzes) generate
+questions through an agent harness (`quiz_harness.py`) rather than a single
+schema-validated model call. For a target of `N` questions, the harness runs:
+
+1. **Plan** (1 call) — selects `N` `(chunk_id, cognitive_level)` targets from
+   the available source passages, spread across distinct passages and
+   cognitive levels (recall / application / analysis).
+2. **Generate** (up to `N` calls) — one question per target, scoped to that
+   target's single source passage.
+3. **Critique** (up to `N` calls) — each generated question is checked
+   against five criteria: the answer is entailed by the cited source chunk;
+   every distractor is plausible but demonstrably wrong; exactly one option
+   is defensible; the question is not answerable from general knowledge
+   alone; the question does not duplicate another already accepted into the
+   same quiz. A critique failure is recorded by the specific criterion it
+   failed.
+4. **Repair** (up to `2N` calls) — a question that fails critique is
+   regenerated once, with the failed criteria fed back as explicit feedback,
+   then re-critiqued; whatever that second verdict is, it is final.
+
+The loop is bounded by construction at `4*N + 1` calls (17 for the default
+`N=4`), never unbounded. Every returned question carries a resolvable source
+chunk id, now persisted on the `Question` row as well as in the API payload.
+If the harness cannot reach the target count, it returns fewer questions
+(or none) rather than malformed output, and reports why in a `trace` object
+(targets planned, generated, rejected with reasons, repaired, final count,
+calls used/budget). `POST /courses/{course_id}/quizzes/generate` returns this
+`trace` as an additive field alongside the generated quiz; the course-builder
+path logs it instead of surfacing it in the UI. A manual review of 20
+generated questions against real course material is a follow-up to this
+implementation, tracked in #134.
 
 ---
 
@@ -425,6 +465,12 @@ lesson keeps its generated content, quiz relationship and source references inta
 operations require explicit UI confirmation, and deleting a non-empty chapter requires the API
 caller to either confirm cascading deletion or identify a destination chapter. Chapters and
 lessons record whether and when a human modified them, and the review UI displays that provenance.
+
+Document changes invalidate the outline without deleting it. Lessons retain source snapshots with
+document IDs and content hashes, so deletion and parser-driven chunk changes remain detectable.
+Affected lessons and chapters are marked stale, reviewers can accept them or regenerate them, and
+human-edited content requires explicit overwrite confirmation. Stale lessons block publication,
+and student-facing lesson lists expose published content only.
 
 ---
 

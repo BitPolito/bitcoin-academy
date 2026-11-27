@@ -23,13 +23,19 @@ from typing import Optional
 
 import httpx
 
+from app.services import qvac_router
+
 logger = logging.getLogger(__name__)
 
 _REWRITE_ENABLED = os.getenv("RAG_QUERY_REWRITE", "false").lower() in ("true", "1", "yes")
 _HYDE_ENABLED = os.getenv("RAG_HYDE", "true").lower() not in ("false", "0", "no")
-_QVAC_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 _QVAC_LLM_ENABLED = os.getenv("QVAC_LLM_ENABLED", "true").lower() != "false"
 _TIMEOUT = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
+
+# Fast auxiliary generation (query rewrite / HyDE passage) ahead of the main
+# retrieval+generation call — tagged "chat_fast" on the inference ladder so
+# it stays on the local rung rather than the heavier server model.
+_TASK_TYPE = "chat_fast"
 
 _REWRITE_SYSTEM_PROMPT = (
     "Rewrite the following student question into a concise, precise information-retrieval query. "
@@ -50,15 +56,16 @@ _QVAC_NO_LLM_FALLBACK = "Nessun contesto disponibile."
 
 
 def _is_enabled() -> bool:
-    return (_REWRITE_ENABLED or _HYDE_ENABLED) and _QVAC_LLM_ENABLED and bool(_QVAC_URL)
+    return (_REWRITE_ENABLED or _HYDE_ENABLED) and _QVAC_LLM_ENABLED
 
 
 async def _call_qvac(system_prompt: str, question: str) -> Optional[str]:
     """POST to QVAC /generate with no retrieval context (pure LLM completion)."""
     try:
+        route = await qvac_router.resolve_async(_TASK_TYPE)
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(
-                f"{_QVAC_URL}/generate",
+                f"{route.base_url}/generate",
                 json={
                     "question": question,
                     "context": [],

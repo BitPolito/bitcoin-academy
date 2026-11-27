@@ -11,11 +11,15 @@ only this module's defaults change, not the callers.
 gradino 0/1 (DB / semantic cache) never reach this module — those are served
 straight from the DB/cache by the caller before any QVAC call is made.
 """
+import asyncio
+import logging
 from dataclasses import dataclass
 from typing import Dict, Tuple
 
 from app.core.config import settings
 from app.services.hardware_tier import detect_tier
+
+logger = logging.getLogger(__name__)
 
 # hardware tier -> model used for "local" task_types. Tier D has no usable
 # local model (thin client): local task_types fall back to the server.
@@ -33,12 +37,18 @@ SERVER_MODEL = "qwen3-30b-a3b-instruct-2507"
 LADDER_ROUTING: Dict[str, Tuple[str, str]] = {
     "chat_fast": ("local", ""),
     "chat_agent": ("local", ""),
+    # Dense/embedding search and index writes (unified_retrieval's /retrieve,
+    # pipeline.py's /ingest, document_service's vector cleanup). These never
+    # need the heavier server model, so they stay on the local rung.
+    "retrieval": ("local", ""),
     "distill": ("server", SERVER_MODEL),
     "map": ("server", SERVER_MODEL),
     "reduce": ("server", SERVER_MODEL),
     "content_gen": ("server", SERVER_MODEL),
     "judge": ("server", SERVER_MODEL),
     "precompute": ("server", SERVER_MODEL),
+    "quiz_plan": ("server", SERVER_MODEL),
+    "quiz_critique": ("server", SERVER_MODEL),
 }
 
 
@@ -73,3 +83,28 @@ def resolve(task_type: str) -> Route:
     if not tier_model:
         return _server_route(task_type)
     return Route(task_type=task_type, target="local", base_url=settings.QVAC_LOCAL_URL, model=tier_model)
+
+
+async def resolve_async(task_type: str) -> Route:
+    """Async wrapper around resolve() for callers on the event loop.
+
+    detect_tier() can shell out synchronously (e.g. nvidia-smi) on a
+    cache-miss; offloading to a thread keeps that probe from blocking other
+    in-flight requests.
+    """
+    return await asyncio.to_thread(resolve, task_type)
+
+
+def log_startup_routes() -> None:
+    """Log the detected hardware tier and the resolved endpoint for every
+    task_type on the ladder, so the active configuration is visible at boot
+    instead of only being inferable from behaviour at request time.
+    """
+    tier = detect_tier()
+    logger.info("QVAC inference ladder — detected hardware tier: %s", tier)
+    for task_type in LADDER_ROUTING:
+        route = resolve(task_type)
+        logger.info(
+            "QVAC route — task_type=%s target=%s endpoint=%s model=%s",
+            route.task_type, route.target, route.base_url, route.model or "(worker default)",
+        )
