@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     Chapter,
     ChunkParent,
+    Course,
     CourseDocument,
     DocumentStatus,
     GenerationRun,
@@ -32,6 +33,7 @@ from app.services.qvac_structured import (
     StructuredGenerationError,
     generate_json,
 )
+from app.services.outline_staleness_service import source_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -392,8 +394,15 @@ def _persist_outline(
                 order_index=ls_idx,
                 status="draft",
                 source_refs_json=json.dumps(source_refs) if source_refs else None,
+                source_snapshot_json=json.dumps(source_snapshot(db, source_refs)) if source_refs else None,
             )
             db.add(lesson)
+
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if course is not None:
+        course.outline_stale = False
+        course.outline_stale_reason = None
+        course.outline_stale_at = None
 
     db.commit()
 
@@ -422,6 +431,11 @@ async def generate_outline(
 
     # ---- MAP ----
     all_candidates: List[Dict[str, Any]] = []
+    # Documents with no clear section structure (or no extractable content)
+    # contribute nothing to the outline. Skipping them is correct — forcing
+    # content out of material that isn't there would be the misleading
+    # outcome — but it must be visible to the reviewer, not just a server log.
+    skipped_docs: List[str] = []
     docs = db.query(CourseDocument).filter(CourseDocument.id.in_(doc_ids)).all()
 
     for doc_idx, doc in enumerate(docs):
@@ -433,6 +447,8 @@ async def generate_outline(
             logger.info(
                 "outline map: doc %s → %d candidates", doc.id, len(candidates)
             )
+            if not candidates:
+                skipped_docs.append(doc.filename)
         except LlmDisabledError as exc:
             _update_run(run, db, GenerationRunStatus.ERROR, error=f"LLM disabled: {exc}")
             return
@@ -483,7 +499,16 @@ async def generate_outline(
         _update_run(run, db, GenerationRunStatus.ERROR, error=str(exc))
         return
 
-    _update_run(run, db, GenerationRunStatus.DONE, "done")
+    warning = (
+        f"{len(skipped_docs)} of {len(docs)} documents contributed no lesson "
+        f"candidates (no usable section structure, or extraction returned "
+        f"nothing) and are not reflected in this outline: "
+        f"{', '.join(skipped_docs)}. Review these documents before relying on "
+        f"this outline to cover them."
+        if skipped_docs
+        else None
+    )
+    _update_run(run, db, GenerationRunStatus.DONE, "done", error=warning)
     n_chapters = len(outline.get("chapters", []))
     n_lessons = sum(len(ch.get("lessons", [])) for ch in outline.get("chapters", []))
     logger.info(

@@ -25,6 +25,8 @@ Redis is optional in development but required in production for background inges
 
 If you're on a machine with less than 8 GB free, set `QVAC_LLM_ENABLED=false`. The system will run in retrieval-only mode (~670 MB total): all study actions still return source passages, but there's no prose generation.
 
+Each model also runs one warmup inference right after loading, so the first real question isn't the one paying for KV-cache allocation and similar first-call overhead — this adds a few seconds to startup (`QVAC_WARMUP_ENABLED=false` to skip it).
+
 ---
 
 ## Quick Start
@@ -112,15 +114,18 @@ cp services/ai/.env.example services/ai/.env
 cp apps/web/.env.example     apps/web/.env.local
 
 # Create root .env with the Postgres URL used by docker-compose variable substitution
-echo "DATABASE_URL=postgresql://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy" > .env
+echo "DATABASE_URL=postgresql+psycopg2://bitcoin_academy:bitcoin_academy@postgres:5432/bitcoin_academy" > .env
 
 # Start (dev mode — hot reload, ports exposed)
 docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml up --build
 ```
 
-> **First run:** QVAC downloads the embedding model (~670 MB) before it becomes healthy.
-> The `api` and `arq-worker` services wait for QVAC — allow up to 5 minutes.
-> Monitor with: `docker compose logs -f qvac`
+> **First run:** QVAC downloads the embedding model and, unless generation is disabled, the
+> Qwen model over HTTPS (~3.2 GB total). The API and worker wait until QVAC is healthy.
+> View progress with `docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml logs -f qvac`.
+> If the download is interrupted, rerun the startup command with the same Compose project
+> and model volume. If you already cached the default models via the QVAC registry, set
+> `QVAC_MODEL_TRANSPORT=registry` in the root `.env` to reuse that cache.
 
 | Service | URL |
 |---|---|
@@ -157,6 +162,8 @@ Set `ENVIRONMENT=development` to enable Swagger UI and relaxed CORS.
 | Variable | Default | Description |
 |---|---|---|
 | `QVAC_SERVICE_URL` | `http://localhost:3001` | URL of the QVAC Node.js service |
+| `QVAC_MODEL_TRANSPORT` | `https` in Docker, `registry` otherwise | Source for the default model downloads; HTTPS uses pinned copies of the same models |
+| `QVAC_EMB_SRC` | unset | Optional override of the embedding model source |
 | `QVAC_INGEST_DIR` | `./qvac_ingest` | Where the pipeline writes JSONL files for QVAC |
 | `QVAC_INGEST_TIMEOUT` | `300` | Timeout (s) for the QVAC `/ingest` call |
 | `RAG_TOP_K` | `5` | Chunks passed to the LLM after reranking |

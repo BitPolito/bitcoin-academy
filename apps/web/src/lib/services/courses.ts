@@ -1,19 +1,12 @@
 import { apiFetch } from '@/lib/api';
+import type { CursorPage } from '@/lib/api/types';
 
-export const DEFAULT_COURSES_PAGE_SIZE = 20;
+export const COURSES_PAGE_SIZE = 20;
 
 export interface Course {
   id: number;
   title: string;
   description?: string;
-}
-
-// Cursor-paginated envelope from GET /api/courses — see issue #73.
-// next_cursor is an opaque token; callers must not parse or construct it.
-export interface CoursePage {
-  items: Course[];
-  nextCursor: string | null;
-  hasMore: boolean;
 }
 
 export interface Lesson {
@@ -26,18 +19,27 @@ export interface CourseWithLessons extends Course {
   lessons: Lesson[];
 }
 
-export async function getCourses(
-  cursor?: string | null,
-  limit = DEFAULT_COURSES_PAGE_SIZE,
-  accessToken?: string,
-): Promise<CoursePage> {
+export async function getCoursesPage(
+  cursor?: string,
+  limit = COURSES_PAGE_SIZE,
+  accessToken?: string
+): Promise<CursorPage<Course>> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set('cursor', cursor);
-  const page = await apiFetch<{ items: Course[]; next_cursor: string | null; has_more: boolean }>(
-    `/courses?${params.toString()}`,
-    { accessToken },
-  );
-  return { items: page.items, nextCursor: page.next_cursor, hasMore: page.has_more };
+  return apiFetch<CursorPage<Course>>(`/courses?${params}`, {
+    accessToken,
+  });
+}
+
+export async function getCourses(accessToken?: string): Promise<Course[]> {
+  const courses: Course[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await getCoursesPage(cursor, 100, accessToken);
+    courses.push(...page.items);
+    cursor = page.next_cursor ?? undefined;
+  } while (cursor);
+  return courses;
 }
 
 export async function getCourse(courseId: string, accessToken?: string): Promise<Course> {
@@ -68,7 +70,7 @@ export async function updateCourse(
   courseId: string,
   title: string,
   description?: string,
-  accessToken?: string,
+  accessToken?: string
 ): Promise<Course> {
   return apiFetch<Course>(`/courses/${courseId}`, {
     method: 'PATCH',

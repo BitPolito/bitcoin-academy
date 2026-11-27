@@ -88,6 +88,42 @@ def _seed_lesson(db, chapter_id, source_refs=None, status="draft", content=""):
     return ls
 
 
+class TestStudentLessonVisibility:
+    def test_course_list_contains_only_published_lessons(self, client, db_session):
+        course = _seed_course(db_session)
+        chapter = _seed_chapter(db_session, course.id, status="published")
+        published = _seed_lesson(db_session, chapter.id, status="published", content="Ready")
+        _seed_lesson(db_session, chapter.id, status="draft", content="Not ready")
+
+        response = client.get(
+            f"/api/courses/{course.id}/lessons", headers=_auth("student")
+        )
+
+        assert response.status_code == 200
+        assert [lesson["id"] for lesson in response.json()] == [published.id]
+
+    def test_published_lesson_in_draft_chapter_is_hidden(self, client, db_session):
+        course = _seed_course(db_session)
+        chapter = _seed_chapter(db_session, course.id, status="draft")
+        _seed_lesson(db_session, chapter.id, status="published", content="Ready")
+
+        response = client.get(
+            f"/api/courses/{course.id}/lessons", headers=_auth("student")
+        )
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_draft_lesson_is_not_accessible_directly(self, client, db_session):
+        course = _seed_course(db_session)
+        chapter = _seed_chapter(db_session, course.id)
+        draft = _seed_lesson(db_session, chapter.id, status="draft", content="Not ready")
+
+        response = client.get(f"/api/lessons/{draft.id}", headers=_auth("student"))
+
+        assert response.status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # PATCH /lessons/{id}
 # ---------------------------------------------------------------------------
@@ -293,10 +329,10 @@ class TestRegenerateSpecificLessons:
         with patch(
             "app.services.lesson_service.generate_json", new_callable=_AsyncMock
         ) as mock_gj, patch(
-            "app.services.quiz_generation.generate_json", new_callable=_AsyncMock
+            "app.services.quiz_generation.quiz_harness.run", new_callable=_AsyncMock
         ) as mock_quiz_gj:
             mock_gj.side_effect = [content_result, judge_result]
-            mock_quiz_gj.return_value = None
+            mock_quiz_gj.return_value = {"questions": [], "trace": {"final_count": 0}}
             asyncio.run(
                 lesson_service.generate_course_content(
                     course_id=course.id, db=db_session, run_id=run.id, lesson_ids=[ls.id],

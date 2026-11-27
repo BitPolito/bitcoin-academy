@@ -21,7 +21,8 @@ from unittest.mock import patch
 
 import pytest
 
-from app.db.models import DocumentProcessingStage, DocumentStatus
+from app.core.config import create_access_token
+from app.db.models import ChunkParent, DocumentProcessingStage, DocumentStatus
 from tests.conftest import make_course_with_lessons, make_user
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -275,6 +276,55 @@ def test_pipeline_pptx_chunk_count_positive(client, db):
 
     assert doc.chunk_count is not None
     assert doc.chunk_count > 0
+    parents = db.query(ChunkParent).filter_by(doc_id=doc.id).all()
+    assert parents
+    assert all(parent.citation_label == f"Slide {parent.citation_page}" for parent in parents)
+
+
+@pytest.mark.integration
+def test_pptx_citation_preview_uses_slide_instead_of_sample_index(client, db, tmp_path):
+    from pptx import Presentation
+
+    presentation = Presentation()
+    first = presentation.slides.add_slide(presentation.slide_layouts[1])
+    first.shapes.title.text = "Transaction overview"
+    first.placeholders[1].text = "\n\n".join(
+        f"Transaction overview, section {index}. " + (
+            "A transaction refers to previous outputs and creates new outputs. "
+            "Wallet software tracks which outputs remain unspent so it can select them when "
+            "preparing a payment and calculating the required fee."
+        )
+        for index in range(30)
+    )
+    second = presentation.slides.add_slide(presentation.slide_layouts[1])
+    second.shapes.title.text = "Merkle proof"
+    marker = "The proof contains sibling hashes along the path."
+    second.placeholders[1].text = marker + (
+        " A verifier pairs those hashes with the transaction hash to reconstruct the Merkle root "
+        "and then compares the result with the root stored in the block header."
+    )
+    path = tmp_path / "lecture.pptx"
+    presentation.save(str(path))
+    course, _ = make_course_with_lessons(db)
+    doc_id, doc = _run_pipeline(db, path, course.id, path.name)
+    assert doc.status == DocumentStatus.READY
+    sample = json.loads(doc.sample_chunks_json or "[]")
+    assert len(sample) == 5
+    assert all(chunk["section"] == "Transaction overview" for chunk in sample)
+
+    user = make_user(db)
+    token = create_access_token(user.id, user.email, "student")
+    headers = {"Authorization": f"Bearer {token}"}
+    preview = client.get(f"/api/documents/{doc_id}/preview?page=2", headers=headers)
+    assert preview.status_code == 200
+    chunks = preview.json()["sample_chunks"]
+    assert chunks and all(chunk["label"] == "Slide 2" for chunk in chunks)
+    assert any(marker in chunk["text"] for chunk in chunks)
+    assert all("Transaction overview" not in chunk["text"] for chunk in chunks)
+    missing = client.get(f"/api/documents/{doc_id}/preview?page=3", headers=headers)
+    assert missing.status_code == 200
+    assert missing.json()["sample_chunks"] == []
+    assert missing.json()["extracted_text_preview"] is None
 
 
 @pytest.mark.integration
