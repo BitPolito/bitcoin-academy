@@ -131,6 +131,8 @@ export interface ApiStudyRequest {
   action: StudyAction;
   query: string;
   rag_only?: boolean;
+  /** Persisted study session (issue #136) this turn belongs to, if any. */
+  session_id?: string;
 }
 
 export interface ApiCitationOut {
@@ -141,6 +143,8 @@ export interface ApiCitationOut {
   slide: number;
   section: string;
   doc_id: string;
+  chunk_id: string;
+  chunk_type: string;
 }
 
 export interface ApiStudyResponse {
@@ -148,6 +152,45 @@ export interface ApiStudyResponse {
   citations: ApiCitationOut[];
   retrieval_used: boolean;
   action: string;
+  /** Id of the persisted turn, when session_id was provided and owned by the caller. */
+  turn_id?: string | null;
+}
+
+// ── Study sessions (issue #136) ─────────────────────────────────────────────
+
+export interface ApiTurnCitationOut {
+  doc_id: string;
+  doc_name: string;
+  section?: string | null;
+  page?: number | null;
+  slide?: number | null;
+  chunk_id?: string | null;
+  chunk_type?: string | null;
+  snippet: string;
+}
+
+export interface ApiStudyTurnOut {
+  id: string;
+  action: string;
+  query: string;
+  answer: string;
+  citations: ApiTurnCitationOut[];
+  duration_ms?: number | null;
+  model_tier?: string | null;
+  created_at: string;
+}
+
+export interface ApiStudySessionOut {
+  id: string;
+  course_id: string;
+  title?: string | null;
+  started_at: string;
+  last_active_at: string;
+  turn_count: number;
+}
+
+export interface ApiStudySessionDetailOut extends ApiStudySessionOut {
+  turns: ApiStudyTurnOut[];
 }
 
 export interface DocumentListRow {

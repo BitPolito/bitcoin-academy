@@ -233,6 +233,8 @@ class SourceChunk:
     slide: int = 0
     section: str = ""
     doc_id: str = ""
+    chunk_id: str = ""
+    chunk_type: str = ""
 
 
 @dataclass
@@ -309,6 +311,27 @@ class _CitationRenumberer:
         return f"[ref_{number}]"
 
 
+def _source_chunk_from_evidence(c: EvidenceChunk) -> SourceChunk:
+    """Build the public SourceChunk from an internal EvidenceChunk.
+
+    Carries chunk_id/chunk_type through to the API response (and, via
+    study_session_service, into persisted citations — issue #136) so a
+    citation can still be resolved back to its exact source chunk, not just
+    its document/page/slide.
+    """
+    return SourceChunk(
+        snippet=c.text,
+        score=c.score,
+        label=c.anchor.doc_name,
+        page=c.anchor.page or 0,
+        slide=c.anchor.slide or 0,
+        section=c.anchor.section or "",
+        doc_id=c.anchor.doc_id,
+        chunk_id=c.anchor.chunk_id,
+        chunk_type=c.anchor.chunk_type,
+    )
+
+
 def _cited_sources(pack: EvidencePack, cited_indices: list[int]) -> List[SourceChunk]:
     """SourceChunks for the cited evidence, in citation order.
 
@@ -317,18 +340,7 @@ def _cited_sources(pack: EvidencePack, cited_indices: list[int]) -> List[SourceC
     does not require source grounding.
     """
     chunks = [pack.chunks[i] for i in cited_indices] if cited_indices else pack.chunks
-    return [
-        SourceChunk(
-            snippet=c.text,
-            score=c.score,
-            label=c.anchor.doc_name,
-            page=c.anchor.page or 0,
-            slide=c.anchor.slide or 0,
-            section=c.anchor.section or "",
-            doc_id=c.anchor.doc_id,
-        )
-        for c in chunks
-    ]
+    return [_source_chunk_from_evidence(c) for c in chunks]
 
 
 def _parse_citations(text: str, pack: EvidencePack) -> tuple[str, List[SourceChunk]]:
@@ -572,18 +584,7 @@ async def _route(
     # Step 2 — skip generation when the action doesn't need it, OR when rag_only is active.
     # rag_only lets callers force raw-retrieval mode for every action (e.g. no LLM key configured).
     if not meta.generation_required or rag_only:
-        all_sources: List[SourceChunk] = [
-            SourceChunk(
-                snippet=c.text,
-                score=c.score,
-                label=c.anchor.doc_name,
-                page=c.anchor.page or 0,
-                slide=c.anchor.slide or 0,
-                section=c.anchor.section or "",
-                doc_id=c.anchor.doc_id,
-            )
-            for c in pack.chunks
-        ]
+        all_sources: List[SourceChunk] = [_source_chunk_from_evidence(c) for c in pack.chunks]
         answer = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER
         return DispatchResult(
             answer=answer,
@@ -600,18 +601,7 @@ async def _route(
     else:
         trace.fallback_used = True
         answer = pack.context_block() or raw_answer or _NO_EVIDENCE_ANSWER
-        sources = [
-            SourceChunk(
-                snippet=c.text,
-                score=c.score,
-                label=c.anchor.doc_name,
-                page=c.anchor.page or 0,
-                slide=c.anchor.slide or 0,
-                section=c.anchor.section or "",
-                doc_id=c.anchor.doc_id,
-            )
-            for c in pack.chunks
-        ]
+        sources = [_source_chunk_from_evidence(c) for c in pack.chunks]
 
     return DispatchResult(answer=answer, citations=sources, retrieval_used=bool(sources), evidence_pack=pack)
 
@@ -747,15 +737,7 @@ async def stream_dispatch(
     # Build citations list for the sentinel payload
     def _make_sources(chunks: list[EvidenceChunk]) -> List[SourceChunk]:
         return [
-            SourceChunk(
-                snippet=c.text,
-                score=c.score,
-                label=c.anchor.doc_name,
-                page=c.anchor.page or 0,
-                slide=c.anchor.slide or 0,
-                section=c.anchor.section or "",
-                doc_id=c.anchor.doc_id,
-            )
+            _source_chunk_from_evidence(c)
             for c in chunks
         ]
 

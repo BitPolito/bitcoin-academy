@@ -1,7 +1,7 @@
 """Study action schemas — enum, registry, and API DTOs."""
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -136,6 +136,15 @@ class StudyDispatchRequest(BaseModel):
             "passages directly. Useful when no LLM API key is configured."
         ),
     )
+    session_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Persisted study session (issue #136) this turn belongs to. When set and "
+            "owned by the caller, the resulting turn is appended server-side; silently "
+            "ignored (not an error) when the session doesn't exist or belongs to another "
+            "user, so the study action itself never fails because of a stale session_id."
+        ),
+    )
 
 
 class CitationOut(BaseModel):
@@ -146,6 +155,8 @@ class CitationOut(BaseModel):
     slide: int = 0
     section: str = ""
     doc_id: str = ""
+    chunk_id: str = ""
+    chunk_type: str = ""
 
 
 class StudyDispatchResponse(BaseModel):
@@ -153,6 +164,10 @@ class StudyDispatchResponse(BaseModel):
     citations: List[CitationOut]
     retrieval_used: bool
     action: str
+    turn_id: Optional[str] = Field(
+        default=None,
+        description="Id of the persisted turn, when session_id was provided and owned by the caller.",
+    )
 
 
 class ActionMetaOut(BaseModel):
