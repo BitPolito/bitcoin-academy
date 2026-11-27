@@ -136,11 +136,30 @@ def test_write_jsonl_creates_parent_directories(tmp_path):
 @pytest.mark.unit
 def test_qvac_ingest_posts_to_ingest_route(tmp_path):
     MockClient, instance = _httpx_client_mock()
+    fake_route = pipeline_mod.qvac_router.Route(
+        task_type="retrieval", target="local", base_url="http://localhost:3001", model="",
+    )
     with patch("httpx.Client", MockClient):
-        with patch.object(pipeline_mod, "QVAC_SERVICE_URL", "http://localhost:3001"):
+        with patch.object(pipeline_mod.qvac_router, "resolve", return_value=fake_route):
             pipeline_mod._qvac_ingest(tmp_path / "doc.jsonl", "COURSE1")
     url = instance.post.call_args[0][0]
     assert url == "http://localhost:3001/ingest"
+
+
+@pytest.mark.unit
+def test_qvac_ingest_resolves_endpoint_via_retrieval_task_type(tmp_path):
+    """Ingest must resolve its endpoint through qvac_router (task_type='retrieval'),
+    not a stale QVAC_SERVICE_URL read — issue #160."""
+    MockClient, instance = _httpx_client_mock()
+    fake_route = pipeline_mod.qvac_router.Route(
+        task_type="retrieval", target="local", base_url="http://diverging-local:9999", model="",
+    )
+    with patch("httpx.Client", MockClient):
+        with patch.object(pipeline_mod.qvac_router, "resolve", return_value=fake_route) as mock_resolve:
+            pipeline_mod._qvac_ingest(tmp_path / "doc.jsonl", "COURSE1")
+    mock_resolve.assert_called_once_with("retrieval")
+    url = instance.post.call_args[0][0]
+    assert url == "http://diverging-local:9999/ingest"
 
 
 @pytest.mark.unit
@@ -195,6 +214,44 @@ def test_qvac_ingest_returns_pending_when_qvac_is_unreachable(tmp_path):
     with patch("httpx.Client", MockClient):
         result = pipeline_mod._qvac_ingest(tmp_path / "doc.jsonl", "WS1")
     assert result == "qvac_pending"
+
+
+@pytest.mark.unit
+def test_enrich_with_context_posts_to_the_given_qvac_url():
+    """_enrich_with_context takes its base_url from the caller — the
+    ingestion stage resolves it via qvac_router.resolve("precompute")
+    rather than a QVAC_SERVICE_URL read baked in at import time."""
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json.return_value = {"answer": "Short context sentence about Bitcoin."}
+
+    mock_instance = MagicMock()
+    mock_instance.post.return_value = mock_resp
+    MockClient = MagicMock()
+    MockClient.return_value.__enter__ = MagicMock(return_value=mock_instance)
+    MockClient.return_value.__exit__ = MagicMock(return_value=False)
+
+    with patch("httpx.Client", MockClient):
+        pipeline_mod._enrich_with_context(
+            [_chunk()], "Doc summary.", "http://diverging-server:9999",
+        )
+
+    url = mock_instance.post.call_args[0][0]
+    assert url == "http://diverging-server:9999/generate"
+
+
+@pytest.mark.unit
+def test_ingest_stage_resolves_precompute_task_type_for_enrichment():
+    """The ingest call site (not _enrich_with_context itself) is responsible
+    for resolving the 'precompute' task_type via qvac_router."""
+    fake_route = pipeline_mod.qvac_router.Route(
+        task_type="precompute", target="server", base_url="http://diverging-server:9999", model="m",
+    )
+    with patch.object(pipeline_mod.qvac_router, "resolve", return_value=fake_route) as mock_resolve:
+        url = pipeline_mod.qvac_router.resolve("precompute").base_url
+
+    mock_resolve.assert_called_once_with("precompute")
+    assert url == "http://diverging-server:9999"
 
 
 @pytest.mark.unit

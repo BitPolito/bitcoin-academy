@@ -52,9 +52,11 @@ export async function fetchDocumentDetail(
 
 export async function fetchDocumentPreview(
   documentId: string,
-  accessToken?: string
+  accessToken?: string,
+  page?: number
 ): Promise<ApiDocumentPreview> {
-  return apiFetch<ApiDocumentPreview>(`/documents/${documentId}/preview`, {
+  const query = page === undefined ? '' : `?page=${page}`;
+  return apiFetch<ApiDocumentPreview>(`/documents/${documentId}/preview${query}`, {
     accessToken,
   });
 }
@@ -210,9 +212,10 @@ export async function getDocumentDetailView(
 
 export async function getDocumentPreviewView(
   documentId: string,
-  accessToken?: string
+  accessToken?: string,
+  page?: number
 ): Promise<DocumentPreviewView> {
-  const item = await fetchDocumentPreview(documentId, accessToken);
+  const item = await fetchDocumentPreview(documentId, accessToken, page);
   return toDocumentPreviewView(item);
 }
 

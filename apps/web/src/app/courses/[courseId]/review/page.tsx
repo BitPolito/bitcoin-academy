@@ -356,6 +356,14 @@ export default function CourseReviewPage() {
           Content generation failed: {contentPoll.run.error_message}
         </div>
       )}
+      {outlinePoll.run?.status === 'done' && outlinePoll.run.error_message && (
+        <div
+          className="mb-4 b-thin rounded-lg px-4 py-3 font-mono text-[11px] flex-shrink-0"
+          style={{ borderColor: '#a55a00', color: '#a55a00' }}
+        >
+          {outlinePoll.run.error_message}
+        </div>
+      )}
       {outline?.is_stale && (
         <div
           className="mb-4 b-thin rounded-lg px-4 py-3 text-sm flex-shrink-0"

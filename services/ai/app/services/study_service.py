@@ -5,18 +5,19 @@ Retrieval and generation are both delegated to the local QVAC Node.js service
 
 Workspace = course_id, matching the convention in pipeline.py and chat_service.py.
 """
+import asyncio
 import dataclasses
 import json
 import logging
-import os
 import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import AsyncGenerator, List, Optional
+from typing import AsyncGenerator, Dict, List, Optional
 
 import httpx
 
+from app.core.config import settings
 from app.core.errors import ExternalServiceError
 from app.schemas.evidence_pack import EvidenceChunk, EvidencePack
 from app.schemas.study_schemas import (
@@ -26,28 +27,71 @@ from app.schemas.study_schemas import (
     StudyAction,
 )
 from app.rag.retriever import unified_retrieval
-from app.services import evidence_pack_service
+from app.services import evidence_pack_service, qvac_router
 
 logger = logging.getLogger(__name__)
-
-_QVAC_SERVICE_URL = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
 
 # Bump when any prompt in _SYSTEM_PROMPTS below changes meaning (not just
 # wording) — tracked in app/prompts/registry.py for cross-system auditing.
 STUDY_PROMPT_VERSION = "v1"
 
+# Default (task_type-less) clients, kept as module-level singletons so
+# existing call sites and tests that don't care about the inference ladder
+# keep working unchanged. Every real call resolves its base_url via
+# app.services.qvac_router.resolve(task_type) first; when that resolves to
+# this same default URL (true today, since QVAC_LOCAL_URL/QVAC_SERVER_URL
+# both default to QVAC_SERVICE_URL) the default client below is reused
+# instead of opening a new connection pool. See _retrieval_client_for /
+# _gen_client_for and app.services.qvac_structured for the same pattern.
+_DEFAULT_QVAC_URL = settings.QVAC_SERVICE_URL
+
 # Retrieval client: 45 s read covers dense search + BM25 on large corpora.
 _qvac_client = httpx.AsyncClient(
-    base_url=_QVAC_SERVICE_URL,
+    base_url=_DEFAULT_QVAC_URL,
     timeout=httpx.Timeout(connect=5.0, read=45.0, write=10.0, pool=5.0),
 )
+_routed_retrieval_clients: Dict[str, httpx.AsyncClient] = {}
 
 # Generation client: 120 s read covers Qwen3-4B Q4 on CPU-only hardware for long
 # derivations/comparisons. Kept separate so retrieval timeouts remain tight.
 _qvac_gen_client = httpx.AsyncClient(
-    base_url=_QVAC_SERVICE_URL,
+    base_url=_DEFAULT_QVAC_URL,
     timeout=httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0),
 )
+_routed_gen_clients: Dict[str, httpx.AsyncClient] = {}
+
+# StudyAction -> inference ladder task_type. QUIZ is tagged separately
+# (quiz_plan) so it can be routed/tuned independently of prose generation.
+_ACTION_TASK_TYPE: Dict[StudyAction, str] = {
+    StudyAction.QUIZ: "quiz_plan",
+}
+_DEFAULT_GENERATION_TASK_TYPE = "content_gen"
+
+
+def _retrieval_client_for(base_url: str) -> httpx.AsyncClient:
+    if base_url == _DEFAULT_QVAC_URL:
+        return _qvac_client
+    client = _routed_retrieval_clients.get(base_url)
+    if client is None:
+        client = httpx.AsyncClient(
+            base_url=base_url,
+            timeout=httpx.Timeout(connect=5.0, read=45.0, write=10.0, pool=5.0),
+        )
+        _routed_retrieval_clients[base_url] = client
+    return client
+
+
+def _gen_client_for(base_url: str) -> httpx.AsyncClient:
+    if base_url == _DEFAULT_QVAC_URL:
+        return _qvac_gen_client
+    client = _routed_gen_clients.get(base_url)
+    if client is None:
+        client = httpx.AsyncClient(
+            base_url=base_url,
+            timeout=httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0),
+        )
+        _routed_gen_clients[base_url] = client
+    return client
 
 
 # ---------------------------------------------------------------------------
@@ -330,8 +374,10 @@ async def _retrieve(question: str, course_id: str, action: StudyAction) -> tuple
     retrieval_query = await expand_query(question)
 
     try:
+        route = await qvac_router.resolve_async("retrieval")
+        client = _retrieval_client_for(route.base_url)
         context_chunks, _ = await unified_retrieval(
-            question, course_id, retrieval_query, client=_qvac_client
+            question, course_id, retrieval_query, client=client
         )
     except (httpx.HTTPError, ValueError, KeyError) as exc:
         logger.warning("Study retrieval failed: %s", exc)
@@ -369,8 +415,6 @@ async def _retrieve_multi(
     Falls back to standard single retrieval when fewer than two parts are detected
     or for any other action type.
     """
-    import asyncio  # noqa: PLC0415
-
     if action not in (StudyAction.COMPARE, StudyAction.DERIVE):
         return await _retrieve(question, course_id, action)
 
@@ -436,8 +480,11 @@ async def _generate(action: StudyAction, question: str, context: str) -> Optiona
     """
     system_prompt = _SYSTEM_PROMPTS.get(action, "")
     enable_thinking = action in _THINKING_ACTIONS
+    task_type = _ACTION_TASK_TYPE.get(action, _DEFAULT_GENERATION_TASK_TYPE)
     try:
-        resp = await _qvac_gen_client.post(
+        route = await qvac_router.resolve_async(task_type)
+        client = _gen_client_for(route.base_url)
+        resp = await client.post(
             "/generate",
             json={
                 "question": question,
@@ -465,9 +512,12 @@ async def _stream_generate(
     """
     system_prompt = _SYSTEM_PROMPTS.get(action, "")
     enable_thinking = action in _THINKING_ACTIONS
+    task_type = _ACTION_TASK_TYPE.get(action, _DEFAULT_GENERATION_TASK_TYPE)
     tokens_yielded = 0
     try:
-        async with _qvac_gen_client.stream(
+        route = await qvac_router.resolve_async(task_type)
+        client = _gen_client_for(route.base_url)
+        async with client.stream(
             "POST",
             "/stream",
             json={

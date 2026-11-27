@@ -53,6 +53,13 @@ async def lifespan(app: FastAPI):
         logger.critical("Database initialisation failed — cannot start", exc_info=True)
         raise
 
+    import asyncio  # noqa: PLC0415
+
+    from app.services import qvac_router  # noqa: PLC0415
+    # detect_tier() can shell out synchronously (e.g. nvidia-smi) — offload so
+    # a cold-start probe doesn't block the event loop during startup.
+    await asyncio.to_thread(qvac_router.log_startup_routes)
+
     redis_url = os.getenv("REDIS_URL")
     if redis_url:
         from arq.connections import create_pool, RedisSettings
@@ -205,13 +212,33 @@ async def health_check():
         health_status["status"] = "degraded"
 
     # ── QVAC ─────────────────────────────────────────────────────
-    qvac_url = os.getenv("QVAC_SERVICE_URL", "http://localhost:3001")
-    try:
-        async with _httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{qvac_url}/health")
-            health_status["qvac"] = "connected" if resp.status_code < 400 else "unreachable"
-    except Exception:
-        health_status["qvac"] = "unreachable"
+    # Checks both rungs of the inference ladder (app.services.qvac_router) —
+    # QVAC_LOCAL_URL and QVAC_SERVER_URL — rather than the single
+    # QVAC_SERVICE_URL default, so a diverging local/server deploy is
+    # actually reflected here instead of only ever checking one of them.
+    from app.services import qvac_router  # noqa: PLC0415
+
+    async def _check_qvac(url: str) -> str:
+        try:
+            async with _httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{url}/health")
+                return "connected" if resp.status_code < 400 else "unreachable"
+        except Exception:
+            return "unreachable"
+
+    local_url = (await qvac_router.resolve_async("chat_fast")).base_url
+    server_url = (await qvac_router.resolve_async("content_gen")).base_url
+    health_status["qvac_local"] = await _check_qvac(local_url)
+    health_status["qvac_server"] = (
+        health_status["qvac_local"]
+        if server_url == local_url
+        else await _check_qvac(server_url)
+    )
+    health_status["qvac"] = (
+        "connected"
+        if health_status["qvac_local"] == "connected" and health_status["qvac_server"] == "connected"
+        else "unreachable"
+    )
 
     if health_status["qvac"] == "unreachable":
         health_status["status"] = "degraded"

@@ -237,17 +237,22 @@ def test_required_settings_are_documented_in_env_example():
 
 
 def test_readme_documents_the_rag_variables_that_exist():
-    """Assert that variables named in the README are ones the code reads."""
+    """Assert that documented variables are used by the API or QVAC service."""
     readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
     documented = set(re.findall(r"^\|\s*`([A-Z][A-Z0-9_]+)`\s*\|", readme, re.MULTILINE))
     assert documented, "No configuration variables found in the README table"
 
-    sources = "\n".join(
+    python_sources = "\n".join(
         p.read_text(encoding="utf-8")
         for p in (_SERVICES_AI / "app").rglob("*.py")
     )
+    qvac_sources = "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in (_REPO_ROOT / "workers" / "qvac-service" / "src").rglob("*.js")
+    )
+    qvac_variables = set(re.findall(r"\bprocess\.env\.([A-Z][A-Z0-9_]*)\b", qvac_sources))
     for name in sorted(documented):
-        assert name in sources, (
+        assert name in python_sources or name in qvac_variables, (
             f"README documents `{name}` but no module reads it. Either the "
             f"variable was removed and the README is stale, or it is misspelled."
         )

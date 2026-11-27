@@ -184,6 +184,9 @@ must be able to inspect and navigate back to the relevant source location.
 **Implementation.** The model emits inline `[ref_N]` markers which are parsed back into citation
 objects carrying document, page, slide and section. The UI renders citation cards and a source pane
 that navigates to the originating passage.
+PowerPoint citation links open passages from the cited slide, even when the slide is outside
+the initial document preview sample. Older PowerPoint links using a page parameter also
+resolve by slide number.
 
 Original uploads are retained after ingestion until their document or course is
 deleted. PDF previews fetch the source with the signed-in user's bearer token and
@@ -262,6 +265,8 @@ The system must be runnable locally without requiring a cloud-only architecture.
 **Implementation.** Embeddings and generation run locally through the QVAC service; no external API
 key is required. SQLite is the development database. Generation can be disabled entirely for
 memory-constrained machines, leaving retrieval fully functional.
+Docker downloads the default model files from pinned HTTPS URLs. The native setup continues to
+use the QVAC registry; Docker can opt into the registry too, including to reuse an existing cache.
 
 ---
 

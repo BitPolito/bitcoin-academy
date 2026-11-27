@@ -334,3 +334,28 @@ def test_health_reports_degraded_when_the_database_is_unreachable(client):
     body = response.json()
     assert body["database"] == "disconnected"
     assert body["status"] == "degraded"
+
+
+def test_health_checks_both_local_and_server_qvac_endpoints_when_diverging(client):
+    """Issue #160: /health must resolve QVAC_LOCAL_URL and QVAC_SERVER_URL via
+    qvac_router rather than a single QVAC_SERVICE_URL read, so a diverging
+    local/server deploy is actually reflected here."""
+    from app.services import qvac_router
+
+    async def fake_resolve_async(task_type):
+        if task_type == "chat_fast":
+            return qvac_router.Route(task_type=task_type, target="local", base_url="http://local-qvac:1", model="")
+        return qvac_router.Route(task_type=task_type, target="server", base_url="http://server-qvac:2", model="m")
+
+    with patch.object(qvac_router, "resolve_async", side_effect=fake_resolve_async):
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "qvac_local" in body
+    assert "qvac_server" in body
+    # Both are unreachable in test env (no real QVAC worker), but the two
+    # fields must be populated independently rather than mirroring a single
+    # QVAC_SERVICE_URL check.
+    assert body["qvac_local"] in ("connected", "unreachable")
+    assert body["qvac_server"] in ("connected", "unreachable")

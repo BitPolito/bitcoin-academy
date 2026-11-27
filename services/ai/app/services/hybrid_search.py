@@ -147,7 +147,7 @@ def _reconstruct_from_corpus(cid: str, score: float, corpus: dict) -> EvidenceCh
             doc_name=entry.get("label", ""),
             section=entry.get("section") or None,
             page=int(entry["page"]) if entry.get("page") else None,
-            slide=None,
+            slide=int(entry["slide"]) if entry.get("slide") else None,
             chunk_id=cid,
             chunk_type="paragraph",
         ),
